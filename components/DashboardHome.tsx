@@ -1,0 +1,352 @@
+
+'use client';
+
+import React, { useState, useRef, useEffect } from 'react';
+import { Applicant, RegistrationStatus, InvestorType } from '../lib/types';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
+
+// Fix: Use an intersection type to properly combine jsPDF instance methods with the autoTable extension
+type jsPDFWithAutoTable = jsPDF & {
+  autoTable: (options: any) => void;
+};
+
+interface DashboardHomeProps {
+  applicants: Applicant[];
+  onSelect: (applicant: Applicant) => void;
+}
+
+type TabType = 'PENDING' | 'VERIFIED' | 'NON_VERIFIED' | 'ALL';
+
+const StatusBadge: React.FC<{ status: RegistrationStatus }> = ({ status }) => {
+  const getStyles = (s: RegistrationStatus) => {
+    switch(s) {
+      case RegistrationStatus.APPROVED:
+        return {
+          container: 'bg-[#E6F9F1] text-[#166534] border-[#D1F2E4]',
+          icon: (
+            <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              <path d="m9 12 2 2 4-4"></path>
+            </svg>
+          ),
+          label: 'Verified'
+        };
+      case RegistrationStatus.PENDING:
+        return {
+          container: 'bg-[#FEF3E7] text-[#9A3412] border-[#FDE0C3]',
+          icon: (
+            <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+          ),
+          label: 'Unverified'
+        };
+      case RegistrationStatus.REJECTED:
+        return {
+          container: 'bg-red-50 text-red-700 border-red-100',
+          icon: (
+            <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="15" y1="9" x2="9" y2="15"></line>
+              <line x1="9" y1="9" x2="15" y2="15"></line>
+            </svg>
+          ),
+          label: 'Rejected'
+        };
+      case RegistrationStatus.FURTHER_INFO:
+        return {
+          container: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+          icon: (
+            <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+          ),
+          label: 'Pending Info'
+        };
+      default:
+        return { container: 'bg-neutral-100 text-neutral-500', icon: null, label: s };
+    }
+  };
+
+  const style = getStyles(status);
+
+  return (
+    <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold border ${style.container}`}>
+      {style.icon}
+      {style.label}
+    </span>
+  );
+};
+
+const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect }) => {
+  const [activeTab, setActiveTab] = useState<TabType>('ALL');
+  const [typeFilter, setTypeFilter] = useState<InvestorType | 'ALL'>('ALL');
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  
+  const filterRef = useRef<HTMLDivElement>(null);
+  const exportRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdowns on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
+        setIsFilterOpen(false);
+      }
+      if (exportRef.current && !exportRef.current.contains(event.target as Node)) {
+        setIsExportOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredData = applicants.filter((applicant) => {
+    // Tab Filter
+    const matchesTab = 
+      activeTab === 'ALL' ||
+      (activeTab === 'PENDING' && applicant.status === RegistrationStatus.PENDING) ||
+      (activeTab === 'VERIFIED' && applicant.status === RegistrationStatus.APPROVED) ||
+      (activeTab === 'NON_VERIFIED' && (applicant.status === RegistrationStatus.REJECTED || applicant.status === RegistrationStatus.FURTHER_INFO));
+    
+    // Type Filter
+    const matchesType = typeFilter === 'ALL' || applicant.type === typeFilter;
+
+    return matchesTab && matchesType;
+  });
+
+  const tabs: { id: TabType; label: string }[] = [
+    { id: 'ALL', label: 'All Files' },
+    { id: 'PENDING', label: 'Unverified' },
+    { id: 'VERIFIED', label: 'Verified' },
+    { id: 'NON_VERIFIED', label: 'Exceptions' },
+  ];
+
+  const handleExportCSV = () => {
+    const headers = ['ID', 'Full Name', 'Email', 'Type', 'Submission Date', 'Last Active', 'Status'];
+    const csvRows = filteredData.map(a => [
+      a.id,
+      `"${a.fullName}"`,
+      a.email,
+      a.type,
+      a.submissionDate,
+      a.lastActive,
+      a.status
+    ].join(','));
+
+    const csvContent = [headers.join(','), ...csvRows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `equiverify_export_${new Date().toISOString().split('T')[0]}.csv`);
+    link.click();
+    setIsExportOpen(false);
+  };
+
+  const handleExportPDF = () => {
+    const doc = new jsPDF() as any as jsPDFWithAutoTable;
+    
+    doc.setFontSize(18);
+    doc.text('EUROLANDHUB REGISTRY REPORT', 14, 22);
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+    doc.text(`Filter View: ${activeTab} | ${typeFilter}`, 14, 35);
+
+    const tableHeaders = [['ID', 'NAME', 'TYPE', 'DATE', 'ACTIVE', 'STATUS']];
+    const tableData = filteredData.map(a => [
+      a.id,
+      a.fullName,
+      a.type,
+      a.submissionDate,
+      a.lastActive,
+      a.status
+    ]);
+
+    doc.autoTable({
+      startY: 45,
+      head: tableHeaders,
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 8, textColor: [50, 50, 50] },
+      alternateRowStyles: { fillColor: [250, 250, 250] },
+      margin: { top: 45 },
+    });
+
+    doc.save(`registry_report_${new Date().toISOString().split('T')[0]}.pdf`);
+    setIsExportOpen(false);
+  };
+
+  return (
+    <div className="space-y-10 max-w-7xl mx-auto">
+      <div className="grid grid-cols-4 gap-8">
+        {[
+          { label: 'Pending Verification', value: applicants.filter(a => a.status === RegistrationStatus.PENDING).length, detail: '+2 since yesterday' },
+          { label: 'Active Shareholders', value: '1,402', detail: 'Across 12 entities' },
+          { label: 'Risk Threshold', value: '18%', detail: 'Historical average' },
+          { label: 'Compliance Score', value: '99.4', detail: 'Audit target: 99.0' }
+        ].map((stat, i) => (
+          <div key={i} className="bg-white p-6 border border-neutral-200 rounded-lg hover:border-primary transition-all">
+            <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-1">{stat.label}</p>
+            <div className="text-3xl font-bold text-neutral-900 mb-1">{stat.value}</div>
+            <p className="text-[10px] text-neutral-400 font-medium">{stat.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden shadow-sm">
+        <div className="px-8 py-5 border-b border-neutral-100 flex items-center justify-between">
+          <div className="flex flex-col gap-4 w-full">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-black text-neutral-800 uppercase tracking-wider">Queue: Investor Audit</h2>
+              <div className="flex gap-2">
+                 <div className="relative" ref={filterRef}>
+                   <button 
+                    onClick={() => setIsFilterOpen(!isFilterOpen)}
+                    className={`px-3 py-1.5 text-[10px] font-bold border rounded-lg transition-all uppercase tracking-widest flex items-center gap-2 ${typeFilter !== 'ALL' ? 'bg-primary text-white border-primary' : 'border-neutral-200 hover:bg-neutral-50 text-neutral-900'}`}
+                   >
+                     {typeFilter === 'ALL' ? 'Type' : `Type: ${typeFilter}`}
+                     <svg className={`w-3 h-3 transition-transform ${isFilterOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"/></svg>
+                   </button>
+
+                   {isFilterOpen && (
+                     <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-neutral-200 rounded-lg shadow-xl z-50 overflow-hidden">
+                       <button 
+                         onClick={() => { setTypeFilter('ALL'); setIsFilterOpen(false); }}
+                         className="w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest hover:bg-primary/10 transition-colors border-b border-neutral-100"
+                       >
+                         All Types
+                       </button>
+                       {Object.values(InvestorType).map((type) => (
+                         <button 
+                           key={type}
+                           onClick={() => { setTypeFilter(type); setIsFilterOpen(false); }}
+                           className={`w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest hover:bg-primary/10 transition-colors ${typeFilter === type ? 'bg-primary/5 text-primary' : 'text-neutral-500'}`}
+                         >
+                           {type}
+                         </button>
+                       ))}
+                     </div>
+                   )}
+                 </div>
+
+                 <div className="relative" ref={exportRef}>
+                   <button 
+                    onClick={() => setIsExportOpen(!isExportOpen)}
+                    className="px-3 py-1.5 text-[10px] font-bold border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors uppercase tracking-widest flex items-center gap-2"
+                   >
+                     Export
+                     <svg className={`w-3 h-3 transition-transform ${isExportOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"/></svg>
+                   </button>
+
+                   {isExportOpen && (
+                     <div className="absolute top-full right-0 mt-2 w-44 bg-white border border-neutral-200 rounded-lg shadow-xl z-50 overflow-hidden">
+                       <button 
+                         onClick={handleExportCSV}
+                         className="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] hover:bg-neutral-50 transition-colors flex items-center justify-between border-b border-neutral-100"
+                       >
+                         CSV Spreadsheet
+                         <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                       </button>
+                       <button 
+                         onClick={handleExportPDF}
+                         className="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] hover:bg-neutral-50 transition-colors flex items-center justify-between"
+                       >
+                         Audit PDF
+                         <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                       </button>
+                     </div>
+                   )}
+                 </div>
+              </div>
+            </div>
+            
+            <div className="flex gap-8 border-t border-neutral-50 pt-4">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`pb-2 text-[10px] font-black uppercase tracking-[0.2em] transition-all relative ${
+                    activeTab === tab.id ? 'text-primary' : 'text-neutral-400 hover:text-neutral-600'
+                  }`}
+                >
+                  {tab.label}
+                  {activeTab === tab.id && (
+                    <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary"></div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        
+        <table className="w-full text-left">
+          <thead>
+            <tr className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest border-b border-neutral-100">
+              <th className="px-8 py-4">Investor Profile</th>
+              <th className="px-8 py-4">Classification</th>
+              <th className="px-8 py-4">Submission</th>
+              <th className="px-8 py-4">Last Activity</th>
+              <th className="px-8 py-4">Status</th>
+              <th className="px-8 py-4 text-right">Review</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-50">
+            {filteredData.length > 0 ? (
+              filteredData.map((applicant) => (
+                <tr key={applicant.id} className="group hover:bg-neutral-50/50 transition-colors">
+                  <td className="px-8 py-5">
+                    <div className="flex items-center gap-4">
+                      <div className="w-9 h-9 bg-neutral-900 rounded-lg flex items-center justify-center font-bold text-white text-xs group-hover:bg-primary transition-colors">
+                        {applicant.fullName.charAt(0)}
+                      </div>
+                      <div>
+                        <div className="text-sm font-bold text-neutral-900 leading-none mb-1">{applicant.fullName}</div>
+                        <div className="text-[10px] text-neutral-400 font-medium uppercase tracking-tight">{applicant.id}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-8 py-5">
+                    <span className="text-[10px] font-bold text-neutral-600 uppercase tracking-tighter bg-neutral-100 px-1.5 py-0.5 rounded">
+                      {applicant.type}
+                    </span>
+                  </td>
+                  <td className="px-8 py-5 text-xs text-neutral-500 font-medium">
+                    {applicant.submissionDate}
+                  </td>
+                  <td className="px-8 py-5 text-[10px] font-black text-neutral-400 uppercase tracking-widest">
+                    {applicant.lastActive}
+                  </td>
+                  <td className="px-8 py-5">
+                    <StatusBadge status={applicant.status} />
+                  </td>
+                  <td className="px-8 py-5 text-right">
+                    <button 
+                      onClick={() => onSelect(applicant)}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-neutral-200 text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-primary hover:text-white hover:border-primary transition-all shadow-sm"
+                    >
+                      Audit
+                    </button>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={6} className="px-8 py-12 text-center text-xs font-bold text-neutral-400 uppercase tracking-widest">
+                  No records found in current queue
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+export default DashboardHome;
