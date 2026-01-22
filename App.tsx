@@ -143,10 +143,11 @@ const MOCK_APPLICANTS: Applicant[] = [
 ];
 
 const App: React.FC = () => {
-  const [view, setView] = useState<ViewType>('overview');
+  const [view, setView] = useState<ViewType>('dashboard');
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
   const [applicants, setApplicants] = useState<Applicant[]>(MOCK_APPLICANTS);
   const [searchQuery, setSearchQuery] = useState('');
+  const [registrationsTabRequest, setRegistrationsTabRequest] = useState<{ tab: 'PENDING' | 'VERIFIED' | 'NON_VERIFIED' | 'ALL'; requestId: number } | null>(null);
 
   const filteredApplicants = applicants.filter(a => 
     a.fullName.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -164,20 +165,46 @@ const App: React.FC = () => {
     setSelectedApplicant(null);
   };
 
+  const pendingApplicants = applicants.filter(a => a.status === RegistrationStatus.PENDING);
+
+  const handleNotificationAction = (
+    action: { type: 'open_shareholders' } | { type: 'review_applicant'; applicantId: string }
+  ) => {
+    // Clear any drill-down state when navigating via notifications
+    setSelectedApplicant(null);
+    setSearchQuery('');
+
+    if (action.type === 'open_shareholders') {
+      setView('shareholders');
+      return;
+    }
+
+    // review_applicant
+    const applicant = applicants.find(a => a.id === action.applicantId);
+    if (applicant) {
+      setSelectedApplicant(applicant);
+      setView('detail');
+    } else {
+      // Fallback: open the unverified queue if the applicant is not found
+      setView('registrations');
+      setRegistrationsTabRequest({ tab: 'PENDING', requestId: Date.now() });
+    }
+  };
+
   const getViewTitle = () => {
     switch(view) {
-      case 'overview': return 'EurolandHUB Overview';
+      case 'dashboard': return 'EurolandHUB Dashboard';
       case 'registrations': return 'Investor Registrations';
       case 'detail': return 'Verification Review';
       case 'shareholders': return 'Shareholders Registry';
       case 'compliance': return 'Compliance Oversight';
-      default: return 'Overview';
+      default: return 'Dashboard';
     }
   };
 
   const getSearchPlaceholder = () => {
     switch(view) {
-      case 'overview': return 'Search top investors...';
+      case 'dashboard': return 'Search top investors...';
       case 'registrations': return 'Search registration queue...';
       case 'shareholders': return 'Search master ledger...';
       case 'compliance': return 'Search compliance alerts...';
@@ -198,16 +225,19 @@ const App: React.FC = () => {
           onSearchChange={setSearchQuery} 
           viewTitle={getViewTitle()}
           searchPlaceholder={getSearchPlaceholder()}
+          pendingApplicants={pendingApplicants}
+          onNotificationAction={handleNotificationAction}
         />
         
         <main className="flex-1 overflow-y-auto p-8">
-          {view === 'overview' && (
+          {view === 'dashboard' && (
             <OverviewDashboard applicants={applicants} />
           )}
           {view === 'registrations' && (
             <DashboardHome 
               applicants={filteredApplicants} 
               onSelect={handleSelectApplicant} 
+              tabRequest={registrationsTabRequest ?? undefined}
             />
           )}
           {view === 'detail' && selectedApplicant && (

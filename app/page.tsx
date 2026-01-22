@@ -75,8 +75,8 @@ const MOCK_APPLICANTS: Applicant[] = [
 ];
 
 export default function Home() {
-  // @google/genai guidelines: Use shared ViewType and set initial state to 'overview'
-  const [view, setView] = useState<ViewType>('overview');
+  // @google/genai guidelines: Use shared ViewType and set initial state to 'dashboard'
+  const [view, setView] = useState<ViewType>('dashboard');
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
   const [applicants, setApplicants] = useState<Applicant[]>(MOCK_APPLICANTS);
   const [searchQuery, setSearchQuery] = useState('');
@@ -99,12 +99,12 @@ export default function Home() {
 
   const getViewTitle = () => {
     switch(view) {
-      case 'overview': return 'Investor Hub Overview';
+      case 'dashboard': return 'Investor Hub Dashboard';
       case 'registrations': return 'Investor Registrations';
       case 'detail': return 'Verification Review';
       case 'shareholders': return 'Shareholders Registry';
       case 'compliance': return 'Compliance Oversight';
-      default: return 'Overview';
+      default: return 'Dashboard';
     }
   };
 
@@ -123,7 +123,7 @@ export default function Home() {
         />
         
         <main className="flex-1 overflow-y-auto p-8">
-          {view === 'overview' && (
+          {view === 'dashboard' && (
             <OverviewDashboard applicants={applicants} />
           )}
           {view === 'registrations' && (

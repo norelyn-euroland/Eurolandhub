@@ -1,8 +1,9 @@
 
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Applicant, RegistrationStatus, InvestorType } from '../lib/types';
+import Tooltip from './Tooltip';
 
 interface OverviewDashboardProps {
   applicants: Applicant[];
@@ -34,6 +35,204 @@ const CHART_DATA = [
   { month: 'Dec 25', price: 28, shares: 5300000 },
   { month: 'Jan 26', price: 30, shares: 5400000 },
 ];
+
+interface ShareholderSnapshotProps {
+  applicants: Applicant[];
+}
+
+const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants }) => {
+  // Calculate data from actual applicants
+  const registeredWithHoldings = applicants.filter(a => a.declaration.isShareholder).length;
+  const registeredNoHoldings = applicants.filter(a => !a.declaration.isShareholder).length;
+  const totalRegistered = applicants.length;
+  
+  // Guest users: 13% of total users (demo data)
+  // If guests are 13%, then registered are 87%
+  // So: guests / (guests + registered) = 0.13
+  // Solving: guests = 0.13 * (guests + registered)
+  // guests = 0.13 * guests + 0.13 * registered
+  // 0.87 * guests = 0.13 * registered
+  // guests = (0.13 / 0.87) * registered
+  const guestCount = Math.round((0.13 / 0.87) * totalRegistered);
+  const totalUsers = guestCount + totalRegistered;
+  
+  // Calculate percentages
+  const guestPercentage = (guestCount / totalUsers) * 100;
+  const registeredNoHoldingsPercentage = (registeredNoHoldings / totalUsers) * 100;
+  const registeredWithHoldingsPercentage = (registeredWithHoldings / totalUsers) * 100;
+  
+  // Build data array with colors
+  const SHAREHOLDER_SNAPSHOT_DATA = [
+    { label: 'Guest Users', percentage: guestPercentage, color: '#f97316' }, // orange
+    { label: 'Registered (No Holdings)', percentage: registeredNoHoldingsPercentage, color: '#f1dd3f' }, // yellow/gold
+    { label: 'Registered (With Holdings)', percentage: registeredWithHoldingsPercentage, color: '#86efac' }, // light green
+  ];
+  const chartSize = 320;
+  const svgPadding = 60;
+  const size = chartSize + (svgPadding * 2);
+  const radius = 120;
+  const strokeWidth = 40;
+  const center = chartSize / 2 + svgPadding;
+  const circumference = 2 * Math.PI * radius;
+
+  // Normalize data to ensure it sums to exactly 100%
+  const total = SHAREHOLDER_SNAPSHOT_DATA.reduce((sum, item) => sum + item.percentage, 0);
+  const normalizedData = SHAREHOLDER_SNAPSHOT_DATA.map(item => ({
+    ...item,
+    percentage: (item.percentage / total) * 100
+  }));
+
+  let cumulativeOffset = 0;
+
+  const segments = normalizedData.map((item) => {
+    const percentage = item.percentage / 100;
+    const segmentLength = circumference * percentage;
+    
+    // Calculate the offset: we want segments to start where previous ended
+    // strokeDashoffset positions the start of the dash pattern
+    // We start from top (12 o'clock) which is at offset 0 after -90° rotation
+    const dashOffset = circumference - cumulativeOffset;
+    
+    // Calculate angles in degrees (0° = top after rotation)
+    const startAngleDeg = (cumulativeOffset / circumference) * 360;
+    const midAngleDeg = startAngleDeg + (percentage * 360) / 2;
+    
+    // Convert to radians for calculations (SVG is rotated -90°, so 0° is at top)
+    const midAngleRad = ((midAngleDeg - 90) * Math.PI) / 180;
+    
+    // Calculate position for percentage label
+    const labelRadius = radius + strokeWidth / 2 + 35;
+    const labelX = center + labelRadius * Math.cos(midAngleRad);
+    const labelY = center + labelRadius * Math.sin(midAngleRad);
+
+    // Leader line: solid segment from donut edge, dashed segment to label
+    const lineStartRadius = radius + strokeWidth / 2 + 3;
+    const lineMidRadius = lineStartRadius + 25; // Longer solid segment
+    const lineStartX = center + lineStartRadius * Math.cos(midAngleRad);
+    const lineStartY = center + lineStartRadius * Math.sin(midAngleRad);
+    const lineMidX = center + lineMidRadius * Math.cos(midAngleRad);
+    const lineMidY = center + lineMidRadius * Math.sin(midAngleRad);
+    
+    // Update cumulative offset for next segment
+    const currentOffset = cumulativeOffset;
+    cumulativeOffset += segmentLength;
+    
+    return {
+      ...item,
+      // strokeDasharray: segmentLength dash, then gap of (circumference - segmentLength)
+      // This ensures no overlap and proper spacing
+      strokeDasharray: `${segmentLength} ${circumference}`,
+      strokeDashoffset: dashOffset,
+      labelX,
+      labelY,
+      midAngleRad,
+      lineStartX,
+      lineStartY,
+      lineMidX,
+      lineMidY,
+      lineEndX: labelX,
+      lineEndY: labelY,
+    };
+  });
+
+  return (
+    <div className="flex flex-col items-center">
+      <div className="relative" style={{ width: size, height: size + 60 }}>
+        <svg width={size} height={size + 60} className="transform -rotate-90" style={{ overflow: 'visible' }}>
+          {/* Segments with solid colors - sharp edges, no gaps */}
+          {segments.map((segment, index) => (
+            <circle
+              key={index}
+              cx={center}
+              cy={center}
+              r={radius}
+              fill="none"
+              stroke={segment.color}
+              strokeWidth={strokeWidth}
+              strokeDasharray={segment.strokeDasharray}
+              strokeDashoffset={segment.strokeDashoffset}
+              strokeLinecap="butt"
+            />
+          ))}
+          {/* Leader lines: solid from donut edge, dashed to label */}
+          <g transform={`rotate(90 ${center} ${center})`}>
+            {segments.map((segment, index) => (
+              <g key={index}>
+                {/* Solid line from donut edge */}
+                <line
+                  x1={segment.lineStartX}
+                  y1={segment.lineStartY}
+                  x2={segment.lineMidX}
+                  y2={segment.lineMidY}
+                  stroke={segment.color}
+                  strokeWidth="2.5"
+                />
+                {/* Dashed line to percentage label */}
+                <line
+                  x1={segment.lineMidX}
+                  y1={segment.lineMidY}
+                  x2={segment.lineEndX}
+                  y2={segment.lineEndY}
+                  stroke={segment.color}
+                  strokeWidth="2"
+                  strokeDasharray="5,3"
+                />
+                {/* Dot at segment edge */}
+                <circle
+                  cx={segment.lineStartX}
+                  cy={segment.lineStartY}
+                  r="4"
+                  fill={segment.color}
+                  stroke="white"
+                  strokeWidth="1.5"
+                />
+              </g>
+            ))}
+          </g>
+          {/* Percentage labels - properly positioned */}
+          <g transform={`rotate(90 ${center} ${center})`}>
+            {segments.map((segment, index) => (
+              <text
+                key={index}
+                x={segment.labelX}
+                y={segment.labelY}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill={segment.color}
+                fontSize="20"
+                fontWeight="900"
+                className="font-black"
+                style={{ 
+                  textShadow: '0 0 8px rgba(255,255,255,0.95), 0 0 12px rgba(255,255,255,0.7)',
+                  pointerEvents: 'none'
+                }}
+              >
+                {Math.round(segment.percentage)}%
+              </text>
+            ))}
+          </g>
+        </svg>
+      </div>
+      
+      <div className="flex items-center justify-center gap-10 mt-4" style={{ width: chartSize }}>
+        {normalizedData.map((item, index) => (
+          <div
+            key={index}
+            className="flex items-center gap-3"
+          >
+            <div 
+              className="w-4 h-4 rounded-full shrink-0"
+              style={{ backgroundColor: item.color }}
+            />
+            <span className="text-xs font-black uppercase tracking-tight whitespace-nowrap text-neutral-900">
+              {item.label}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const InteractiveChart: React.FC = () => {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -103,9 +302,86 @@ const InteractiveChart: React.FC = () => {
   );
 };
 
+// Helper function to get initials (first letter of first name and last name)
+const getInitials = (fullName: string): string => {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+};
+
+// Helper function to generate consistent color based on name
+const getAvatarColor = (name: string): string => {
+  const colors = [
+    '#4F46E5', // indigo
+    '#7C3AED', // violet
+    '#EC4899', // pink
+    '#F59E0B', // amber
+    '#10B981', // emerald
+    '#3B82F6', // blue
+    '#8B5CF6', // purple
+    '#EF4444', // red
+    '#14B8A6', // teal
+    '#F97316', // orange
+    '#6366F1', // indigo-500
+    '#A855F7', // purple-500
+    '#06B6D4', // cyan
+    '#84CC16', // lime
+  ];
+  
+  // Generate a hash from the name for consistent color assignment
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  
+  return colors[Math.abs(hash) % colors.length];
+};
+
+// Avatar component
+const Avatar: React.FC<{ name: string; size?: number }> = ({ name, size = 40 }) => {
+  const initials = getInitials(name);
+  const color = getAvatarColor(name);
+  
+  return (
+    <div
+      className="rounded-full flex items-center justify-center text-white font-black shrink-0"
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        backgroundColor: color,
+        fontSize: `${size * 0.4}px`,
+      }}
+    >
+      {initials}
+    </div>
+  );
+};
+
 const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => {
   const [selectedInvestor, setSelectedInvestor] = useState<Applicant | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState<'profile' | 'holdings'>('profile');
+  const [isPulsing, setIsPulsing] = useState(false);
+  const hasAnimatedRef = useRef(false);
+
+  // Trigger animation once when dashboard page is visited
+  useEffect(() => {
+    if (!selectedInvestor) {
+      // Only animate if we haven't animated yet for this visit
+      if (!hasAnimatedRef.current) {
+        hasAnimatedRef.current = true;
+        setIsPulsing(true);
+        // Reset after animation completes (1.5 seconds)
+        const timer = setTimeout(() => {
+          setIsPulsing(false);
+        }, 1500);
+        return () => clearTimeout(timer);
+      }
+    } else {
+      // Reset flag when navigating to detail view so it animates again when returning
+      hasAnimatedRef.current = false;
+    }
+  }, [selectedInvestor]);
 
   const engagedInvestors = applicants.map((a, i) => ({
     ...a,
@@ -122,9 +398,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
           Master Dashboard
         </button>
         <div className="bg-white border border-neutral-200 p-10 shadow-sm rounded-xl flex items-center gap-8">
-          <div className="w-20 h-20 bg-primary rounded-lg flex items-center justify-center text-white">
-            <span className="text-2xl font-black">{selectedInvestor.fullName.charAt(0)}</span>
-          </div>
+          <Avatar name={selectedInvestor.fullName} size={80} />
           <div>
             <h2 className="text-3xl font-black text-neutral-900 uppercase tracking-tighter">{selectedInvestor.fullName}</h2>
             <p className="text-neutral-400 text-xs font-bold uppercase tracking-widest mt-1">Verified {selectedInvestor.type} Class</p>
@@ -134,19 +408,20 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
         <div className="bg-white border border-neutral-200 shadow-sm rounded-xl overflow-hidden">
           <div className="flex border-b border-neutral-100 bg-neutral-50/30">
             <button onClick={() => setActiveDetailTab('profile')} className={`px-10 py-5 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeDetailTab === 'profile' ? 'text-primary' : 'text-neutral-400 hover:text-primary'}`}>
-              Profile dossier
+              Profile summary
               {activeDetailTab === 'profile' && <div className="absolute bottom-0 left-0 w-full h-1 bg-primary"></div>}
             </button>
             <button onClick={() => setActiveDetailTab('holdings')} className={`px-10 py-5 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeDetailTab === 'holdings' ? 'text-primary' : 'text-neutral-400 hover:text-primary'}`}>
-              Holdings audit
+              Holdings summary
               {activeDetailTab === 'holdings' && <div className="absolute bottom-0 left-0 w-full h-1 bg-primary"></div>}
             </button>
           </div>
           <div className="p-10">
             {activeDetailTab === 'profile' ? (
-              <div className="grid grid-cols-3 gap-12">
+              <div className="grid grid-cols-4 gap-12">
                 {[
                   { label: 'Correspondence', value: selectedInvestor.email },
+                  { label: 'Contact Number', value: selectedInvestor.phoneNumber || 'Not provided' },
                   { label: 'Network Origin', value: selectedInvestor.location || 'Global Hub' },
                   { label: 'Registry Date', value: selectedInvestor.submissionDate }
                 ].map((item, i) => (
@@ -169,24 +444,47 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
 
   return (
     <div className="space-y-10 max-w-7xl mx-auto pb-12">
-      {/* Greetings Container - Styled to match Audit Compliance Card */}
-      <div className="bg-black p-12 rounded-xl shadow-2xl text-white relative overflow-hidden group">
-        {/* Subtle background icon on the left that moves on hover */}
-        <div className="absolute top-1/2 -left-4 -translate-y-1/2 opacity-5 pointer-events-none group-hover:translate-x-4 group-hover:scale-110 transition-all duration-700 ease-out">
-          <svg className="w-64 h-64 text-white" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"></path>
+      {/* EXACT CODE FOR ANIMATED GREETINGS CARD */}
+      <div className={`bg-black p-12 rounded-xl text-white relative overflow-hidden group transition-all duration-700 cursor-default premium-ease
+        ${isPulsing ? 'shadow-black/60 -translate-y-1' : 'shadow-2xl hover:shadow-black/60 hover:-translate-y-1'}
+      `}
+      onMouseEnter={() => setIsPulsing(true)}
+      onMouseLeave={() => setIsPulsing(false)}
+      >
+        {/* Animated Background Calendar Icon */}
+        <div className={`absolute left-0 top-1/2 -translate-y-1/2 pointer-events-none transition-all duration-[1800ms] premium-ease
+          ${isPulsing 
+            ? 'left-[calc(100%-11.5rem)] top-12 translate-y-0 rotate-12 scale-[1.7] opacity-20' 
+            : 'left-0 top-1/2 -translate-y-1/2 rotate-0 scale-100 opacity-5 group-hover:left-[calc(100%-11.5rem)] group-hover:top-12 group-hover:translate-y-0 group-hover:rotate-12 group-hover:scale-[1.7] group-hover:opacity-20'
+          }
+        `}>
+          <svg className="w-96 h-96 text-white animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
           </svg>
         </div>
 
-        <div className="relative z-10 flex flex-col gap-1 pl-4">
-          <h1 className="text-4xl font-black tracking-tighter uppercase mb-1">Welcome back, IR Team</h1>
-          <p className="text-neutral-400 font-medium text-sm">Here's what's happening with your Investor Hub today.</p>
+        {/* Light Sweep Animation Layer */}
+        <div className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${isPulsing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-sweep"></div>
         </div>
 
-        <div className="absolute top-0 right-0 p-10 opacity-10">
-          <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-          </svg>
+        {/* Header and Static Icon Layer */}
+        <div className="relative z-10 flex items-center justify-between">
+          <div className="flex flex-col gap-1 pl-4">
+            <h1 className="text-4xl font-black tracking-tighter uppercase mb-1 transition-transform duration-500 premium-ease group-hover:translate-x-2">Welcome back, IR Team</h1>
+            <p className="text-neutral-400 font-medium text-sm transition-transform duration-500 premium-ease group-hover:translate-x-2 delay-75">Your investor dashboard is primed and ready.</p>
+          </div>
+          
+          {/* Static Anchor Calendar Icon - Prominent size matching shield icon scale */}
+          <div className={`pr-4 opacity-10 transition-all duration-700 premium-ease ${isPulsing ? 'scale-110 opacity-40' : 'group-hover:opacity-40 group-hover:scale-110'}`}>
+            <svg className="w-24 h-28 text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M8 2v4"/>
+              <path d="M16 2v4"/>
+              <path d="M21 14V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8"/>
+              <path d="M3 10h18"/>
+              <path d="m16 20 2 2 4-4"/>
+            </svg>
+          </div>
         </div>
       </div>
 
@@ -208,6 +506,21 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
             <p className="text-3xl font-black text-neutral-900 tracking-tighter">{stat.value}</p>
           </div>
         ))}
+      </div>
+
+      {/* Shareholder Snapshot */}
+      <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-sm p-10">
+        <div className="flex items-center justify-between mb-8">
+          <h3 className="text-2xl font-black text-neutral-900 uppercase tracking-tighter">Shareholder Snapshot</h3>
+          <div className="flex items-center gap-2 text-neutral-600">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            <span className="text-sm font-black uppercase tracking-widest">User Tier Breakdown</span>
+          </div>
+        </div>
+        
+        <ShareholderSnapshot applicants={applicants} />
       </div>
 
       <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-sm">
@@ -237,8 +550,15 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                     <span className="text-xs font-black text-neutral-300 group-hover:text-primary transition-colors">#{investor.rank}</span>
                   </td>
                   <td className="px-10 py-7">
-                    <p className="text-sm font-black text-neutral-900 uppercase tracking-tight">{investor.fullName}</p>
-                    <p className="text-[9px] text-neutral-400 font-bold uppercase">{investor.type}</p>
+                    <div className="flex items-center gap-3">
+                      <Avatar name={investor.fullName} size={40} />
+                      <div className="min-w-0 flex-1">
+                        <Tooltip content={investor.fullName}>
+                          <p className="text-sm font-black text-neutral-900 uppercase tracking-tight truncate max-w-[200px]">{investor.fullName}</p>
+                        </Tooltip>
+                        <p className="text-[9px] text-neutral-400 font-bold uppercase">{investor.type}</p>
+                      </div>
+                    </div>
                   </td>
                   <td className="px-10 py-7">
                     {investor.status === RegistrationStatus.APPROVED ? (
@@ -259,7 +579,9 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                     )}
                   </td>
                   <td className="px-10 py-7">
-                    <p className="text-sm font-black text-neutral-900">{investor.holdingsDisplay}</p>
+                    <Tooltip content={investor.holdingsDisplay}>
+                      <p className="text-sm font-black text-neutral-900 truncate max-w-[150px]">{investor.holdingsDisplay}</p>
+                    </Tooltip>
                   </td>
                   <td className="px-10 py-7 text-right">
                     <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">{investor.lastActive}</span>

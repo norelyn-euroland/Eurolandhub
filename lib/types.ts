@@ -21,7 +21,7 @@ export enum AccountType {
 }
 
 // @google/genai guidelines: Define a shared ViewType for navigation consistency
-export type ViewType = 'overview' | 'registrations' | 'detail' | 'shareholders' | 'compliance';
+export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders' | 'compliance';
 
 export interface SelfDeclaration {
   netWorth: string;

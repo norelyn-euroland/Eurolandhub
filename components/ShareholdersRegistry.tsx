@@ -2,54 +2,19 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Shareholder } from '../lib/types';
+import { MOCK_SHAREHOLDERS } from '../lib/mockShareholders';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
+import Tooltip from './Tooltip';
 
 // Fix: Use an intersection type for jsPDF autoTable extension
 type jsPDFWithAutoTable = jsPDF & {
   autoTable: (options: any) => void;
 };
 
-const MOCK_SHAREHOLDERS: Shareholder[] = [
-  {
-    rank: 1,
-    holdings: 8319668,
-    stake: 28.40929,
-    id: '201200512',
-    name: 'F. LAEISZ GMBH',
-    firstName: '',
-    coAddress: '',
-    country: 'Germany',
-    accountType: 'Ordinary'
-  },
-  {
-    rank: 2,
-    holdings: 3632265,
-    stake: 12.40315,
-    id: '201202388',
-    name: 'AL Maritime Holding Pte Ltd',
-    firstName: '',
-    coAddress: '',
-    country: 'Singapore',
-    accountType: 'Ordinary'
-  },
-  {
-    rank: 3,
-    holdings: 2038782,
-    stake: 6.96186,
-    id: '201198216',
-    name: 'GLENRINNES FARMS LIMITED',
-    firstName: '',
-    coAddress: 'Glenrinnes Lodge',
-    country: 'United Kingdom',
-    accountType: 'Ordinary'
-  }
-];
-
 const MOCK_AUDIT_LOGS = [
   { id: 1, event: 'Ledger Export Generated', user: 'D. Sterling', time: '10:45 AM', date: 'Today' },
-  { id: 2, event: 'New Shareholder "AL Maritime" Verified', user: 'System', time: '09:12 AM', date: 'Today' },
+  { id: 2, event: 'New Shareholder "Ayala Corporation" Verified', user: 'System', time: '09:12 AM', date: 'Today' },
   { id: 3, event: 'Stake Re-calculation Triggered', user: 'System', time: '04:30 PM', date: 'Yesterday' },
   { id: 4, event: 'Manual Address Update: ID 201198216', user: 'M. Chen', time: '02:15 PM', date: 'Yesterday' },
   { id: 5, event: 'Annual Audit Certification Uploaded', user: 'Admin', time: '11:00 AM', date: 'Oct 24, 2023' },
@@ -62,11 +27,19 @@ interface ShareholdersRegistryProps {
 const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery }) => {
   const [isAuditOpen, setIsAuditOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [localQuery, setLocalQuery] = useState('');
 
-  const filtered = MOCK_SHAREHOLDERS.filter(s => 
-    s.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    s.id.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const effectiveQuery = (localQuery.trim() || searchQuery.trim()).toLowerCase();
+  const filtered = MOCK_SHAREHOLDERS.filter(s => {
+    if (!effectiveQuery) return true;
+    return (
+      s.name.toLowerCase().includes(effectiveQuery) ||
+      s.id.toLowerCase().includes(effectiveQuery)
+    );
+  });
+
+  const totalHoldings = MOCK_SHAREHOLDERS.reduce((sum, s) => sum + s.holdings, 0);
+  const top3Stake = MOCK_SHAREHOLDERS.slice(0, 3).reduce((sum, s) => sum + s.stake, 0);
 
   const handleExportLedger = () => {
     setIsExporting(true);
@@ -83,13 +56,14 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     doc.text(`CERTIFIED LEDGER • GENERATED: ${new Date().toLocaleString().toUpperCase()}`, 14, 32);
     doc.text('CONFIDENTIAL - FOR INTERNAL COMPLIANCE USE ONLY', 14, 37);
 
-    const tableHeaders = [['RANK', 'HOLDINGS', 'STAKE %', 'INVESTOR ID', 'NAME', 'COUNTRY', 'CLASS']];
+    const tableHeaders = [['RANK', 'HOLDINGS', 'STAKE %', 'INVESTOR ID', 'NAME', 'CO ADDRESS', 'COUNTRY (POST)', 'TYPE OF ACCOUNT']];
     const tableData = filtered.map(s => [
       s.rank,
       s.holdings.toLocaleString(),
       s.stake.toFixed(5),
       s.id,
       s.name,
+      s.coAddress || 'Registered Office',
       s.country,
       s.accountType
     ]);
@@ -160,7 +134,17 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
           <h2 className="text-2xl font-black text-neutral-900 tracking-tighter uppercase">Registry Master</h2>
           <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-[0.2em] mt-1">Verified Shareholder Ledger • Updated Today</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <input
+              type="text"
+              placeholder="Search name or investor ID..."
+              value={localQuery}
+              onChange={(e) => setLocalQuery(e.target.value)}
+              className="pl-10 pr-4 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-[11px] focus:ring-1 focus:ring-black focus:border-black outline-none w-64 transition-all placeholder:text-neutral-400 font-medium"
+            />
+          </div>
           <button 
             onClick={() => setIsAuditOpen(true)}
             className="px-5 py-2 text-[10px] font-black border border-neutral-200 rounded-lg uppercase tracking-widest hover:bg-neutral-50 transition-all flex items-center gap-2 group"
@@ -192,7 +176,7 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                 <svg className="w-3 h-3 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
             </div>
           </div>
-          <p className="text-3xl font-black tracking-tighter text-neutral-900">14,352,401</p>
+          <p className="text-3xl font-black tracking-tighter text-neutral-900">{totalHoldings.toLocaleString()}</p>
           <p className="text-[10px] font-bold text-neutral-400 mt-2 uppercase tracking-widest">Calculated across all tiers</p>
         </div>
         
@@ -204,9 +188,9 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
             </div>
           </div>
           <div className="flex items-end gap-3">
-            <p className="text-3xl font-black tracking-tighter text-neutral-900">47.77%</p>
+            <p className="text-3xl font-black tracking-tighter text-neutral-900">{top3Stake.toFixed(2)}%</p>
             <div className="mb-1 h-1.5 flex-1 bg-neutral-100 rounded-full overflow-hidden">
-                <div className="h-full bg-black" style={{ width: '47.77%' }}></div>
+                <div className="h-full bg-black" style={{ width: `${Math.min(top3Stake, 100)}%` }}></div>
             </div>
           </div>
         </div>
@@ -230,13 +214,14 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-neutral-50/50 text-[10px] font-black text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200">
-                <th className="px-6 py-5 text-center w-16">#</th>
-                <th className="px-6 py-5">Asset Holding</th>
+                <th className="px-6 py-5 text-center w-16">Rank</th>
+                <th className="px-6 py-5">Holdings</th>
                 <th className="px-6 py-5">Stake %</th>
                 <th className="px-6 py-5">INVESTOR ID</th>
-                <th className="px-6 py-5">Full Legal Name</th>
-                <th className="px-6 py-5">C/O Address & Region</th>
-                <th className="px-6 py-5 text-right">Class</th>
+                <th className="px-6 py-5">Name</th>
+                <th className="px-6 py-5">CO address</th>
+                <th className="px-6 py-5">Country (post)</th>
+                <th className="px-6 py-5 text-right">Type of account</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100">
@@ -269,14 +254,20 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                     </span>
                   </td>
                   <td className="px-6 py-5">
-                    <p className="text-sm font-bold text-neutral-900 uppercase truncate max-w-[200px]">{sh.name}</p>
+                    <Tooltip content={sh.name}>
+                      <p className="text-sm font-bold text-neutral-900 uppercase truncate max-w-[200px]">{sh.name}</p>
+                    </Tooltip>
                     <p className="text-[10px] text-neutral-400 font-medium italic">{sh.firstName || 'Primary Account Holder'}</p>
                   </td>
                   <td className="px-6 py-5">
-                    <div className="flex flex-col">
-                      <span className="text-xs font-bold text-neutral-700">{sh.country}</span>
-                      <span className="text-[10px] text-neutral-400 truncate max-w-[180px]">{sh.coAddress || 'Registered Office'}</span>
-                    </div>
+                    <Tooltip content={sh.coAddress || 'Registered Office'}>
+                      <span className="text-[10px] text-neutral-400 truncate max-w-[240px] block">
+                        {sh.coAddress || 'Registered Office'}
+                      </span>
+                    </Tooltip>
+                  </td>
+                  <td className="px-6 py-5">
+                    <span className="text-xs font-bold text-neutral-700">{sh.country}</span>
                   </td>
                   <td className="px-6 py-5 text-right">
                     <span className="inline-block px-3 py-1 bg-neutral-100 text-[10px] font-black text-neutral-600 rounded-full uppercase tracking-widest border border-neutral-200 group-hover:bg-white transition-colors">

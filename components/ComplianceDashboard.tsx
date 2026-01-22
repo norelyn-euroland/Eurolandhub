@@ -4,6 +4,7 @@
 import React, { useState } from 'react';
 import { Applicant, RegistrationStatus } from '../lib/types';
 import { GoogleGenAI } from "@google/genai";
+import Tooltip from './Tooltip';
 
 interface ComplianceDashboardProps {
   applicants: Applicant[];
@@ -135,7 +136,9 @@ const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({ applicants })
             {applicants.filter(a => a.declaration.isPEP || a.status === RegistrationStatus.PENDING).map((a) => (
               <tr key={a.id} className="hover:bg-neutral-50 transition-colors">
                 <td className="px-8 py-5">
-                  <span className="text-xs font-black text-neutral-900 font-mono">{a.id}</span>
+                  <Tooltip content={a.id}>
+                    <span className="text-xs font-black text-neutral-900 font-mono truncate max-w-[150px] inline-block">{a.id}</span>
+                  </Tooltip>
                 </td>
                 <td className="px-8 py-5">
                   <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${a.declaration.isPEP ? 'bg-red-50 text-red-700 border border-red-100' : 'bg-neutral-100 text-neutral-600'}`}>
@@ -143,7 +146,9 @@ const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({ applicants })
                   </span>
                 </td>
                 <td className="px-8 py-5">
-                  <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-tight">Manual audit required before onboarding</p>
+                  <Tooltip content="Manual audit required before onboarding">
+                    <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-tight truncate max-w-[300px]">Manual audit required before onboarding</p>
+                  </Tooltip>
                 </td>
                 <td className="px-8 py-5 text-right">
                   <button className="text-[10px] font-black text-neutral-900 underline uppercase tracking-widest hover:text-neutral-500">Dismiss Alert</button>

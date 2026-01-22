@@ -5,6 +5,63 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Applicant, RegistrationStatus, InvestorType } from '../lib/types';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
+import Tooltip from './Tooltip';
+
+// Helper function to get initials (first letter of first name and last name)
+const getInitials = (fullName: string): string => {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+};
+
+// Helper function to generate consistent color based on name
+const getAvatarColor = (name: string): string => {
+  const colors = [
+    '#4F46E5', // indigo
+    '#7C3AED', // violet
+    '#EC4899', // pink
+    '#F59E0B', // amber
+    '#10B981', // emerald
+    '#3B82F6', // blue
+    '#8B5CF6', // purple
+    '#EF4444', // red
+    '#14B8A6', // teal
+    '#F97316', // orange
+    '#6366F1', // indigo-500
+    '#A855F7', // purple-500
+    '#06B6D4', // cyan
+    '#84CC16', // lime
+  ];
+  
+  // Generate a hash from the name for consistent color assignment
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  
+  return colors[Math.abs(hash) % colors.length];
+};
+
+// Avatar component
+const Avatar: React.FC<{ name: string; size?: number }> = ({ name, size = 40 }) => {
+  const initials = getInitials(name);
+  const color = getAvatarColor(name);
+  
+  return (
+    <div
+      className="rounded-full flex items-center justify-center text-white font-black shrink-0"
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        backgroundColor: color,
+        fontSize: `${size * 0.4}px`,
+      }}
+    >
+      {initials}
+    </div>
+  );
+};
 
 // Fix: Use an intersection type to properly combine jsPDF instance methods with the autoTable extension
 type jsPDFWithAutoTable = jsPDF & {
@@ -14,6 +71,7 @@ type jsPDFWithAutoTable = jsPDF & {
 interface DashboardHomeProps {
   applicants: Applicant[];
   onSelect: (applicant: Applicant) => void;
+  tabRequest?: { tab: TabType; requestId: number };
 }
 
 type TabType = 'PENDING' | 'VERIFIED' | 'NON_VERIFIED' | 'ALL';
@@ -30,7 +88,7 @@ const StatusBadge: React.FC<{ status: RegistrationStatus }> = ({ status }) => {
               <path d="m9 12 2 2 4-4"></path>
             </svg>
           ),
-          label: 'Verified'
+          label: 'Accepted'
         };
       case RegistrationStatus.PENDING:
         return {
@@ -44,7 +102,7 @@ const StatusBadge: React.FC<{ status: RegistrationStatus }> = ({ status }) => {
         };
       case RegistrationStatus.REJECTED:
         return {
-          container: 'bg-red-50 text-red-700 border-red-100',
+          container: 'bg-[#FEF3E7] text-[#9A3412] border-[#FDE0C3]',
           icon: (
             <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10"></circle>
@@ -52,7 +110,7 @@ const StatusBadge: React.FC<{ status: RegistrationStatus }> = ({ status }) => {
               <line x1="9" y1="9" x2="15" y2="15"></line>
             </svg>
           ),
-          label: 'Rejected'
+          label: 'Unverified'
         };
       case RegistrationStatus.FURTHER_INFO:
         return {
@@ -64,7 +122,7 @@ const StatusBadge: React.FC<{ status: RegistrationStatus }> = ({ status }) => {
               <line x1="12" y1="8" x2="12.01" y2="8"></line>
             </svg>
           ),
-          label: 'Pending Info'
+          label: 'Pending'
         };
       default:
         return { container: 'bg-neutral-100 text-neutral-500', icon: null, label: s };
@@ -81,7 +139,7 @@ const StatusBadge: React.FC<{ status: RegistrationStatus }> = ({ status }) => {
   );
 };
 
-const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect }) => {
+const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tabRequest }) => {
   const [activeTab, setActiveTab] = useState<TabType>('ALL');
   const [typeFilter, setTypeFilter] = useState<InvestorType | 'ALL'>('ALL');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -104,13 +162,19 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect }) =
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Allow external navigation (e.g. notifications) to force a specific tab.
+  useEffect(() => {
+    if (!tabRequest) return;
+    setActiveTab(tabRequest.tab);
+  }, [tabRequest?.requestId]);
+
   const filteredData = applicants.filter((applicant) => {
     // Tab Filter
     const matchesTab = 
       activeTab === 'ALL' ||
-      (activeTab === 'PENDING' && applicant.status === RegistrationStatus.PENDING) ||
+      (activeTab === 'PENDING' && (applicant.status === RegistrationStatus.PENDING || applicant.status === RegistrationStatus.REJECTED)) ||
       (activeTab === 'VERIFIED' && applicant.status === RegistrationStatus.APPROVED) ||
-      (activeTab === 'NON_VERIFIED' && (applicant.status === RegistrationStatus.REJECTED || applicant.status === RegistrationStatus.FURTHER_INFO));
+      (activeTab === 'NON_VERIFIED' && applicant.status === RegistrationStatus.FURTHER_INFO);
     
     // Type Filter
     const matchesType = typeFilter === 'ALL' || applicant.type === typeFilter;
@@ -121,9 +185,17 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect }) =
   const tabs: { id: TabType; label: string }[] = [
     { id: 'ALL', label: 'All Files' },
     { id: 'PENDING', label: 'Unverified' },
-    { id: 'VERIFIED', label: 'Verified' },
-    { id: 'NON_VERIFIED', label: 'Exceptions' },
+    { id: 'VERIFIED', label: 'Accepted' },
+    { id: 'NON_VERIFIED', label: 'Pending' },
   ];
+
+  const getStatusLabel = (s: RegistrationStatus) => {
+    if (s === RegistrationStatus.APPROVED) return 'Accepted';
+    if (s === RegistrationStatus.FURTHER_INFO) return 'Pending';
+    // Treat both PENDING and REJECTED as Unverified in the UI.
+    if (s === RegistrationStatus.PENDING || s === RegistrationStatus.REJECTED) return 'Unverified';
+    return s;
+  };
 
   const handleExportCSV = () => {
     const headers = ['ID', 'Full Name', 'Email', 'Type', 'Submission Date', 'Last Active', 'Status'];
@@ -134,7 +206,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect }) =
       a.type,
       a.submissionDate,
       a.lastActive,
-      a.status
+      getStatusLabel(a.status)
     ].join(','));
 
     const csvContent = [headers.join(','), ...csvRows].join('\n');
@@ -164,7 +236,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect }) =
       a.type,
       a.submissionDate,
       a.lastActive,
-      a.status
+      getStatusLabel(a.status)
     ]);
 
     doc.autoTable({
@@ -186,12 +258,12 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect }) =
     <div className="space-y-10 max-w-7xl mx-auto">
       <div className="grid grid-cols-4 gap-8">
         {[
-          { label: 'Pending Verification', value: applicants.filter(a => a.status === RegistrationStatus.PENDING).length, detail: '+2 since yesterday' },
+          { label: 'Unverified Audit', value: applicants.filter(a => a.status === RegistrationStatus.PENDING || a.status === RegistrationStatus.REJECTED).length, detail: '+2 since yesterday' },
           { label: 'Active Shareholders', value: '1,402', detail: 'Across 12 entities' },
           { label: 'Risk Threshold', value: '18%', detail: 'Historical average' },
           { label: 'Compliance Score', value: '99.4', detail: 'Audit target: 99.0' }
         ].map((stat, i) => (
-          <div key={i} className="bg-white p-6 border border-neutral-200 rounded-lg hover:border-primary transition-all">
+          <div key={i} className="bg-white p-6 border border-neutral-200 rounded-lg hover:border-neutral-300 transition-all">
             <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-1">{stat.label}</p>
             <div className="text-3xl font-bold text-neutral-900 mb-1">{stat.value}</div>
             <p className="text-[10px] text-neutral-400 font-medium">{stat.detail}</p>
@@ -208,7 +280,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect }) =
                  <div className="relative" ref={filterRef}>
                    <button 
                     onClick={() => setIsFilterOpen(!isFilterOpen)}
-                    className={`px-3 py-1.5 text-[10px] font-bold border rounded-lg transition-all uppercase tracking-widest flex items-center gap-2 ${typeFilter !== 'ALL' ? 'bg-primary text-white border-primary' : 'border-neutral-200 hover:bg-neutral-50 text-neutral-900'}`}
+                    className={`px-3 py-1.5 text-[10px] font-bold border rounded-lg transition-colors uppercase tracking-widest flex items-center gap-2 ${typeFilter !== 'ALL' ? 'border-neutral-900 text-neutral-900 bg-white' : 'border-neutral-200 hover:bg-neutral-50 text-neutral-900 bg-white'}`}
                    >
                      {typeFilter === 'ALL' ? 'Type' : `Type: ${typeFilter}`}
                      <svg className={`w-3 h-3 transition-transform ${isFilterOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"/></svg>
@@ -218,7 +290,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect }) =
                      <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-neutral-200 rounded-lg shadow-xl z-50 overflow-hidden">
                        <button 
                          onClick={() => { setTypeFilter('ALL'); setIsFilterOpen(false); }}
-                         className="w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest hover:bg-primary/10 transition-colors border-b border-neutral-100"
+                         className="w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest hover:bg-neutral-50 transition-colors border-b border-neutral-100"
                        >
                          All Types
                        </button>
@@ -226,7 +298,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect }) =
                          <button 
                            key={type}
                            onClick={() => { setTypeFilter(type); setIsFilterOpen(false); }}
-                           className={`w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest hover:bg-primary/10 transition-colors ${typeFilter === type ? 'bg-primary/5 text-primary' : 'text-neutral-500'}`}
+                           className={`w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest hover:bg-neutral-50 transition-colors ${typeFilter === type ? 'bg-neutral-50 text-neutral-900' : 'text-neutral-500'}`}
                          >
                            {type}
                          </button>
@@ -272,12 +344,12 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect }) =
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`pb-2 text-[10px] font-black uppercase tracking-[0.2em] transition-all relative ${
-                    activeTab === tab.id ? 'text-primary' : 'text-neutral-400 hover:text-neutral-600'
+                    activeTab === tab.id ? 'text-neutral-900' : 'text-neutral-400 hover:text-neutral-600'
                   }`}
                 >
                   {tab.label}
                   {activeTab === tab.id && (
-                    <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary"></div>
+                    <div className="absolute bottom-0 left-0 w-full h-0.5 bg-neutral-900"></div>
                   )}
                 </button>
               ))}
@@ -302,11 +374,11 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect }) =
                 <tr key={applicant.id} className="group hover:bg-neutral-50/50 transition-colors">
                   <td className="px-8 py-5">
                     <div className="flex items-center gap-4">
-                      <div className="w-9 h-9 bg-neutral-900 rounded-lg flex items-center justify-center font-bold text-white text-xs group-hover:bg-primary transition-colors">
-                        {applicant.fullName.charAt(0)}
-                      </div>
-                      <div>
-                        <div className="text-sm font-bold text-neutral-900 leading-none mb-1">{applicant.fullName}</div>
+                      <Avatar name={applicant.fullName} size={36} />
+                      <div className="min-w-0 flex-1">
+                        <Tooltip content={applicant.fullName}>
+                          <div className="text-sm font-bold text-neutral-900 leading-none mb-1 truncate">{applicant.fullName}</div>
+                        </Tooltip>
                         <div className="text-[10px] text-neutral-400 font-medium uppercase tracking-tight">{applicant.id}</div>
                       </div>
                     </div>
@@ -328,7 +400,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect }) =
                   <td className="px-8 py-5 text-right">
                     <button 
                       onClick={() => onSelect(applicant)}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-neutral-200 text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-primary hover:text-white hover:border-primary transition-all shadow-sm"
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-neutral-200 text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-neutral-900 hover:text-white hover:border-neutral-900 transition-all shadow-sm"
                     >
                       Audit
                     </button>
