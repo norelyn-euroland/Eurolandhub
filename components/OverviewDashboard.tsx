@@ -4,6 +4,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Applicant, RegistrationStatus, InvestorType } from '../lib/types';
 import Tooltip from './Tooltip';
+import Chart from 'react-apexcharts';
+import HoldingsSummary from './HoldingsSummary';
 
 interface OverviewDashboardProps {
   applicants: Applicant[];
@@ -41,6 +43,42 @@ interface ShareholderSnapshotProps {
 }
 
 const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants }) => {
+  const [chartKey, setChartKey] = useState(0);
+  const chartRef = useRef<HTMLDivElement>(null);
+  const hasAnimatedRef = useRef(false);
+
+  // Trigger animation when chart container comes into view
+  useEffect(() => {
+    if (!chartRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !hasAnimatedRef.current) {
+            // Reset and trigger animation when chart comes into view
+            setChartKey(prev => prev + 1);
+            hasAnimatedRef.current = true;
+          } else if (!entry.isIntersecting && hasAnimatedRef.current) {
+            // Reset flag when chart leaves viewport so it can animate again
+            hasAnimatedRef.current = false;
+          }
+        });
+      },
+      {
+        threshold: 0.3, // Trigger when 30% of the chart is visible
+        rootMargin: '0px'
+      }
+    );
+
+    observer.observe(chartRef.current);
+
+    return () => {
+      if (chartRef.current) {
+        observer.unobserve(chartRef.current);
+      }
+    };
+  }, []);
+
   // Calculate data from actual applicants
   const registeredWithHoldings = applicants.filter(a => a.declaration.isShareholder).length;
   const registeredNoHoldings = applicants.filter(a => !a.declaration.isShareholder).length;
@@ -57,165 +95,150 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
   const totalUsers = guestCount + totalRegistered;
   
   // Calculate percentages
-  const guestPercentage = (guestCount / totalUsers) * 100;
-  const registeredNoHoldingsPercentage = (registeredNoHoldings / totalUsers) * 100;
-  const registeredWithHoldingsPercentage = (registeredWithHoldings / totalUsers) * 100;
+  const guestPercentage = Math.round((guestCount / totalUsers) * 100 * 10) / 10;
+  const registeredNoHoldingsPercentage = Math.round((registeredNoHoldings / totalUsers) * 100 * 10) / 10;
+  const registeredWithHoldingsPercentage = Math.round((registeredWithHoldings / totalUsers) * 100 * 10) / 10;
   
-  // Build data array with colors
-  const SHAREHOLDER_SNAPSHOT_DATA = [
-    { label: 'Guest Users', percentage: guestPercentage, color: '#f97316' }, // orange
-    { label: 'Registered (No Holdings)', percentage: registeredNoHoldingsPercentage, color: '#f1dd3f' }, // yellow/gold
-    { label: 'Registered (With Holdings)', percentage: registeredWithHoldingsPercentage, color: '#86efac' }, // light green
+  // Prepare data for ApexCharts
+  const chartData = [
+    { name: 'Guest Users', value: guestCount, percentage: guestPercentage, color: '#f97316' },
+    { name: 'Registered (No Holdings)', value: registeredNoHoldings, percentage: registeredNoHoldingsPercentage, color: '#f1dd3f' },
+    { name: 'Registered (With Holdings)', value: registeredWithHoldings, percentage: registeredWithHoldingsPercentage, color: '#86efac' },
   ];
-  const chartSize = 320;
-  const svgPadding = 60;
-  const size = chartSize + (svgPadding * 2);
-  const radius = 120;
-  const strokeWidth = 40;
-  const center = chartSize / 2 + svgPadding;
-  const circumference = 2 * Math.PI * radius;
 
-  // Normalize data to ensure it sums to exactly 100%
-  const total = SHAREHOLDER_SNAPSHOT_DATA.reduce((sum, item) => sum + item.percentage, 0);
-  const normalizedData = SHAREHOLDER_SNAPSHOT_DATA.map(item => ({
-    ...item,
-    percentage: (item.percentage / total) * 100
-  }));
+  const chartOptions = {
+    chart: {
+      type: 'donut' as const,
+      animations: {
+        enabled: true,
+        easing: 'easeinout' as const,
+        speed: 2500,
+        animateGradually: {
+          enabled: true,
+          delay: 400
+        },
+        dynamicAnimation: {
+          enabled: true,
+          speed: 350
+        }
+      },
+      events: {
+        dataPointMouseEnter: function(event: any, chartContext: any, config: any) {
+          // Smooth hover animation is handled by ApexCharts
+        }
+      },
+      offsetX: 0,
+      offsetY: 0
+    },
+    labels: chartData.map(item => item.name),
+    colors: chartData.map(item => item.color),
+    dataLabels: {
+      enabled: true,
+      formatter: function(val: number, opts: any) {
+        return Math.round(val) + '%';
+      },
+      style: {
+        fontSize: '18px',
+        fontWeight: 900,
+        fontFamily: 'Inter, sans-serif',
+        colors: chartData.map(item => item.color)
+      },
+      dropShadow: {
+        enabled: true,
+        top: 1,
+        left: 1,
+        blur: 4,
+        opacity: 0.4
+      }
+    },
+    plotOptions: {
+      pie: {
+        donut: {
+          size: '70%',
+          labels: {
+            show: false
+          }
+        },
+        expandOnClick: false,
+        customScale: 1,
+        startAngle: -45,
+        endAngle: 315
+      }
+    },
+    fill: {
+      type: 'solid',
+      colors: chartData.map(item => item.color)
+    },
+    stroke: {
+      show: true,
+      curve: 'smooth' as const,
+      lineCap: 'butt' as const,
+      colors: ['#fff'],
+      width: 2,
+      dashArray: 0
+    },
+    tooltip: {
+      enabled: true,
+      theme: 'light',
+      fillSeriesColor: false,
+      style: {
+        fontSize: '12px',
+        fontFamily: 'Inter, sans-serif'
+      },
+      custom: function({ series, seriesIndex, dataPointIndex, w }: any) {
+        const dataPoint = chartData[seriesIndex];
+        return `
+          <div style="padding: 8px 12px; background: #ffffff; border: 1px solid #e5e5e5; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); color: #000000; font-size: 12px; font-family: Inter, sans-serif; white-space: nowrap;">
+            ${dataPoint.name} : ${dataPoint.value.toLocaleString()} (${dataPoint.percentage}%)
+          </div>
+        `;
+      }
+    },
+    legend: {
+      show: false
+    },
+    states: {
+      hover: {
+        filter: {
+          type: 'none'
+        }
+      },
+      active: {
+        filter: {
+          type: 'none'
+        }
+      }
+    },
+    responsive: [{
+      breakpoint: 480,
+      options: {
+        chart: {
+          width: 200
+        },
+        legend: {
+          position: 'bottom'
+        }
+      }
+    }]
+  };
 
-  let cumulativeOffset = 0;
-
-  const segments = normalizedData.map((item) => {
-    const percentage = item.percentage / 100;
-    const segmentLength = circumference * percentage;
-    
-    // Calculate the offset: we want segments to start where previous ended
-    // strokeDashoffset positions the start of the dash pattern
-    // We start from top (12 o'clock) which is at offset 0 after -90° rotation
-    const dashOffset = circumference - cumulativeOffset;
-    
-    // Calculate angles in degrees (0° = top after rotation)
-    const startAngleDeg = (cumulativeOffset / circumference) * 360;
-    const midAngleDeg = startAngleDeg + (percentage * 360) / 2;
-    
-    // Convert to radians for calculations (SVG is rotated -90°, so 0° is at top)
-    const midAngleRad = ((midAngleDeg - 90) * Math.PI) / 180;
-    
-    // Calculate position for percentage label
-    const labelRadius = radius + strokeWidth / 2 + 35;
-    const labelX = center + labelRadius * Math.cos(midAngleRad);
-    const labelY = center + labelRadius * Math.sin(midAngleRad);
-
-    // Leader line: solid segment from donut edge, dashed segment to label
-    const lineStartRadius = radius + strokeWidth / 2 + 3;
-    const lineMidRadius = lineStartRadius + 25; // Longer solid segment
-    const lineStartX = center + lineStartRadius * Math.cos(midAngleRad);
-    const lineStartY = center + lineStartRadius * Math.sin(midAngleRad);
-    const lineMidX = center + lineMidRadius * Math.cos(midAngleRad);
-    const lineMidY = center + lineMidRadius * Math.sin(midAngleRad);
-    
-    // Update cumulative offset for next segment
-    const currentOffset = cumulativeOffset;
-    cumulativeOffset += segmentLength;
-    
-    return {
-      ...item,
-      // strokeDasharray: segmentLength dash, then gap of (circumference - segmentLength)
-      // This ensures no overlap and proper spacing
-      strokeDasharray: `${segmentLength} ${circumference}`,
-      strokeDashoffset: dashOffset,
-      labelX,
-      labelY,
-      midAngleRad,
-      lineStartX,
-      lineStartY,
-      lineMidX,
-      lineMidY,
-      lineEndX: labelX,
-      lineEndY: labelY,
-    };
-  });
+  const chartSeries = chartData.map(item => item.value);
 
   return (
     <div className="flex flex-col items-center">
-      <div className="relative" style={{ width: size, height: size + 60 }}>
-        <svg width={size} height={size + 60} className="transform -rotate-90" style={{ overflow: 'visible' }}>
-          {/* Segments with solid colors - sharp edges, no gaps */}
-          {segments.map((segment, index) => (
-            <circle
-              key={index}
-              cx={center}
-              cy={center}
-              r={radius}
-              fill="none"
-              stroke={segment.color}
-              strokeWidth={strokeWidth}
-              strokeDasharray={segment.strokeDasharray}
-              strokeDashoffset={segment.strokeDashoffset}
-              strokeLinecap="butt"
-            />
-          ))}
-          {/* Leader lines: solid from donut edge, dashed to label */}
-          <g transform={`rotate(90 ${center} ${center})`}>
-            {segments.map((segment, index) => (
-              <g key={index}>
-                {/* Solid line from donut edge */}
-                <line
-                  x1={segment.lineStartX}
-                  y1={segment.lineStartY}
-                  x2={segment.lineMidX}
-                  y2={segment.lineMidY}
-                  stroke={segment.color}
-                  strokeWidth="2.5"
-                />
-                {/* Dashed line to percentage label */}
-                <line
-                  x1={segment.lineMidX}
-                  y1={segment.lineMidY}
-                  x2={segment.lineEndX}
-                  y2={segment.lineEndY}
-                  stroke={segment.color}
-                  strokeWidth="2"
-                  strokeDasharray="5,3"
-                />
-                {/* Dot at segment edge */}
-                <circle
-                  cx={segment.lineStartX}
-                  cy={segment.lineStartY}
-                  r="4"
-                  fill={segment.color}
-                  stroke="white"
-                  strokeWidth="1.5"
-                />
-              </g>
-            ))}
-          </g>
-          {/* Percentage labels - properly positioned */}
-          <g transform={`rotate(90 ${center} ${center})`}>
-            {segments.map((segment, index) => (
-              <text
-                key={index}
-                x={segment.labelX}
-                y={segment.labelY}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fill={segment.color}
-                fontSize="20"
-                fontWeight="900"
-                className="font-black"
-                style={{ 
-                  textShadow: '0 0 8px rgba(255,255,255,0.95), 0 0 12px rgba(255,255,255,0.7)',
-                  pointerEvents: 'none'
-                }}
-              >
-                {Math.round(segment.percentage)}%
-              </text>
-            ))}
-          </g>
-        </svg>
+      <div ref={chartRef} className="relative" style={{ width: '100%', maxWidth: '500px', padding: '40px' }}>
+        <Chart
+          key={`chart-${chartKey}`}
+          options={chartOptions}
+          series={chartSeries}
+          type="donut"
+          width="100%"
+          height="400"
+        />
       </div>
       
-      <div className="flex items-center justify-center gap-10 mt-4" style={{ width: chartSize }}>
-        {normalizedData.map((item, index) => (
+      <div className="flex items-center justify-center gap-10 mt-4">
+        {chartData.map((item, index) => (
           <div
             key={index}
             className="flex items-center gap-3"
@@ -225,7 +248,7 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
               style={{ backgroundColor: item.color }}
             />
             <span className="text-xs font-black uppercase tracking-tight whitespace-nowrap text-neutral-900">
-              {item.label}
+              {item.name}
             </span>
           </div>
         ))}
@@ -383,11 +406,25 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
     }
   }, [selectedInvestor]);
 
+  // Helper function to extract only the holdings number from shareholdingDetails
+  const extractHoldingsNumber = (shareholdingDetails: string | undefined): string => {
+    if (!shareholdingDetails) return 'Pending Disclosure';
+    
+    // Extract the number before "shares" (e.g., "8,319,668 shares (28.41% stake)" -> "8,319,668")
+    const match = shareholdingDetails.match(/^([\d,]+)\s+shares/);
+    if (match && match[1]) {
+      return match[1];
+    }
+    return shareholdingDetails;
+  };
+
   const engagedInvestors = applicants.map((a, i) => ({
     ...a,
     rank: i + 1,
     engagementScore: 98 - (i * 3),
-    holdingsDisplay: a.status === RegistrationStatus.APPROVED && a.declaration.isShareholder ? a.declaration.shareholdingDetails : 'Pending Disclosure'
+    holdingsDisplay: a.status === RegistrationStatus.APPROVED && a.declaration.isShareholder 
+      ? extractHoldingsNumber(a.declaration.shareholdingDetails)
+      : 'Pending Disclosure'
   }));
 
   if (selectedInvestor) {
@@ -432,9 +469,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                 ))}
               </div>
             ) : (
-              <div className="h-[400px]">
-                <InteractiveChart />
-              </div>
+              <HoldingsSummary applicant={selectedInvestor} />
             )}
           </div>
         </div>

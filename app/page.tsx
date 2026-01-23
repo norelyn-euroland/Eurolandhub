@@ -15,61 +15,69 @@ import OverviewDashboard from '../components/OverviewDashboard';
 
 const MOCK_APPLICANTS: Applicant[] = [
   {
-    id: 'INV-001',
-    fullName: 'Alexander Sterling',
-    email: 'a.sterling@private.com',
-    type: InvestorType.ACCREDITED,
-    submissionDate: '2023-11-20',
+    id: '201200512',
+    fullName: 'Juan Carlos Dela Cruz',
+    email: 'juan.delacruz@smcorp.com',
+    phoneNumber: '+63 2 8888 1234',
+    location: 'Pasay City, Philippines',
+    type: InvestorType.INSTITUTIONAL,
+    submissionDate: '2024-01-15',
     lastActive: '2 mins ago',
     status: RegistrationStatus.PENDING,
     idDocumentUrl: 'https://picsum.photos/seed/id1/600/400',
     taxDocumentUrl: 'https://picsum.photos/seed/tax1/600/400',
     declaration: {
-      netWorth: '$2.5M - $5M',
-      annualIncome: '$300k+',
+      netWorth: '$10M+',
+      annualIncome: '$1.5M+',
       isPEP: false,
-      sourceOfWealth: 'Sale of previous tech enterprise',
-      investmentExperience: '10+ years in private equity and public markets.',
+      sourceOfWealth: 'Corporate Holdings & Investments',
+      investmentExperience: 'Institutional portfolio management.',
       isShareholder: true,
-      shareholdingDetails: 'Holds 5% in Blue Horizon Tech'
+      shareholdingDetails: '8,319,668 shares (28.41% stake)'
     }
   },
   {
-    id: 'INV-002',
-    fullName: 'Elena Vance',
-    email: 'elena.v@vancecapital.org',
+    id: '201202388',
+    fullName: 'Maria Consuelo Ayala',
+    email: 'maria.ayala@ayalacorp.com',
+    phoneNumber: '+63 2 8888 5678',
+    location: 'Makati City, Philippines',
     type: InvestorType.INSTITUTIONAL,
-    submissionDate: '2023-11-21',
+    submissionDate: '2024-01-18',
     lastActive: '14 mins ago',
     status: RegistrationStatus.PENDING,
     idDocumentUrl: 'https://picsum.photos/seed/id2/600/400',
     taxDocumentUrl: 'https://picsum.photos/seed/tax2/600/400',
     declaration: {
-      netWorth: '$10M+',
-      annualIncome: '$1M+',
-      isPEP: true,
-      sourceOfWealth: 'Generational wealth and family trust management.',
+      netWorth: '$5M - $10M',
+      annualIncome: '$800k+',
+      isPEP: false,
+      sourceOfWealth: 'Family Business & Real Estate',
       investmentExperience: 'Manages family office portfolio.',
-      isShareholder: false
+      isShareholder: true,
+      shareholdingDetails: '3,632,265 shares (12.40% stake)'
     }
   },
   {
-    id: 'INV-003',
-    fullName: 'Marcus Aurelius',
-    email: 'marcus.a@stoicinvest.com',
+    id: '201198216',
+    fullName: 'Roberto San Miguel',
+    email: 'roberto.sanmiguel@sanmiguel.com',
+    phoneNumber: '+63 2 8888 9012',
+    location: 'Mandaluyong City, Philippines',
     type: InvestorType.RETAIL,
-    submissionDate: '2023-11-22',
+    submissionDate: '2024-01-20',
     lastActive: '1 day ago',
     status: RegistrationStatus.APPROVED,
     idDocumentUrl: 'https://picsum.photos/seed/id3/600/400',
     taxDocumentUrl: 'https://picsum.photos/seed/tax3/600/400',
     declaration: {
-      netWorth: '$100k - $250k',
-      annualIncome: '$80k',
+      netWorth: '$3M - $5M',
+      annualIncome: '$600k',
       isPEP: false,
-      sourceOfWealth: 'Professional services (Attorney)',
+      sourceOfWealth: 'Corporate Dividends & Investments',
       investmentExperience: 'Active retail trader for 5 years.',
-      isShareholder: false
+      isShareholder: true,
+      shareholdingDetails: '2,038,782 shares (6.96% stake)'
     }
   }
 ];

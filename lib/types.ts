@@ -21,7 +21,7 @@ export enum AccountType {
 }
 
 // @google/genai guidelines: Define a shared ViewType for navigation consistency
-export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders' | 'compliance';
+export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders' | 'compliance' | 'firebase';
 
 export interface SelfDeclaration {
   netWorth: string;
@@ -31,6 +31,34 @@ export interface SelfDeclaration {
   investmentExperience: string;
   isShareholder: boolean;
   shareholdingDetails?: string;
+}
+
+export interface HoldingsDataPoint {
+  timestamp: string; // ISO string
+  share_price: number; // USD
+  shares_held: number; // absolute shares
+  total_shares_outstanding: number; // absolute shares
+}
+
+export interface HoldingsRecord {
+  companyId: string; // Maps to Shareholder.id
+  companyName: string; // Maps to Shareholder.name
+  sharesHeld: number;
+  ownershipPercentage: number;
+  sharesClass: string; // Maps to Shareholder.accountType
+  registrationDate: string;
+}
+
+export interface HoldingsSummary {
+  companyId: string;
+  companyName: string;
+  sharesHeld: number;
+  ownershipPercentage: number;
+  sharesClass: string;
+  registrationDate: string;
+  currentSharePrice: number;
+  currentMarketValue: number;
+  timeSeriesData: HoldingsDataPoint[];
 }
 
 export interface Applicant {
@@ -46,6 +74,7 @@ export interface Applicant {
   idDocumentUrl: string;
   taxDocumentUrl: string;
   declaration: SelfDeclaration;
+  holdingsRecord?: HoldingsRecord; // Optional, only for verified shareholders
 }
 
 export interface Shareholder {
