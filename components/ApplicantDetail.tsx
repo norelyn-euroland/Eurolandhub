@@ -25,11 +25,6 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
     return applicant.declaration.isPEP ? 'FLAGGED' : 'CLEAR';
   };
 
-  const getEntityTypeLabel = () => {
-    // Demo heuristic: institutional investors are treated as corporate entities; others as individuals.
-    return applicant.type === 'INSTITUTIONAL' ? 'Corporate Entity' : 'Individual';
-  };
-
   const getCountryLabel = () => {
     const raw = (applicant.location || '').trim();
     if (!raw) return '—';
@@ -101,8 +96,6 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
                 { label: 'Legal name', value: applicant.fullName },
                 { label: 'Email', value: applicant.email },
                 { label: 'Contact Number', value: applicant.phoneNumber || 'Not provided' },
-                { label: 'Entity type', value: getEntityTypeLabel() },
-                { label: 'Investor classification', value: applicant.type },
                 { label: 'Country', value: getCountryLabel() },
                 { label: 'Registration ID', value: applicant.id },
                 { label: 'Submission date', value: applicant.submissionDate },
