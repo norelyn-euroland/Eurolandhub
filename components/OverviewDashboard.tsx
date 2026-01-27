@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Applicant, RegistrationStatus, InvestorType } from '../lib/types';
+import { Applicant, RegistrationStatus } from '../lib/types';
 import Tooltip from './Tooltip';
 import Chart from 'react-apexcharts';
 import HoldingsSummary from './HoldingsSummary';
@@ -80,8 +80,8 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
   }, []);
 
   // Calculate data from actual applicants
-  const registeredWithHoldings = applicants.filter(a => a.declaration.isShareholder).length;
-  const registeredNoHoldings = applicants.filter(a => !a.declaration.isShareholder).length;
+  const registeredWithHoldings = applicants.filter(a => a.holdingsRecord !== undefined).length;
+  const registeredNoHoldings = applicants.filter(a => a.holdingsRecord === undefined).length;
   const totalRegistered = applicants.length;
   
   // Guest users: 13% of total users (demo data)
@@ -406,24 +406,12 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
     }
   }, [selectedInvestor]);
 
-  // Helper function to extract only the holdings number from shareholdingDetails
-  const extractHoldingsNumber = (shareholdingDetails: string | undefined): string => {
-    if (!shareholdingDetails) return 'Pending Disclosure';
-    
-    // Extract the number before "shares" (e.g., "8,319,668 shares (28.41% stake)" -> "8,319,668")
-    const match = shareholdingDetails.match(/^([\d,]+)\s+shares/);
-    if (match && match[1]) {
-      return match[1];
-    }
-    return shareholdingDetails;
-  };
-
   const engagedInvestors = applicants.map((a, i) => ({
     ...a,
     rank: i + 1,
     engagementScore: 98 - (i * 3),
-    holdingsDisplay: a.status === RegistrationStatus.APPROVED && a.declaration.isShareholder 
-      ? extractHoldingsNumber(a.declaration.shareholdingDetails)
+    holdingsDisplay: a.status === RegistrationStatus.APPROVED && a.holdingsRecord
+      ? a.holdingsRecord.sharesHeld.toLocaleString()
       : 'Pending Disclosure'
   }));
 
@@ -438,7 +426,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
           <Avatar name={selectedInvestor.fullName} size={80} />
           <div>
             <h2 className="text-3xl font-black text-neutral-900 uppercase tracking-tighter">{selectedInvestor.fullName}</h2>
-            <p className="text-neutral-400 text-xs font-bold uppercase tracking-widest mt-1">Verified {selectedInvestor.type} Class</p>
+            <p className="text-neutral-400 text-xs font-bold uppercase tracking-widest mt-1">Verified Investor</p>
           </div>
         </div>
         
@@ -591,7 +579,6 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                         <Tooltip content={investor.fullName}>
                           <p className="text-sm font-black text-neutral-900 uppercase tracking-tight truncate max-w-[200px]">{investor.fullName}</p>
                         </Tooltip>
-                        <p className="text-[9px] text-neutral-400 font-bold uppercase">{investor.type}</p>
                       </div>
                     </div>
                   </td>

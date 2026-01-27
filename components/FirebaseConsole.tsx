@@ -114,8 +114,7 @@ const FirebaseConsole: React.FC = () => {
           id: doc.id,
           fullName: doc.data().fullName,
           email: doc.data().email,
-          status: doc.data().status,
-          type: doc.data().type
+          status: doc.data().status
         })).slice(0, 5)
       });
     } catch (error: any) {
@@ -346,7 +345,6 @@ const FirebaseConsole: React.FC = () => {
                         <p className="font-bold text-neutral-900">{doc.fullName || doc.id}</p>
                         <p className="text-neutral-600">Email: {doc.email || 'N/A'}</p>
                         <p className="text-neutral-600">Status: {doc.status || 'N/A'}</p>
-                        <p className="text-neutral-600">Type: {doc.type || 'N/A'}</p>
                       </div>
                     ))}
                   </div>

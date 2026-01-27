@@ -1,27 +1,12 @@
-import { Applicant, RegistrationStatus, InvestorType, HoldingsRecord } from './types';
+import { Applicant, RegistrationStatus, HoldingsRecord } from './types';
 import { MOCK_SHAREHOLDERS } from './mockShareholders';
-
-/**
- * Helper function to extract shares and ownership from shareholdingDetails string
- * Format: "8,319,668 shares (28.41% stake)"
- */
-function parseShareholdingDetails(details: string): { shares: number; ownership: number } | null {
-  const sharesMatch = details.match(/([\d,]+)\s+shares/);
-  const ownershipMatch = details.match(/\(([\d.]+)%\s+stake\)/);
-  
-  if (!sharesMatch || !ownershipMatch) return null;
-  
-  const shares = parseInt(sharesMatch[1].replace(/,/g, ''), 10);
-  const ownership = parseFloat(ownershipMatch[1]);
-  
-  return { shares, ownership };
-}
+import { ensureWorkflow, setWantsVerification, submitShareholdingInfo, recordManualReview, sendVerificationCode } from './shareholdingsVerification';
 
 /**
  * Create HoldingsRecord for an applicant if they are a verified shareholder
  */
 function createHoldingsRecord(applicant: Applicant): HoldingsRecord | undefined {
-  if (applicant.status !== RegistrationStatus.APPROVED || !applicant.declaration.isShareholder) {
+  if (applicant.status !== RegistrationStatus.APPROVED) {
     return undefined;
   }
   
@@ -29,50 +14,28 @@ function createHoldingsRecord(applicant: Applicant): HoldingsRecord | undefined 
   const shareholder = MOCK_SHAREHOLDERS.find(sh => sh.id === applicant.id);
   if (!shareholder) return undefined;
   
-  // Parse shareholding details or use shareholder data
-  let sharesHeld = shareholder.holdings;
-  let ownershipPercentage = shareholder.stake;
-  
-  if (applicant.declaration.shareholdingDetails) {
-    const parsed = parseShareholdingDetails(applicant.declaration.shareholdingDetails);
-    if (parsed) {
-      sharesHeld = parsed.shares;
-      ownershipPercentage = parsed.ownership;
-    }
-  }
-  
   return {
     companyId: shareholder.id,
     companyName: shareholder.name,
-    sharesHeld,
-    ownershipPercentage,
+    sharesHeld: shareholder.holdings,
+    ownershipPercentage: shareholder.stake,
     sharesClass: shareholder.accountType,
     registrationDate: applicant.submissionDate,
   };
 }
 
-export const MOCK_APPLICANTS: Applicant[] = [
+const BASE_APPLICANTS: Applicant[] = [
   {
     id: '201200512',
     fullName: 'Juan Carlos Dela Cruz',
     email: 'juan.delacruz@smcorp.com',
     phoneNumber: '+63 2 8888 1234',
     location: 'Pasay City, Philippines',
-    type: InvestorType.INSTITUTIONAL,
     submissionDate: '2024-01-15',
     lastActive: '2 hours ago',
     status: RegistrationStatus.APPROVED,
     idDocumentUrl: 'https://picsum.photos/seed/m1/600/400',
     taxDocumentUrl: 'https://picsum.photos/seed/t1/600/400',
-    declaration: {
-      netWorth: '$10M+',
-      annualIncome: '$1.5M+',
-      isPEP: false,
-      sourceOfWealth: 'Corporate Holdings & Investments',
-      investmentExperience: 'Institutional portfolio management.',
-      isShareholder: true,
-      shareholdingDetails: '8,319,668 shares (28.41% stake)'
-    },
     holdingsRecord: undefined // Will be set below
   },
   {
@@ -81,21 +44,11 @@ export const MOCK_APPLICANTS: Applicant[] = [
     email: 'maria.ayala@ayalacorp.com',
     phoneNumber: '+63 2 8888 5678',
     location: 'Makati City, Philippines',
-    type: InvestorType.INSTITUTIONAL,
     submissionDate: '2024-01-18',
     lastActive: '5 hours ago',
     status: RegistrationStatus.APPROVED,
     idDocumentUrl: 'https://picsum.photos/seed/m2/600/400',
     taxDocumentUrl: 'https://picsum.photos/seed/t2/600/400',
-    declaration: {
-      netWorth: '$5M - $10M',
-      annualIncome: '$800k+',
-      isPEP: false,
-      sourceOfWealth: 'Family Business & Real Estate',
-      investmentExperience: 'Long-term equity investor.',
-      isShareholder: true,
-      shareholdingDetails: '3,632,265 shares (12.40% stake)'
-    },
     holdingsRecord: undefined // Will be set below
   },
   {
@@ -104,21 +57,11 @@ export const MOCK_APPLICANTS: Applicant[] = [
     email: 'roberto.sanmiguel@sanmiguel.com',
     phoneNumber: '+63 2 8888 9012',
     location: 'Mandaluyong City, Philippines',
-    type: InvestorType.INSTITUTIONAL,
     submissionDate: '2024-01-20',
     lastActive: '1 day ago',
     status: RegistrationStatus.APPROVED,
     idDocumentUrl: 'https://picsum.photos/seed/m3/600/400',
     taxDocumentUrl: 'https://picsum.photos/seed/t3/600/400',
-    declaration: {
-      netWorth: '$3M - $5M',
-      annualIncome: '$600k',
-      isPEP: false,
-      sourceOfWealth: 'Corporate Dividends & Investments',
-      investmentExperience: 'Diversified institutional holder.',
-      isShareholder: true,
-      shareholdingDetails: '2,038,782 shares (6.96% stake)'
-    },
     holdingsRecord: undefined // Will be set below
   },
   {
@@ -127,21 +70,11 @@ export const MOCK_APPLICANTS: Applicant[] = [
     email: 'ana.tan@jollibee.com',
     phoneNumber: '+63 2 8888 3456',
     location: 'Ortigas Center, Philippines',
-    type: InvestorType.ACCREDITED,
     submissionDate: '2024-01-22',
     lastActive: '2 days ago',
     status: RegistrationStatus.APPROVED,
     idDocumentUrl: 'https://picsum.photos/seed/m4/600/400',
     taxDocumentUrl: 'https://picsum.photos/seed/t4/600/400',
-    declaration: {
-      netWorth: '$2M - $3M',
-      annualIncome: '$450k',
-      isPEP: false,
-      sourceOfWealth: 'Business Operations & Franchising',
-      investmentExperience: 'Active equity investor.',
-      isShareholder: true,
-      shareholdingDetails: '1,555,760 shares (5.31% stake)'
-    },
     holdingsRecord: undefined // Will be set below
   },
   {
@@ -150,21 +83,11 @@ export const MOCK_APPLICANTS: Applicant[] = [
     email: 'fernando.reyes@bdo.com.ph',
     phoneNumber: '+63 2 8888 7890',
     location: 'Makati City, Philippines',
-    type: InvestorType.ACCREDITED,
     submissionDate: '2024-02-01',
     lastActive: '3 days ago',
     status: RegistrationStatus.PENDING,
     idDocumentUrl: 'https://picsum.photos/seed/m5/600/400',
     taxDocumentUrl: 'https://picsum.photos/seed/t5/600/400',
-    declaration: {
-      netWorth: '$1M - $2M',
-      annualIncome: '$300k',
-      isPEP: false,
-      sourceOfWealth: 'Banking & Financial Services',
-      investmentExperience: 'Professional investor.',
-      isShareholder: true,
-      shareholdingDetails: '1,245,678 shares (4.26% stake)'
-    }
   },
   {
     id: '201201567',
@@ -172,21 +95,11 @@ export const MOCK_APPLICANTS: Applicant[] = [
     email: 'cristina.villanueva@metrobank.com',
     phoneNumber: '+63 2 8888 2468',
     location: 'Makati City, Philippines',
-    type: InvestorType.ACCREDITED,
     submissionDate: '2024-02-05',
     lastActive: '4 days ago',
     status: RegistrationStatus.PENDING,
     idDocumentUrl: 'https://picsum.photos/seed/m6/600/400',
     taxDocumentUrl: 'https://picsum.photos/seed/t6/600/400',
-    declaration: {
-      netWorth: '$800k - $1M',
-      annualIncome: '$250k',
-      isPEP: false,
-      sourceOfWealth: 'Financial Services & Investments',
-      investmentExperience: 'Moderate experience.',
-      isShareholder: true,
-      shareholdingDetails: '1,123,456 shares (3.84% stake)'
-    }
   },
   {
     id: '201201890',
@@ -194,20 +107,11 @@ export const MOCK_APPLICANTS: Applicant[] = [
     email: 'miguel.santos@bpi.com',
     phoneNumber: '+63 2 8888 1357',
     location: 'Makati City, Philippines',
-    type: InvestorType.RETAIL,
     submissionDate: '2024-02-08',
     lastActive: '5 days ago',
     status: RegistrationStatus.PENDING,
     idDocumentUrl: 'https://picsum.photos/seed/m7/600/400',
     taxDocumentUrl: 'https://picsum.photos/seed/t7/600/400',
-    declaration: {
-      netWorth: '$500k - $800k',
-      annualIncome: '$180k',
-      isPEP: false,
-      sourceOfWealth: 'Employment & Savings',
-      investmentExperience: 'Active retail investor.',
-      isShareholder: false
-    }
   },
   {
     id: '201202123',
@@ -215,20 +119,11 @@ export const MOCK_APPLICANTS: Applicant[] = [
     email: 'lourdes.mendoza@pldt.com',
     phoneNumber: '+63 2 8888 9753',
     location: 'Makati City, Philippines',
-    type: InvestorType.RETAIL,
     submissionDate: '2024-02-10',
     lastActive: '1 week ago',
     status: RegistrationStatus.FURTHER_INFO,
     idDocumentUrl: 'https://picsum.photos/seed/m8/600/400',
     taxDocumentUrl: 'https://picsum.photos/seed/t8/600/400',
-    declaration: {
-      netWorth: '$250k - $500k',
-      annualIncome: '$120k',
-      isPEP: false,
-      sourceOfWealth: 'Telecommunications Industry',
-      investmentExperience: 'New to equity markets.',
-      isShareholder: false
-    }
   },
   {
     id: '201202456',
@@ -236,20 +131,11 @@ export const MOCK_APPLICANTS: Applicant[] = [
     email: 'ricardo.lim@globe.com.ph',
     phoneNumber: '+63 2 8888 8642',
     location: 'Taguig City, Philippines',
-    type: InvestorType.RETAIL,
     submissionDate: '2024-02-12',
     lastActive: '1 week ago',
     status: RegistrationStatus.REJECTED,
     idDocumentUrl: 'https://picsum.photos/seed/m9/600/400',
     taxDocumentUrl: 'https://picsum.photos/seed/t9/600/400',
-    declaration: {
-      netWorth: '$200k - $400k',
-      annualIncome: '$95k',
-      isPEP: false,
-      sourceOfWealth: 'Employment',
-      investmentExperience: 'Limited experience.',
-      isShareholder: false
-    }
   },
   {
     id: '201202789',
@@ -257,27 +143,143 @@ export const MOCK_APPLICANTS: Applicant[] = [
     email: 'isabella.garcia@megaworld.com',
     phoneNumber: '+63 2 8888 7531',
     location: 'Bonifacio Global City, Philippines',
-    type: InvestorType.ACCREDITED,
     submissionDate: '2024-02-15',
     lastActive: '2 weeks ago',
     status: RegistrationStatus.APPROVED,
     idDocumentUrl: 'https://picsum.photos/seed/m10/600/400',
     taxDocumentUrl: 'https://picsum.photos/seed/t10/600/400',
-    declaration: {
-      netWorth: '$1.5M - $2M',
-      annualIncome: '$350k',
-      isPEP: true,
-      sourceOfWealth: 'Real Estate Development',
-      investmentExperience: 'Property and equity investor.',
-      isShareholder: true,
-      shareholdingDetails: '654,321 shares (2.23% stake)'
-    },
     holdingsRecord: undefined // Will be set below
+  },
+  {
+    id: '201203012',
+    fullName: 'Norelyn A. Golingan',
+    email: 'nor.golingan@gmail.com',
+    phoneNumber: '+63 953 810 6251',
+    location: 'Manila, Philippines',
+    submissionDate: '2024-02-20',
+    lastActive: 'Just now',
+    status: RegistrationStatus.PENDING,
+    idDocumentUrl: 'https://picsum.photos/seed/norelyn/600/400',
+    taxDocumentUrl: 'https://picsum.photos/seed/norelyn-tax/600/400',
   }
 ];
 
-// Add holdingsRecord to each applicant
-MOCK_APPLICANTS.forEach(applicant => {
-  (applicant as Applicant).holdingsRecord = createHoldingsRecord(applicant);
+export const MOCK_APPLICANTS: Applicant[] = BASE_APPLICANTS.map((a) => {
+  // Preserve the existing holdingsRecord demo behavior
+  const withHoldingsRecord: Applicant = { ...a, holdingsRecord: createHoldingsRecord(a) };
+
+  // Step 1: ensure workflow object exists on all users (admin-only demo)
+  let next = ensureWorkflow(withHoldingsRecord);
+
+  // Seed scenarios for Steps 1–5 (Step 6 deferred) to demonstrate all workflow statuses:
+  switch (next.id) {
+    // Scenario 1: Step 1 decision: No (Unverified - didn't want to verify)
+    case '201201890': { // Miguel Santos
+      next = setWantsVerification(next, false);
+      break;
+    }
+
+    // Scenario 2: Step 1: Yes, but no Step 2 submission yet (Registration Pending)
+    case '201202123': { // Lourdes Mendoza (PLDT)
+      next = setWantsVerification(next, true);
+      // No Step 2 submission - user agreed but hasn't submitted info yet
+      break;
+    }
+
+    // Scenario 3: Step 1: Yes + Step 2: Submitted + Step 3: Auto check passed (Awaiting IRO Review)
+    // Event-driven: submitShareholdingInfo automatically runs Step 3 verification
+    case '201201234': { // Fernando Reyes (BDO) - matching record
+      next = setWantsVerification(next, true);
+      next = submitShareholdingInfo(next, {
+        shareholdingsId: '201201234',
+        companyName: 'BDO UNIBANK INC.',
+        country: 'Philippines',
+      }, MOCK_SHAREHOLDERS); // Pass shareholders for automatic verification
+      break;
+    }
+
+    // Scenario 4: Step 1: Yes + Step 2: Submitted + Step 3: Auto check failed (Auto Check Failed)
+    // Event-driven: submitShareholdingInfo automatically runs Step 3 verification
+    case '201201567': { // Cristina Villanueva (Metrobank) - wrong company name
+      next = setWantsVerification(next, true);
+      next = submitShareholdingInfo(next, {
+        shareholdingsId: '201201567',
+        companyName: 'METROBANKK', // intentional mismatch
+        country: 'Philippines',
+      }, MOCK_SHAREHOLDERS); // Pass shareholders for automatic verification
+      break;
+    }
+
+    // Scenario 5: Step 1-3: Passed + Step 4: IRO approved + Step 5: Code sent (Code Sent)
+    // Event-driven: submitShareholdingInfo automatically runs Step 3 verification
+    case '201199876': { // Ana Patricia Tan (Jollibee)
+      next = setWantsVerification(next, true);
+      next = submitShareholdingInfo(next, {
+        shareholdingsId: '201199876',
+        companyName: 'JOLLIBEE FOODS CORPORATION',
+        country: 'Philippines',
+      }, MOCK_SHAREHOLDERS); // Pass shareholders for automatic verification
+      next = recordManualReview(next, true); // IRO approved
+      next = sendVerificationCode(next, 'EMAIL', 'https://eurolandhub.com/login');
+      break;
+    }
+
+    // Scenario 6: Step 1-3: Failed 3 times (Locked 7 Days)
+    // Event-driven: submitShareholdingInfo automatically runs Step 3 verification
+    // For demo, we manually trigger 3 failed attempts to show lockout state
+    case '201202456': { // Ricardo Lim (Globe) - will be locked
+      next = setWantsVerification(next, true);
+      // First submission (will fail)
+      next = submitShareholdingInfo(next, {
+        shareholdingsId: '201202456',
+        companyName: 'WRONG COMPANY NAME', // intentional mismatch
+        country: 'Philippines',
+      }, MOCK_SHAREHOLDERS);
+      // Simulate 2 more failed attempts to reach lockout threshold
+      if (next.shareholdingsVerification) {
+        const now = new Date().toISOString();
+        const lockedUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        next = {
+          ...next,
+          shareholdingsVerification: {
+            ...next.shareholdingsVerification,
+            step3: {
+              ...next.shareholdingsVerification.step3,
+              failedAttempts: 3, // Total of 3 failed attempts
+              lockedUntil,
+            },
+          },
+        };
+      }
+      break;
+    }
+
+    // Scenario 7: Step 1-3: Passed + Step 4: IRO review pending (Awaiting IRO Review)
+    // Event-driven: submitShareholdingInfo automatically runs Step 3 verification
+    case '201202388': { // Maria Consuelo Ayala (Ayala Corporation)
+      next = setWantsVerification(next, true);
+      next = submitShareholdingInfo(next, {
+        shareholdingsId: '201202388',
+        companyName: 'AYALA CORPORATION',
+        country: 'Philippines',
+      }, MOCK_SHAREHOLDERS); // Pass shareholders for automatic verification
+      // Step 4 not done yet - awaiting IRO review
+      break;
+    }
+
+    // Scenario 8: Step 1: Yes, but no Step 2 submission yet (Registration Pending) - Norelyn A. Golingan
+    case '201203012': { // Norelyn A. Golingan
+      next = setWantsVerification(next, true);
+      // No Step 2 submission - user agreed but hasn't submitted info yet
+      break;
+    }
+
+    default:
+      // For other users, ensure they have workflow but don't force any specific state
+      // They'll show as "Not Started" or default states
+      break;
+  }
+
+  return next;
 });
 

@@ -12,16 +12,6 @@ export enum InvestorType {
   INSTITUTIONAL = 'INSTITUTIONAL'
 }
 
-export interface SelfDeclaration {
-  netWorth: string;
-  annualIncome: string;
-  isPEP: boolean; // Politically Exposed Person
-  sourceOfWealth: string;
-  investmentExperience: string;
-  isShareholder: boolean;
-  shareholdingDetails?: string;
-}
-
 export interface Applicant {
   id: string;
   fullName: string;
@@ -31,7 +21,6 @@ export interface Applicant {
   status: RegistrationStatus;
   idDocumentUrl: string;
   taxDocumentUrl: string;
-  declaration: SelfDeclaration;
 }
 
 export interface AIAnalysisResult {

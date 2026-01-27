@@ -40,7 +40,32 @@ const timestampToString = (timestamp: any): string => {
 };
 
 /**
- * Convert Applicant data for Firestore (handles dates)
+ * Recursively remove undefined values from an object (Firestore doesn't allow undefined)
+ */
+const removeUndefined = (obj: any): any => {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+  
+  if (Array.isArray(obj)) {
+    return obj.map(removeUndefined).filter(item => item !== undefined);
+  }
+  
+  if (typeof obj === 'object' && obj.constructor === Object) {
+    const cleaned: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value !== undefined) {
+        cleaned[key] = removeUndefined(value);
+      }
+    }
+    return cleaned;
+  }
+  
+  return obj;
+};
+
+/**
+ * Convert Applicant data for Firestore (handles dates and removes undefined values)
  */
 const applicantToFirestore = (applicant: Applicant): DocumentData => {
   // Parse date string (format: YYYY-MM-DD) to Date object
@@ -51,10 +76,12 @@ const applicantToFirestore = (applicant: Applicant): DocumentData => {
     parseInt(dateParts[2])
   );
   
+  // Remove undefined values recursively (Firestore doesn't allow undefined)
+  const cleaned = removeUndefined(applicant);
+  
   return {
-    ...applicant,
+    ...cleaned,
     submissionDate: Timestamp.fromDate(date),
-    // Keep other fields as-is
   };
 };
 
@@ -97,7 +124,6 @@ export const applicantService = {
    */
   async getAll(filters?: {
     status?: RegistrationStatus;
-    type?: string;
     limitCount?: number;
   }): Promise<Applicant[]> {
     try {
@@ -105,10 +131,6 @@ export const applicantService = {
       
       if (filters?.status) {
         constraints.push(where('status', '==', filters.status));
-      }
-      
-      if (filters?.type) {
-        constraints.push(where('type', '==', filters.type));
       }
       
       constraints.push(orderBy('submissionDate', 'desc'));
@@ -147,7 +169,9 @@ export const applicantService = {
   async update(applicantId: string, updates: Partial<Applicant>): Promise<void> {
     try {
       const docRef = doc(db, COLLECTIONS.APPLICANTS, applicantId);
-      const updateData: any = { ...updates };
+      
+      // Remove undefined values recursively (Firestore doesn't allow undefined)
+      const updateData = removeUndefined(updates);
       
       // Handle date conversion if submissionDate is being updated
       if (updates.submissionDate) {

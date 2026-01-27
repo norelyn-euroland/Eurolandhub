@@ -21,8 +21,6 @@ const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({ applicants })
     const summaryData = applicants.map(a => ({
       name: a.fullName,
       status: a.status,
-      type: a.type,
-      pep: a.declaration.isPEP
     }));
 
     const prompt = `
@@ -30,7 +28,7 @@ const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({ applicants })
       ${JSON.stringify(summaryData)}
       
       Provide a brief (3-4 sentence) monotone, professional "Regulatory Risk Outlook" for this portfolio. 
-      Focus on PEP flags and verification progress. Do not use markdown formatting or bold text.
+      Focus on verification progress and compliance status. Do not use markdown formatting or bold text.
     `;
 
     try {
@@ -46,7 +44,7 @@ const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({ applicants })
     }
   };
 
-  const highRiskCount = applicants.filter(a => a.declaration.isPEP).length;
+  const highRiskCount = applicants.filter(a => a.status === RegistrationStatus.PENDING).length;
   const pendingRate = (applicants.filter(a => a.status === RegistrationStatus.PENDING).length / applicants.length) * 100;
 
   return (
@@ -133,7 +131,7 @@ const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({ applicants })
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100">
-            {applicants.filter(a => a.declaration.isPEP || a.status === RegistrationStatus.PENDING).map((a) => (
+            {applicants.filter(a => a.status === RegistrationStatus.PENDING).map((a) => (
               <tr key={a.id} className="hover:bg-neutral-50 transition-colors">
                 <td className="px-8 py-5">
                   <Tooltip content={a.id}>
@@ -141,8 +139,8 @@ const ComplianceDashboard: React.FC<ComplianceDashboardProps> = ({ applicants })
                   </Tooltip>
                 </td>
                 <td className="px-8 py-5">
-                  <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${a.declaration.isPEP ? 'bg-red-50 text-red-700 border border-red-100' : 'bg-neutral-100 text-neutral-600'}`}>
-                    {a.declaration.isPEP ? 'POLITICAL EXPOSURE' : 'IDENTITY PENDING'}
+                  <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-neutral-100 text-neutral-600">
+                    IDENTITY PENDING
                   </span>
                 </td>
                 <td className="px-8 py-5">

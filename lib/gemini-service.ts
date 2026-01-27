@@ -8,19 +8,15 @@ export const analyzeApplicant = async (applicant: Applicant) => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
-    Analyze the following investor self-declaration and profile for potential risks or inconsistencies.
-    Compare their claimed income/net worth with their self-described investment experience and source of wealth.
+    Analyze the following investor profile for potential risks or inconsistencies.
     
     Investor Profile:
     - Name: ${applicant.fullName}
-    - Type: ${applicant.type}
-    - Annual Income: ${applicant.declaration.annualIncome}
-    - Net Worth: ${applicant.declaration.netWorth}
-    - Source of Wealth: ${applicant.declaration.sourceOfWealth}
-    - Investment Experience: ${applicant.declaration.investmentExperience}
-    - PEP Status: ${applicant.declaration.isPEP ? 'Politically Exposed Person' : 'No'}
-    - Shareholder: ${applicant.declaration.isShareholder ? 'Yes' : 'No'}
-    - Shareholding Details: ${applicant.declaration.shareholdingDetails || 'N/A'}
+    - Email: ${applicant.email}
+    - Location: ${applicant.location || 'Not provided'}
+    - Status: ${applicant.status}
+    - Submission Date: ${applicant.submissionDate}
+    - Holdings Record: ${applicant.holdingsRecord ? `Yes - ${applicant.holdingsRecord.sharesHeld} shares` : 'No'}
 
     Return a JSON response evaluating:
     1. A risk score from 0-100 (100 being highest risk).

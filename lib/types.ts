@@ -6,12 +6,6 @@ export enum RegistrationStatus {
   FURTHER_INFO = 'FURTHER_INFO'
 }
 
-export enum InvestorType {
-  RETAIL = 'RETAIL',
-  ACCREDITED = 'ACCREDITED',
-  INSTITUTIONAL = 'INSTITUTIONAL'
-}
-
 export enum AccountType {
   INDIVIDUAL = 'INDIVIDUAL',
   JOINT = 'JOINT',
@@ -20,18 +14,60 @@ export enum AccountType {
   ORDINARY = 'ORDINARY'
 }
 
+export type ShareholdingsVerificationChannel = 'EMAIL' | 'SMS';
+export type ShareholdingsVerificationMatchResult = 'MATCH' | 'NO_MATCH';
+
+export interface ShareholdingsVerificationStep1 {
+  firstName: string;
+  lastName: string;
+  email: string;
+  contactNumber: string;
+  authProvider: 'GOOGLE';
+  wantsVerification?: boolean;
+}
+
+export interface ShareholdingsVerificationStep2 {
+  shareholdingsId: string;
+  companyName: string;
+  country?: string;
+  submittedAt: string; // ISO string
+}
+
+export interface ShareholdingsVerificationStep3 {
+  lastResult?: ShareholdingsVerificationMatchResult;
+  failedAttempts: number;
+  lockedUntil?: string; // ISO string
+  lastCheckedAt?: string; // ISO string
+}
+
+export interface ShareholdingsVerificationStep4 {
+  lastResult?: ShareholdingsVerificationMatchResult;
+  failedAttempts: number;
+  lastReviewedAt?: string; // ISO string
+  verificationDeadlineAt?: string; // ISO string - 3 days from IRO approval
+}
+
+export interface ShareholdingsVerificationStep5 {
+  channel: ShareholdingsVerificationChannel;
+  code: string;
+  expiresAt: string; // ISO string
+  attemptsRemaining: number;
+  invalidatedAt?: string; // ISO string
+  resendAvailableAt?: string; // ISO string
+  messagePreview: string;
+  manuallySentAt?: string; // ISO string - tracks if manual send button was used (one-time only)
+}
+
+export interface ShareholdingsVerificationState {
+  step1: ShareholdingsVerificationStep1;
+  step2?: ShareholdingsVerificationStep2;
+  step3: ShareholdingsVerificationStep3;
+  step4: ShareholdingsVerificationStep4;
+  step5?: ShareholdingsVerificationStep5;
+}
+
 // @google/genai guidelines: Define a shared ViewType for navigation consistency
 export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders' | 'compliance' | 'firebase';
-
-export interface SelfDeclaration {
-  netWorth: string;
-  annualIncome: string;
-  isPEP: boolean;
-  sourceOfWealth: string;
-  investmentExperience: string;
-  isShareholder: boolean;
-  shareholdingDetails?: string;
-}
 
 export interface HoldingsDataPoint {
   timestamp: string; // ISO string
@@ -67,14 +103,13 @@ export interface Applicant {
   email: string;
   phoneNumber?: string;
   location?: string;
-  type: InvestorType;
   submissionDate: string;
   lastActive: string;
   status: RegistrationStatus;
   idDocumentUrl: string;
   taxDocumentUrl: string;
-  declaration: SelfDeclaration;
   holdingsRecord?: HoldingsRecord; // Optional, only for verified shareholders
+  shareholdingsVerification?: ShareholdingsVerificationState;
 }
 
 export interface Shareholder {

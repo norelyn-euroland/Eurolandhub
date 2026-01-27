@@ -4,7 +4,6 @@ import { applicantService } from '../lib/firestore-service';
 
 interface UseApplicantsOptions {
   status?: RegistrationStatus;
-  type?: string;
   limitCount?: number;
   autoFetch?: boolean;
 }
@@ -23,7 +22,6 @@ export const useApplicants = (options: UseApplicantsOptions = { autoFetch: true 
     try {
       const data = await applicantService.getAll({
         status: options.status,
-        type: options.type,
         limitCount: options.limitCount
       });
       setApplicants(data);
@@ -33,7 +31,7 @@ export const useApplicants = (options: UseApplicantsOptions = { autoFetch: true 
     } finally {
       setLoading(false);
     }
-  }, [options.status, options.type, options.limitCount]);
+  }, [options.status, options.limitCount]);
 
   useEffect(() => {
     if (options.autoFetch !== false) {
@@ -92,4 +90,5 @@ export const useApplicants = (options: UseApplicantsOptions = { autoFetch: true 
     deleteApplicant
   };
 };
+
 

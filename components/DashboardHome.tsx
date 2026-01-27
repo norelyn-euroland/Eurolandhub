@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Applicant, RegistrationStatus, InvestorType } from '../lib/types';
+import { Applicant, RegistrationStatus, ShareholdingsVerificationState } from '../lib/types';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import Tooltip from './Tooltip';
@@ -88,17 +88,19 @@ const StatusBadge: React.FC<{ status: RegistrationStatus }> = ({ status }) => {
               <path d="m9 12 2 2 4-4"></path>
             </svg>
           ),
-          label: 'Accepted'
+          label: 'Verify'
         };
       case RegistrationStatus.PENDING:
         return {
-          container: 'bg-[#FEF3E7] text-[#9A3412] border-[#FDE0C3]',
+          container: 'bg-indigo-50 text-indigo-700 border-indigo-100',
           icon: (
             <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
             </svg>
           ),
-          label: 'Unverified'
+          label: 'Pending'
         };
       case RegistrationStatus.REJECTED:
         return {
@@ -110,7 +112,7 @@ const StatusBadge: React.FC<{ status: RegistrationStatus }> = ({ status }) => {
               <line x1="9" y1="9" x2="15" y2="15"></line>
             </svg>
           ),
-          label: 'Unverified'
+          label: 'Unverify'
         };
       case RegistrationStatus.FURTHER_INFO:
         return {
@@ -141,19 +143,13 @@ const StatusBadge: React.FC<{ status: RegistrationStatus }> = ({ status }) => {
 
 const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tabRequest }) => {
   const [activeTab, setActiveTab] = useState<TabType>('ALL');
-  const [typeFilter, setTypeFilter] = useState<InvestorType | 'ALL'>('ALL');
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   
-  const filterRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
 
   // Close dropdowns on click outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
-        setIsFilterOpen(false);
-      }
       if (exportRef.current && !exportRef.current.contains(event.target as Node)) {
         setIsExportOpen(false);
       }
@@ -175,11 +171,8 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
       (activeTab === 'PENDING' && (applicant.status === RegistrationStatus.PENDING || applicant.status === RegistrationStatus.REJECTED)) ||
       (activeTab === 'VERIFIED' && applicant.status === RegistrationStatus.APPROVED) ||
       (activeTab === 'NON_VERIFIED' && applicant.status === RegistrationStatus.FURTHER_INFO);
-    
-    // Type Filter
-    const matchesType = typeFilter === 'ALL' || applicant.type === typeFilter;
 
-    return matchesTab && matchesType;
+    return matchesTab;
   });
 
   const tabs: { id: TabType; label: string }[] = [
@@ -190,20 +183,92 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
   ];
 
   const getStatusLabel = (s: RegistrationStatus) => {
-    if (s === RegistrationStatus.APPROVED) return 'Accepted';
+    if (s === RegistrationStatus.APPROVED) return 'Verify';
     if (s === RegistrationStatus.FURTHER_INFO) return 'Pending';
-    // Treat both PENDING and REJECTED as Unverified in the UI.
-    if (s === RegistrationStatus.PENDING || s === RegistrationStatus.REJECTED) return 'Unverified';
+    if (s === RegistrationStatus.REJECTED) return 'Unverify';
+    if (s === RegistrationStatus.PENDING) return 'Pending';
     return s;
   };
 
+  // Helper function to get workflow status from shareholdingsVerification state
+  const getWorkflowStatus = (applicant: Applicant): { label: string; color: string; bgColor: string } => {
+    const wf = applicant.shareholdingsVerification;
+    
+    if (!wf) {
+      return { label: 'Not Started', color: 'text-neutral-500', bgColor: 'bg-neutral-100' };
+    }
+
+    // UNVERIFIED: User declined shareholdings verification
+    if (wf.step1.wantsVerification === false) {
+      return { label: 'UNVERIFIED', color: 'text-[#9A3412]', bgColor: 'bg-[#FEF3E7]' };
+    }
+
+    // REGISTRATION_PENDING: User agreed but hasn't submitted Step 2
+    if (wf.step1.wantsVerification === true && !wf.step2) {
+      return { label: 'REGISTRATION_PENDING', color: 'text-indigo-700', bgColor: 'bg-indigo-50' };
+    }
+
+    // LOCKED_7_DAYS: Locked after 3 failed attempts
+    if (wf.step3.lockedUntil) {
+      const lockedUntil = new Date(wf.step3.lockedUntil);
+      if (lockedUntil.getTime() > Date.now()) {
+        return { label: 'LOCKED_7_DAYS', color: 'text-red-700', bgColor: 'bg-red-50' };
+      }
+    }
+
+    // AUTO_CHECK_FAILED: Failed Step 3 but not locked yet
+    if (wf.step3.lastResult === 'NO_MATCH' && (!wf.step3.lockedUntil || new Date(wf.step3.lockedUntil).getTime() <= Date.now())) {
+      return { label: 'AUTO_CHECK_FAILED', color: 'text-orange-700', bgColor: 'bg-orange-50' };
+    }
+
+    // Step 3: Auto check passed
+    if (wf.step3.lastResult === 'MATCH') {
+      // AWAITING_IRO_REVIEW: Step 3 passed, waiting for IRO review
+      if (!wf.step4.lastResult) {
+        return { label: 'AWAITING_IRO_REVIEW', color: 'text-purple-700', bgColor: 'bg-purple-50' };
+      }
+      
+      // Step 4: IRO review passed
+      if (wf.step4.lastResult === 'MATCH') {
+        // CODE_SENT: Code sent, waiting for user to enter
+        if (wf.step5) {
+          // Check if code is still valid (not invalidated and not expired)
+          const expiresAt = new Date(wf.step5.expiresAt);
+          const isExpired = expiresAt.getTime() <= Date.now();
+          const isInvalidated = wf.step5.invalidatedAt && new Date(wf.step5.invalidatedAt).getTime() <= Date.now();
+          
+          if (!isExpired && !isInvalidated && wf.step5.attemptsRemaining > 0) {
+            return { label: 'CODE_SENT', color: 'text-blue-700', bgColor: 'bg-blue-50' };
+          }
+          // Code expired - treat as UNVERIFIED
+          return { label: 'UNVERIFIED', color: 'text-neutral-500', bgColor: 'bg-neutral-100' };
+        }
+        // Awaiting code to be sent
+        return { label: 'AWAITING_IRO_REVIEW', color: 'text-indigo-700', bgColor: 'bg-indigo-50' };
+      }
+      
+      // Step 4: IRO review failed - treat as UNVERIFIED
+      if (wf.step4.lastResult === 'NO_MATCH') {
+        return { label: 'UNVERIFIED', color: 'text-orange-700', bgColor: 'bg-orange-50' };
+      }
+    }
+    
+    // VERIFIED: Status is APPROVED (completed verification)
+    if (applicant.status === RegistrationStatus.APPROVED && wf.step5 && wf.step5.attemptsRemaining === 0) {
+      return { label: 'VERIFIED', color: 'text-green-700', bgColor: 'bg-green-50' };
+    }
+
+    // Default fallback
+    return { label: 'In Progress', color: 'text-neutral-600', bgColor: 'bg-neutral-100' };
+  };
+
   const handleExportCSV = () => {
-    const headers = ['ID', 'Full Name', 'Email', 'Type', 'Submission Date', 'Last Active', 'Status'];
+    const headers = ['ID', 'Full Name', 'Email', 'Workflow Status', 'Submission Date', 'Last Active', 'IRO Status'];
     const csvRows = filteredData.map(a => [
       a.id,
       `"${a.fullName}"`,
       a.email,
-      a.type,
+      getWorkflowStatus(a).label,
       a.submissionDate,
       a.lastActive,
       getStatusLabel(a.status)
@@ -227,13 +292,13 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
     doc.setFontSize(10);
     doc.setTextColor(100);
     doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
-    doc.text(`Filter View: ${activeTab} | ${typeFilter}`, 14, 35);
+    doc.text(`Filter View: ${activeTab}`, 14, 35);
 
-    const tableHeaders = [['ID', 'NAME', 'TYPE', 'DATE', 'ACTIVE', 'STATUS']];
+    const tableHeaders = [['ID', 'NAME', 'WORKFLOW STATUS', 'DATE', 'ACTIVE', 'IRO STATUS']];
     const tableData = filteredData.map(a => [
       a.id,
       a.fullName,
-      a.type,
+      getWorkflowStatus(a).label,
       a.submissionDate,
       a.lastActive,
       getStatusLabel(a.status)
@@ -277,36 +342,6 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-black text-neutral-800 uppercase tracking-wider">Queue: Investor Audit</h2>
               <div className="flex gap-2">
-                 <div className="relative" ref={filterRef}>
-                   <button 
-                    onClick={() => setIsFilterOpen(!isFilterOpen)}
-                    className={`px-3 py-1.5 text-[10px] font-bold border rounded-lg transition-colors uppercase tracking-widest flex items-center gap-2 ${typeFilter !== 'ALL' ? 'border-neutral-900 text-neutral-900 bg-white' : 'border-neutral-200 hover:bg-neutral-50 text-neutral-900 bg-white'}`}
-                   >
-                     {typeFilter === 'ALL' ? 'Type' : `Type: ${typeFilter}`}
-                     <svg className={`w-3 h-3 transition-transform ${isFilterOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"/></svg>
-                   </button>
-
-                   {isFilterOpen && (
-                     <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-neutral-200 rounded-lg shadow-xl z-50 overflow-hidden">
-                       <button 
-                         onClick={() => { setTypeFilter('ALL'); setIsFilterOpen(false); }}
-                         className="w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest hover:bg-neutral-50 transition-colors border-b border-neutral-100"
-                       >
-                         All Types
-                       </button>
-                       {Object.values(InvestorType).map((type) => (
-                         <button 
-                           key={type}
-                           onClick={() => { setTypeFilter(type); setIsFilterOpen(false); }}
-                           className={`w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest hover:bg-neutral-50 transition-colors ${typeFilter === type ? 'bg-neutral-50 text-neutral-900' : 'text-neutral-500'}`}
-                         >
-                           {type}
-                         </button>
-                       ))}
-                     </div>
-                   )}
-                 </div>
-
                  <div className="relative" ref={exportRef}>
                    <button 
                     onClick={() => setIsExportOpen(!isExportOpen)}
@@ -361,10 +396,10 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
           <thead>
             <tr className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest border-b border-neutral-100">
               <th className="px-8 py-4">Investor Profile</th>
-              <th className="px-8 py-4">Classification</th>
+              <th className="px-8 py-4">Workflow Status</th>
               <th className="px-8 py-4">Submission</th>
               <th className="px-8 py-4">Last Activity</th>
-              <th className="px-8 py-4">Status</th>
+              <th className="px-8 py-4">IRO Status</th>
               <th className="px-8 py-4 text-right">Review</th>
             </tr>
           </thead>
@@ -384,9 +419,14 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
                     </div>
                   </td>
                   <td className="px-8 py-5">
-                    <span className="text-[10px] font-bold text-neutral-600 uppercase tracking-tighter bg-neutral-100 px-1.5 py-0.5 rounded">
-                      {applicant.type}
-                    </span>
+                    {(() => {
+                      const workflowStatus = getWorkflowStatus(applicant);
+                      return (
+                        <span className={`text-[10px] font-bold uppercase tracking-tighter px-2.5 py-1 rounded-full border ${workflowStatus.color} ${workflowStatus.bgColor} border-current/20`}>
+                          {workflowStatus.label}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-8 py-5 text-xs text-neutral-500 font-medium">
                     {applicant.submissionDate}

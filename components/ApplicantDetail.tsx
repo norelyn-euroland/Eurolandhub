@@ -10,9 +10,10 @@ interface ApplicantDetailProps {
   applicant: Applicant;
   onBack: () => void;
   onUpdateStatus: (id: string, status: RegistrationStatus) => void;
+  onManualSendCode: (id: string) => void;
 }
 
-const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, onUpdateStatus }) => {
+const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, onUpdateStatus, onManualSendCode }) => {
   const getAuditStatusLabel = (s: RegistrationStatus) => {
     if (s === RegistrationStatus.APPROVED) return 'Accepted';
     if (s === RegistrationStatus.FURTHER_INFO) return 'Pending';
@@ -20,26 +21,16 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
     return 'Unverified';
   };
 
-  const getPepScreeningStatusLabel = () => {
-    // Demo behavior: if the user self-declares PEP, screening is flagged; otherwise it's clear.
-    return applicant.declaration.isPEP ? 'FLAGGED' : 'CLEAR';
-  };
-
   const getCountryLabel = () => {
-    const raw = (applicant.location || '').trim();
-    if (!raw) return '—';
-
-    const parts = raw.split(',').map(p => p.trim()).filter(Boolean);
-    const last = parts[parts.length - 1] || raw;
-
-    // Minimal demo mapping for common abbreviations seen in mock data
-    const upper = last.toUpperCase();
-    const usStateToCountry: Record<string, string> = {
-      NY: 'United States',
-    };
-    if (usStateToCountry[upper]) return usStateToCountry[upper];
-
-    return last;
+    // Only show country if it was provided in shareholdings verification (Step 2)
+    // If no country is provided, don't display anything
+    const countryFromVerification = applicant.shareholdingsVerification?.step2?.country;
+    if (countryFromVerification && countryFromVerification.trim()) {
+      return countryFromVerification.trim();
+    }
+    
+    // No country provided - return empty string (will show nothing)
+    return '';
   };
 
   const [shareholderQuery, setShareholderQuery] = useState('');
@@ -96,7 +87,7 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
                 { label: 'Legal name', value: applicant.fullName },
                 { label: 'Email', value: applicant.email },
                 { label: 'Contact Number', value: applicant.phoneNumber || 'Not provided' },
-                { label: 'Country', value: getCountryLabel() },
+                ...(getCountryLabel() ? [{ label: 'Country', value: getCountryLabel() }] : []),
                 { label: 'Registration ID', value: applicant.id },
                 { label: 'Submission date', value: applicant.submissionDate },
                 { label: 'Current status', value: getAuditStatusLabel(applicant.status) }
@@ -106,104 +97,6 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
                   <p className="text-sm font-bold text-neutral-900">{item.value}</p>
                 </div>
               ))}
-            </div>
-          </section>
-
-          <section className="bg-white p-10 rounded-xl border border-neutral-200 shadow-sm">
-            <div className="flex items-center justify-between mb-10">
-              <h2 className="text-sm font-black text-neutral-900 uppercase tracking-widest flex items-center gap-2">
-                <span className="w-2.5 h-2.5 bg-black rounded-full"></span>
-                Self-Declaration Audit
-              </h2>
-              <span className="text-[10px] font-black px-4 py-2 rounded-lg uppercase tracking-widest flex items-center gap-2 shadow-md transition-colors" style={{ backgroundColor: '#f1dd3f', color: '#000000' }}>
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-                Self-Certified Declaration
-              </span>
-            </div>
-            
-            <div className="space-y-6">
-              {/* Financial Information Row */}
-              <div className="grid grid-cols-2 gap-8">
-                <div className="p-6 bg-neutral-50 rounded-xl border-2 border-neutral-200 group hover:border-black transition-all">
-                  <label className="block text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">Declared Net Worth</label>
-                  <p className="text-sm font-bold text-neutral-900">{applicant.declaration.netWorth}</p>
-                </div>
-                <div className="p-6 bg-neutral-50 rounded-xl border-2 border-neutral-200 group hover:border-black transition-all">
-                  <label className="block text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">Annual Income</label>
-                  <p className="text-sm font-bold text-neutral-900">{applicant.declaration.annualIncome}</p>
-                </div>
-              </div>
-
-              {/* Divider */}
-              <div className="border-t border-neutral-200"></div>
-
-              {/* Source of Wealth & Experience Row */}
-              <div className="grid grid-cols-2 gap-8">
-                <div className="pb-4 border-b border-neutral-100">
-                  <label className="block text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">Source of Wealth</label>
-                  <p className="text-sm font-bold text-neutral-900">{applicant.declaration.sourceOfWealth}</p>
-                </div>
-                <div className="pb-4 border-b border-neutral-100">
-                  <label className="block text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">Experience</label>
-                  <p className="text-sm font-bold text-neutral-900">{applicant.declaration.investmentExperience}</p>
-                </div>
-              </div>
-
-              {/* PEP & Equity Disclosure Row */}
-              <div className="grid grid-cols-2 gap-8">
-                <div className={`p-6 rounded-xl border-2 transition-all ${applicant.declaration.isPEP ? 'bg-red-50 border-red-300' : 'bg-neutral-50 border-neutral-200'}`}>
-                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-neutral-200">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-neutral-400">PEP Verification</span>
-                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${applicant.declaration.isPEP ? 'bg-red-200 text-red-800' : 'bg-neutral-200 text-neutral-700'}`}>
-                      {getPepScreeningStatusLabel()}
-                    </span>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between py-2 border-b border-neutral-200">
-                      <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Self-declared</span>
-                      <span className="text-sm font-bold text-neutral-900">
-                        {applicant.declaration.isPEP ? 'Yes' : 'No'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between py-2 border-b border-neutral-200">
-                      <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Screening status</span>
-                      <span className={`text-sm font-bold ${applicant.declaration.isPEP ? 'text-red-700' : 'text-neutral-900'}`}>
-                        {getPepScreeningStatusLabel()}
-                      </span>
-                    </div>
-                    <p className="text-[10px] font-medium text-neutral-500 leading-relaxed pt-1">
-                      {applicant.declaration.isPEP ? 'Politically exposed person flagged for enhanced review.' : 'No political exposure declared.'}
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="p-6 bg-neutral-50 rounded-xl border-2 border-neutral-200">
-                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-neutral-200">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-neutral-400">Equity Disclosure</span>
-                    <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${applicant.declaration.isShareholder ? '' : 'bg-neutral-200 text-neutral-600'}`} style={applicant.declaration.isShareholder ? { backgroundColor: '#2000aa', color: '#ffffff' } : {}}>
-                      {applicant.declaration.isShareholder ? 'Declared' : 'Not declared'}
-                    </span>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between py-2 border-b border-neutral-200">
-                      <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Shareholder declared</span>
-                      <span className="text-sm font-bold text-neutral-900">
-                        {applicant.declaration.isShareholder ? 'Yes' : 'No'}
-                      </span>
-                    </div>
-                    <div className="pt-1">
-                      <span className="block text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">Declared holdings</span>
-                      <p className="text-sm font-bold text-neutral-900">
-                        {applicant.declaration.isShareholder
-                          ? (applicant.declaration.shareholdingDetails || 'Declared shareholder')
-                          : 'No shareholding declared.'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           </section>
 
@@ -327,6 +220,46 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
                   ))}
                 </tbody>
               </table>
+            </div>
+          </section>
+
+          {/* Manual Send Verification Code Button - One-time only, available after IRO approval */}
+          {/* Placed at the bottom after shareholders registry */}
+          <section className="bg-white p-10 rounded-xl border border-neutral-200 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-black mb-2 text-neutral-900 uppercase tracking-widest flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 bg-black rounded-full"></span>
+                  Verification Code
+                </h2>
+                <p className="text-[10px] text-neutral-400 font-medium">
+                  Send 6-digit verification code to complete the verification process
+                </p>
+              </div>
+              <div className="flex items-center gap-4">
+                {(applicant.status === RegistrationStatus.APPROVED || applicant.status === RegistrationStatus.FURTHER_INFO) &&
+                 applicant.shareholdingsVerification?.step4?.lastResult === 'MATCH' &&
+                 !applicant.shareholdingsVerification?.step5?.manuallySentAt && (
+                  <button
+                    onClick={() => onManualSendCode(applicant.id)}
+                    className="px-8 py-4 text-[11px] font-black bg-indigo-600 text-white rounded-lg uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20 flex items-center gap-3"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                    Send Verification Code
+                  </button>
+                )}
+                {/* Show status if code was already manually sent */}
+                {applicant.shareholdingsVerification?.step5?.manuallySentAt && (
+                  <div className="px-8 py-4 text-[11px] font-black bg-neutral-100 text-neutral-500 rounded-lg uppercase tracking-widest flex items-center gap-3 cursor-not-allowed">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Code Sent
+                  </div>
+                )}
+              </div>
             </div>
           </section>
       </div>
