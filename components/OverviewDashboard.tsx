@@ -6,6 +6,7 @@ import { Applicant, RegistrationStatus } from '../lib/types';
 import Tooltip from './Tooltip';
 import Chart from 'react-apexcharts';
 import HoldingsSummary from './HoldingsSummary';
+import { getWorkflowStatusInternal, getGeneralAccountStatus } from '../lib/shareholdingsVerification';
 
 interface OverviewDashboardProps {
   applicants: Applicant[];
@@ -561,7 +562,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
               <tr className="bg-neutral-900 text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em]">
                 <th className="px-10 py-5 w-16 text-center">Rank</th>
                 <th className="px-10 py-5">Shareholder</th>
-                <th className="px-10 py-5">Status</th>
+                <th className="px-10 py-5">Account Status</th>
                 <th className="px-10 py-5">Holdings</th>
                 <th className="px-10 py-5 text-right">Last Activity</th>
               </tr>
@@ -583,22 +584,41 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                     </div>
                   </td>
                   <td className="px-10 py-7">
-                    {investor.status === RegistrationStatus.APPROVED ? (
-                      <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold border bg-[#E6F9F1] text-[#166534] border-[#D1F2E4]">
-                        <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                          <path d="m9 12 2 2 4-4"></path>
-                        </svg>
-                        Verified
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold border bg-[#FEF3E7] text-[#9A3412] border-[#FDE0C3]">
-                        <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                        </svg>
-                        Unverified
-                      </span>
-                    )}
+                    {(() => {
+                      const internalStatus = getWorkflowStatusInternal(investor);
+                      const generalStatus = getGeneralAccountStatus(internalStatus);
+                      
+                      if (generalStatus === 'VERIFIED') {
+                        return (
+                          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold border bg-[#E6F9F1] text-[#166534] border-[#D1F2E4]">
+                            <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                              <path d="m9 12 2 2 4-4"></path>
+                            </svg>
+                            Verified
+                          </span>
+                        );
+                      } else if (generalStatus === 'PENDING') {
+                        return (
+                          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold border bg-purple-50 text-purple-700 border-purple-200">
+                            <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <circle cx="12" cy="12" r="10"></circle>
+                              <path d="M12 6v6l4 2"></path>
+                            </svg>
+                            Pending
+                          </span>
+                        );
+                      } else {
+                        return (
+                          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold border bg-[#FEF3E7] text-[#9A3412] border-[#FDE0C3]">
+                            <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                            </svg>
+                            Unverified
+                          </span>
+                        );
+                      }
+                    })()}
                   </td>
                   <td className="px-10 py-7">
                     <Tooltip content={investor.holdingsDisplay}>

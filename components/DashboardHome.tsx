@@ -6,7 +6,7 @@ import { Applicant, RegistrationStatus } from '../lib/types';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import Tooltip from './Tooltip';
-import { getWorkflowStatusInternal, getWorkflowStatusFrontendLabel } from '../lib/shareholdingsVerification';
+import { getWorkflowStatusInternal, getGeneralAccountStatus } from '../lib/shareholdingsVerification';
 
 // Helper function to get initials (first letter of first name and last name)
 const getInitials = (fullName: string): string => {
@@ -101,12 +101,17 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
   }, [tabRequest?.requestId]);
 
   const filteredData = applicants.filter((applicant) => {
-    // Tab Filter
+    // Tab Filter - Use General Account Status for categorization
+    if (activeTab === 'ALL') return true;
+    
+    const internalStatus = getWorkflowStatusInternal(applicant);
+    const generalStatus = getGeneralAccountStatus(internalStatus);
+    
     const matchesTab = 
       activeTab === 'ALL' ||
-      (activeTab === 'PENDING' && (applicant.status === RegistrationStatus.PENDING || applicant.status === RegistrationStatus.REJECTED)) ||
-      (activeTab === 'VERIFIED' && applicant.status === RegistrationStatus.APPROVED) ||
-      (activeTab === 'NON_VERIFIED' && applicant.status === RegistrationStatus.FURTHER_INFO);
+      (activeTab === 'PENDING' && generalStatus === 'UNVERIFIED') ||
+      (activeTab === 'VERIFIED' && generalStatus === 'VERIFIED') ||
+      (activeTab === 'NON_VERIFIED' && generalStatus === 'PENDING');
 
     return matchesTab;
   });
@@ -114,7 +119,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
   const tabs: { id: TabType; label: string }[] = [
     { id: 'ALL', label: 'All Files' },
     { id: 'PENDING', label: 'Unverified' },
-    { id: 'VERIFIED', label: 'Accepted' },
+    { id: 'VERIFIED', label: 'Verified' },
     { id: 'NON_VERIFIED', label: 'Pending' },
   ];
 
@@ -202,7 +207,10 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
     <div className="space-y-10 max-w-7xl mx-auto">
       <div className="grid grid-cols-4 gap-8">
         {[
-          { label: 'Unverified Audit', value: applicants.filter(a => a.status === RegistrationStatus.PENDING || a.status === RegistrationStatus.REJECTED).length, detail: '+2 since yesterday' },
+          { label: 'Unverified Audit', value: applicants.filter(a => {
+            const internalStatus = getWorkflowStatusInternal(a);
+            return getGeneralAccountStatus(internalStatus) === 'UNVERIFIED';
+          }).length, detail: '+2 since yesterday' },
           { label: 'Active Shareholders', value: '1,402', detail: 'Across 12 entities' },
           { label: 'Risk Threshold', value: '18%', detail: 'Historical average' },
           { label: 'Compliance Score', value: '99.4', detail: 'Audit target: 99.0' }

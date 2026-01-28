@@ -39,6 +39,11 @@ export type WorkflowStatusFrontend =
   | 'PENDING'
   | 'VERIFIED';
 
+/**
+ * General Account Status - High-level status for dashboard display
+ */
+export type GeneralAccountStatus = 'UNVERIFIED' | 'PENDING' | 'VERIFIED';
+
 export interface EmailOtpVerificationState {
   /**
    * Email OTP (Phase 1 / Step 2)

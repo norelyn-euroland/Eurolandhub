@@ -1,4 +1,4 @@
-import { RegistrationStatus, Shareholder, ShareholdingsVerificationMatchResult, ShareholdingsVerificationState, Applicant, WorkflowStatusInternal } from './types';
+import { RegistrationStatus, Shareholder, ShareholdingsVerificationMatchResult, ShareholdingsVerificationState, Applicant, WorkflowStatusInternal, GeneralAccountStatus } from './types';
 
 const MAX_FAILED_ATTEMPTS = 3;
 const LOCKOUT_DAYS = 7;
@@ -134,17 +134,52 @@ export function submitShareholdingInfo(
     submittedAt,
   };
 
+  // Check if this is a resubmission after RESUBMISSION_REQUIRED
+  // If Step 4 has a NO_MATCH result, this is a resubmission - skip auto verification
+  const isResubmission = wf.step4.lastResult === 'NO_MATCH';
+
   // Step 2: Store submission, status will be set by Step 3 verification
   const withStep2 = {
     ...a,
-    status: RegistrationStatus.PENDING, // Will be updated by Step 3
+    status: RegistrationStatus.PENDING, // Will be updated by Step 3 or Step 4
     shareholdingsVerification: {
       ...wf,
       step2,
+      // Reset Step 3 for resubmission (will skip auto check)
+      step3: isResubmission ? {
+        ...wf.step3,
+        lastResult: undefined, // Clear previous result for resubmission
+        lastCheckedAt: undefined,
+      } : wf.step3,
+      // Reset Step 4 for resubmission
+      step4: isResubmission ? {
+        ...wf.step4,
+        lastResult: undefined, // Clear previous IRO review result
+        lastReviewedAt: undefined,
+      } : wf.step4,
     },
   };
 
-  // Event-driven: Automatically run Step 3 verification immediately after Step 2 submission
+  // Resubmission: Skip automatic verification, go directly to AWAITING_IRO_REVIEW
+  if (isResubmission) {
+    return {
+      ...withStep2,
+      status: RegistrationStatus.FURTHER_INFO, // PENDING in frontend
+      shareholdingsVerification: {
+        ...withStep2.shareholdingsVerification!,
+        step3: {
+          ...withStep2.shareholdingsVerification!.step3,
+          lastResult: undefined, // No auto check for resubmission
+        },
+        step4: {
+          ...withStep2.shareholdingsVerification!.step4,
+          lastResult: undefined, // Awaiting IRO review
+        },
+      },
+    };
+  }
+
+  // First-time submission: Automatically run Step 3 verification immediately after Step 2 submission
   // This only runs if shareholders data is provided
   if (shareholders && shareholders.length > 0) {
     return runAutoVerification(withStep2, shareholders);
@@ -333,6 +368,17 @@ export function getWorkflowStatusInternal(applicant: Applicant): WorkflowStatusI
     }
   }
 
+  // VERIFIED: Status is APPROVED and Step 6 exists (completed verification)
+  if (applicant.status === RegistrationStatus.APPROVED && wf.step6?.verifiedAt) {
+    return 'VERIFIED';
+  }
+
+  // Handle resubmission scenario: Step 2 exists but Step 3 has no result (skipped auto check)
+  // This means user resubmitted after RESUBMISSION_REQUIRED, goes directly to IRO review
+  if (wf.step2 && wf.step3.lastResult === undefined && !wf.step4.lastResult) {
+    return 'AWAITING_IRO_REVIEW';
+  }
+
   // Step 3: Auto check passed
   if (wf.step3.lastResult === 'MATCH') {
     // AWAITING_IRO_REVIEW: Step 3 passed, waiting for IRO review
@@ -356,14 +402,14 @@ export function getWorkflowStatusInternal(applicant: Applicant): WorkflowStatusI
     return 'RESUBMISSION_REQUIRED';
   }
 
-  // VERIFIED: Status is APPROVED (completed verification)
-  if (applicant.status === RegistrationStatus.APPROVED && wf.step6?.verifiedAt) {
-    return 'VERIFIED';
-  }
-
   // Default fallback - if email verified but no shareholdings decision yet
   if (emailOtp?.verifiedAt && wf.step1.wantsVerification === undefined) {
     return 'EMAIL_VERIFIED';
+  }
+
+  // If Step 2 exists but no Step 3 result yet (shouldn't happen, but handle gracefully)
+  if (wf.step2 && wf.step3.lastResult === undefined) {
+    return 'REGISTRATION_PENDING';
   }
 
   return 'REGISTRATION_PENDING';
@@ -383,6 +429,23 @@ export function getWorkflowStatusFrontendLabel(internalStatus: WorkflowStatusInt
     'VERIFIED': 'VERIFIED',
   };
   return mapping[internalStatus] || 'CONTINUE TO VERIFY YOUR ACCOUNT';
+}
+
+/**
+ * Map internal workflow status to General Account Status
+ * This provides a high-level status for dashboard display
+ */
+export function getGeneralAccountStatus(internalStatus: WorkflowStatusInternal): GeneralAccountStatus {
+  const mapping: Record<WorkflowStatusInternal, GeneralAccountStatus> = {
+    'EMAIL_VERIFICATION_PENDING': 'UNVERIFIED',
+    'EMAIL_VERIFIED': 'UNVERIFIED',
+    'SHAREHOLDINGS_DECLINED': 'UNVERIFIED',
+    'REGISTRATION_PENDING': 'PENDING',
+    'AWAITING_IRO_REVIEW': 'PENDING',
+    'RESUBMISSION_REQUIRED': 'UNVERIFIED',
+    'VERIFIED': 'VERIFIED',
+  };
+  return mapping[internalStatus] || 'UNVERIFIED';
 }
 
 
