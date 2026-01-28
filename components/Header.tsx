@@ -3,7 +3,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Applicant } from '../lib/types';
-import { getVerificationDeadlineInfo } from '../lib/shareholdingsVerification';
 
 interface HeaderProps {
   searchQuery: string;
@@ -11,7 +10,6 @@ interface HeaderProps {
   viewTitle: string;
   searchPlaceholder?: string;
   pendingApplicants?: Applicant[];
-  applicantsNeedingVerification?: Applicant[];
   onNotificationAction?: (action: { type: 'open_shareholders' } | { type: 'review_applicant'; applicantId: string }) => void;
 }
 
@@ -21,12 +19,10 @@ const Header: React.FC<HeaderProps> = ({
   viewTitle, 
   searchPlaceholder = "Search...",
   pendingApplicants = [],
-  applicantsNeedingVerification = [],
   onNotificationAction,
 }) => {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => new Set(['shareholders_new_data']));
-  const [refreshKey, setRefreshKey] = useState(0); // Force re-render to update countdown
   const notifRef = useRef<HTMLDivElement>(null);
 
   // Seed unread notifications for any new pending applicants that appear.
@@ -38,27 +34,6 @@ const Header: React.FC<HeaderProps> = ({
       return next;
     });
   }, [pendingApplicants]);
-
-  // Auto-update unread notifications for verification deadlines
-  useEffect(() => {
-    if (applicantsNeedingVerification.length === 0) return;
-    setUnreadIds(prev => {
-      const next = new Set(prev);
-      for (const a of applicantsNeedingVerification) {
-        next.add(`verify_${a.id}`);
-      }
-      return next;
-    });
-  }, [applicantsNeedingVerification]);
-
-  // Refresh notifications every hour to update countdown
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setRefreshKey(prev => prev + 1); // Force re-render to update countdown
-    }, 60 * 60 * 1000); // 1 hour
-
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -87,24 +62,6 @@ const Header: React.FC<HeaderProps> = ({
       },
     ];
 
-    // Add notifications for applicants needing verification with deadline countdown
-    for (const a of applicantsNeedingVerification) {
-      const deadlineInfo = getVerificationDeadlineInfo(a);
-      if (!deadlineInfo) continue;
-      
-      const daysText = deadlineInfo.daysRemaining === 1 
-        ? '1 day remaining' 
-        : `${deadlineInfo.daysRemaining} days remaining`;
-      
-      items.push({
-        id: `verify_${a.id}`,
-        title: `${a.fullName} needs verification`,
-        detail: `Send verification code. ${daysText}.`,
-        time: 'Active',
-        action: { type: 'review_applicant', applicantId: a.id } as const,
-      });
-    }
-
     // One notification per pending applicant (e.g., "James Wilson registered — needs review")
     for (const a of pendingApplicants) {
       items.push({
@@ -117,14 +74,9 @@ const Header: React.FC<HeaderProps> = ({
     }
 
     return items;
-  }, [pendingApplicants, applicantsNeedingVerification, refreshKey]);
+  }, [pendingApplicants]);
 
   const unreadCount = notifications.reduce((count, n) => (unreadIds.has(n.id) ? count + 1 : count), 0);
-  
-  // Check if there are any urgent notifications (1 day remaining)
-  const hasUrgentNotifications = notifications.some(n => 
-    n.id.startsWith('verify_') && n.detail.includes('1 day remaining') && unreadIds.has(n.id)
-  );
 
   const handleNotificationClick = (
     id: string,
@@ -162,16 +114,11 @@ const Header: React.FC<HeaderProps> = ({
             aria-label="Notifications"
             aria-expanded={isNotifOpen}
           >
-            <svg className={`w-6 h-6 ${hasUrgentNotifications ? 'text-red-600 animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
             {unreadCount > 0 && (
-              <span className={`absolute -top-1 -right-1 min-w-5 h-5 px-1.5 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white ${
-                hasUrgentNotifications ? 'bg-red-600 animate-pulse' : 'bg-neutral-900'
-              }`}>
+              <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1.5 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white bg-neutral-900">
                 {unreadCount}
               </span>
-            )}
-            {hasUrgentNotifications && (
-              <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-600 rounded-full border-2 border-white animate-ping"></span>
             )}
           </button>
 
@@ -189,58 +136,31 @@ const Header: React.FC<HeaderProps> = ({
               <div className="max-h-[360px] overflow-y-auto divide-y divide-neutral-100">
                 {notifications.map((n) => {
                   const isUnread = unreadIds.has(n.id);
-                  // Check if this is an urgent notification (1 day remaining)
-                  const isUrgent = n.id.startsWith('verify_') && n.detail.includes('1 day remaining');
                   return (
                     <button
                       key={n.id}
                       onClick={() => handleNotificationClick(n.id, n.action)}
-                      className={`w-full text-left px-4 py-3 transition-colors ${
-                        isUrgent 
-                          ? 'bg-red-50 hover:bg-red-100 border-l-4 border-red-600' 
-                          : 'hover:bg-neutral-50'
-                      }`}
+                      className="w-full text-left px-4 py-3 transition-colors hover:bg-neutral-50"
                     >
                       <div className="flex items-start gap-3">
                         <span className={`mt-1.5 w-2 h-2 rounded-full ${
-                          isUrgent 
-                            ? 'bg-red-600 animate-pulse' 
-                            : isUnread 
-                              ? 'bg-neutral-900' 
-                              : 'bg-neutral-200'
+                          isUnread ? 'bg-neutral-900' : 'bg-neutral-200'
                         }`} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-center gap-2">
-                              {isUrgent && (
-                                <svg className="w-4 h-4 text-red-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                </svg>
-                              )}
-                              <p className={`text-xs font-black leading-tight ${
-                                isUrgent ? 'text-red-900' : 'text-neutral-900'
-                              }`}>
-                                {n.title}
-                              </p>
-                            </div>
-                            <span className={`text-[10px] font-bold uppercase tracking-widest shrink-0 ${
-                              isUrgent ? 'text-red-600' : 'text-neutral-400'
-                            }`}>
+                            <p className="text-xs font-black leading-tight text-neutral-900">
+                              {n.title}
+                            </p>
+                            <span className="text-[10px] font-bold uppercase tracking-widest shrink-0 text-neutral-400">
                               {n.time}
                             </span>
                           </div>
-                          <p className={`text-[11px] font-medium mt-1 leading-snug ${
-                            isUrgent ? 'text-red-700 font-bold' : 'text-neutral-500'
-                          }`}>
+                          <p className="text-[11px] font-medium mt-1 leading-snug text-neutral-500">
                             {n.detail}
                           </p>
                           <div className="mt-2">
-                            <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${
-                              isUrgent
-                                ? 'bg-red-600 text-white border border-red-700'
-                                : 'bg-white border border-neutral-200 text-neutral-900'
-                            }`}>
-                              {isUrgent ? '⚠️ URGENT - Action Required' : 'Open task'}
+                            <span className="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest bg-white border border-neutral-200 text-neutral-900">
+                              Open task
                             </span>
                           </div>
                         </div>

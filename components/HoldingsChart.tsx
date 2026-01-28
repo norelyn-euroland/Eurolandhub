@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, LineStyle, Time, ColorType } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, Time, ColorType } from 'lightweight-charts';
 import { fetchHoldingsData } from '../lib/mockHoldingsData';
 import { HoldingsDataPoint } from '../lib/types';
 
@@ -16,7 +16,6 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
   const chartRef = useRef<IChartApi | null>(null);
   const sharePriceSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const sharesHeldSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
-  const ownershipSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   
   const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
   const [loading, setLoading] = useState(true);
@@ -24,14 +23,12 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
   const [currentValues, setCurrentValues] = useState<{
     sharePrice: number;
     sharesHeld: number;
-    ownership: number;
   } | null>(null);
   
   // Track previous values for percentage change calculation
   const previousValuesRef = useRef<{
     sharePrice: number;
     sharesHeld: number;
-    ownership: number;
   } | null>(null);
 
   // Initialize chart
@@ -110,19 +107,8 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
       lastValueVisible: true, // Enable default value display
     });
 
-    const ownershipSeries = chart.addLineSeries({
-      color: '#ef4444', // Red
-      lineWidth: 2,
-      lineStyle: LineStyle.Dashed,
-      priceScaleId: 'right',
-      title: 'Ownership %',
-      priceLineVisible: false,
-      lastValueVisible: true, // Enable default value display
-    });
-
     sharePriceSeriesRef.current = sharePriceSeries;
     sharesHeldSeriesRef.current = sharesHeldSeries;
-    ownershipSeriesRef.current = ownershipSeries;
 
     // Configure time scale to extend to edges
     chart.timeScale().applyOptions({
@@ -173,7 +159,7 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
 
   // Update chart when data changes
   useEffect(() => {
-    if (!sharePriceSeriesRef.current || !sharesHeldSeriesRef.current || !ownershipSeriesRef.current || data.length === 0) {
+    if (!sharePriceSeriesRef.current || !sharesHeldSeriesRef.current || data.length === 0) {
       return;
     }
 
@@ -188,36 +174,27 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
       value: point.shares_held / 1_000_000, // Convert to millions
     }));
 
-    const ownershipData = data.map((point) => ({
-      time: (new Date(point.timestamp).getTime() / 1000) as Time,
-      value: (point.shares_held / point.total_shares_outstanding) * 100, // Calculate percentage
-    }));
-
     // Set all series data first
     sharePriceSeriesRef.current.setData(sharePriceData);
     sharesHeldSeriesRef.current.setData(sharesHeldData);
-    ownershipSeriesRef.current.setData(ownershipData);
 
     // Update current values from latest data point
     if (data.length > 0) {
       const latest = data[data.length - 1];
       const currentSharePrice = latest.share_price;
       const currentSharesHeld = latest.shares_held / 1_000_000;
-      const currentOwnership = (latest.shares_held / latest.total_shares_outstanding) * 100;
       
       // Store current values as previous before updating (for percentage change calculation)
       if (currentValues) {
         previousValuesRef.current = {
           sharePrice: currentValues.sharePrice,
           sharesHeld: currentValues.sharesHeld,
-          ownership: currentValues.ownership,
         };
       } else {
         // First time - no previous values, so set current as previous
         previousValuesRef.current = {
           sharePrice: currentSharePrice,
           sharesHeld: currentSharesHeld,
-          ownership: currentOwnership,
         };
       }
       
@@ -225,7 +202,6 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
       setCurrentValues({
         sharePrice: currentSharePrice,
         sharesHeld: currentSharesHeld,
-        ownership: currentOwnership,
       });
     }
 
@@ -278,7 +254,6 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
 
         const sharePriceChange = prev ? calculateChange(currentValues.sharePrice, prev.sharePrice) : { value: 0, percent: 0 };
         const sharesHeldChange = prev ? calculateChange(currentValues.sharesHeld, prev.sharesHeld) : { value: 0, percent: 0 };
-        const ownershipChange = prev ? calculateChange(currentValues.ownership, prev.ownership) : { value: 0, percent: 0 };
 
         const formatChange = (change: { value: number; percent: number }, isPrice: boolean = false) => {
           const sign = change.percent >= 0 ? '+' : '';
@@ -316,20 +291,6 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
                   style={{ color: sharesHeldChange.percent >= 0 ? '#10b981' : '#ef4444' }}
                 >
                   {formatChange(sharesHeldChange)}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Ownership:</span>
-              <span className="text-lg font-black" style={{ color: '#ef4444' }}>
-                {currentValues.ownership.toFixed(2)}%
-              </span>
-              {prev && (
-                <span 
-                  className="text-sm font-bold" 
-                  style={{ color: ownershipChange.percent >= 0 ? '#10b981' : '#ef4444' }}
-                >
-                  {formatChange(ownershipChange)}
                 </span>
               )}
             </div>

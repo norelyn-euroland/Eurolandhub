@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Applicant, RegistrationStatus } from '../lib/types';
 import { applicantService } from '../lib/firestore-service';
 
@@ -6,15 +6,17 @@ interface UseApplicantsOptions {
   status?: RegistrationStatus;
   limitCount?: number;
   autoFetch?: boolean;
+  realTime?: boolean; // Enable real-time updates
 }
 
 /**
- * Custom hook for managing applicants data from Firestore
+ * Custom hook for managing applicants data from Firestore with real-time updates
  */
-export const useApplicants = (options: UseApplicantsOptions = { autoFetch: true }) => {
+export const useApplicants = (options: UseApplicantsOptions = { autoFetch: true, realTime: true }) => {
   const [applicants, setApplicants] = useState<Applicant[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
 
   const fetchApplicants = useCallback(async () => {
     setLoading(true);
@@ -33,11 +35,48 @@ export const useApplicants = (options: UseApplicantsOptions = { autoFetch: true 
     }
   }, [options.status, options.limitCount]);
 
+  // Set up real-time subscription
   useEffect(() => {
-    if (options.autoFetch !== false) {
+    if (options.autoFetch === false) return;
+    
+    if (options.realTime !== false) {
+      // Use real-time subscription
+      setLoading(true);
+      setError(null);
+      
+      try {
+        const unsubscribe = applicantService.subscribeToApplicants(
+          (data) => {
+            setApplicants(data);
+            setLoading(false);
+            setError(null);
+          },
+          {
+            status: options.status,
+            limitCount: options.limitCount
+          }
+        );
+        
+        unsubscribeRef.current = unsubscribe;
+        
+        return () => {
+          if (unsubscribeRef.current) {
+            unsubscribeRef.current();
+            unsubscribeRef.current = null;
+          }
+        };
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error('Failed to subscribe to applicants'));
+        console.error('Error setting up subscription:', err);
+        setLoading(false);
+        // Fallback to one-time fetch
+        fetchApplicants();
+      }
+    } else {
+      // Use one-time fetch
       fetchApplicants();
     }
-  }, [fetchApplicants, options.autoFetch]);
+  }, [options.status, options.limitCount, options.autoFetch, options.realTime, fetchApplicants]);
 
   const createApplicant = useCallback(async (applicant: Applicant) => {
     try {

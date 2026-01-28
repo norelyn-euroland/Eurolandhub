@@ -10,10 +10,12 @@ import {
   where,
   orderBy,
   limit,
+  onSnapshot,
   Timestamp,
   QueryConstraint,
   DocumentData,
-  QueryDocumentSnapshot
+  QueryDocumentSnapshot,
+  Unsubscribe
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { Applicant, RegistrationStatus } from './types';
@@ -66,34 +68,86 @@ const removeUndefined = (obj: any): any => {
 
 /**
  * Convert Applicant data for Firestore (handles dates and removes undefined values)
+ * Flexible conversion that handles various date formats
  */
 const applicantToFirestore = (applicant: Applicant): DocumentData => {
-  // Parse date string (format: YYYY-MM-DD) to Date object
-  const dateParts = applicant.submissionDate.split('-');
-  const date = new Date(
-    parseInt(dateParts[0]),
-    parseInt(dateParts[1]) - 1, // Month is 0-indexed
-    parseInt(dateParts[2])
-  );
+  // Handle submissionDate - can be string (YYYY-MM-DD) or already a Date/Timestamp
+  let submissionDateValue: Timestamp;
+  
+  if (applicant.submissionDate) {
+    try {
+      // Try parsing as YYYY-MM-DD string
+      const dateParts = applicant.submissionDate.split('-');
+      if (dateParts.length === 3) {
+        const date = new Date(
+          parseInt(dateParts[0]),
+          parseInt(dateParts[1]) - 1, // Month is 0-indexed
+          parseInt(dateParts[2])
+        );
+        submissionDateValue = Timestamp.fromDate(date);
+      } else {
+        // Try parsing as ISO string or other format
+        submissionDateValue = Timestamp.fromDate(new Date(applicant.submissionDate));
+      }
+    } catch (e) {
+      // If parsing fails, use current date
+      console.warn('Could not parse submissionDate, using current date:', e);
+      submissionDateValue = Timestamp.fromDate(new Date());
+    }
+  } else {
+    // If missing, use current date
+    submissionDateValue = Timestamp.fromDate(new Date());
+  }
   
   // Remove undefined values recursively (Firestore doesn't allow undefined)
   const cleaned = removeUndefined(applicant);
   
   return {
     ...cleaned,
-    submissionDate: Timestamp.fromDate(date),
+    submissionDate: submissionDateValue,
   };
 };
 
 /**
  * Convert Firestore document to Applicant
+ * Flexible conversion that handles whatever structure the frontend sends
  */
 const firestoreToApplicant = (doc: QueryDocumentSnapshot<DocumentData>): Applicant => {
   const data = doc.data();
+  
+  // Handle submissionDate - can be Timestamp, Date, or string
+  let submissionDate = '';
+  if (data.submissionDate) {
+    submissionDate = timestampToString(data.submissionDate);
+  } else if (data.submissionDate === undefined) {
+    // If missing, use current date as fallback
+    submissionDate = new Date().toISOString().split('T')[0];
+  }
+  
+  // Return with all data from Firestore, ensuring required fields have defaults
   return {
-    ...data,
     id: doc.id,
-    submissionDate: timestampToString(data.submissionDate),
+    fullName: data.fullName || data.name || 'Unknown',
+    email: data.email || '',
+    phoneNumber: data.phoneNumber || data.phone || undefined,
+    location: data.location || undefined,
+    submissionDate,
+    lastActive: data.lastActive || 'Just now',
+    status: data.status || RegistrationStatus.PENDING,
+    idDocumentUrl: data.idDocumentUrl || data.idDocument || '',
+    taxDocumentUrl: data.taxDocumentUrl || data.taxDocument || '',
+    holdingsRecord: data.holdingsRecord || undefined,
+    emailOtpVerification: data.emailOtpVerification || undefined,
+    shareholdingsVerification: data.shareholdingsVerification || undefined,
+    // Include any additional fields the frontend might send
+    ...Object.fromEntries(
+      Object.entries(data).filter(([key]) => 
+        !['fullName', 'name', 'email', 'phoneNumber', 'phone', 'location', 
+          'submissionDate', 'lastActive', 'status', 'idDocumentUrl', 'idDocument',
+          'taxDocumentUrl', 'taxDocument', 'holdingsRecord', 'emailOtpVerification',
+          'shareholdingsVerification'].includes(key)
+      )
+    ),
   } as Applicant;
 };
 
@@ -121,6 +175,7 @@ export const applicantService = {
 
   /**
    * Get all applicants with optional filters
+   * Flexible query that handles missing fields gracefully
    */
   async getAll(filters?: {
     status?: RegistrationStatus;
@@ -133,7 +188,14 @@ export const applicantService = {
         constraints.push(where('status', '==', filters.status));
       }
       
-      constraints.push(orderBy('submissionDate', 'desc'));
+      // Try to order by submissionDate, but don't fail if field is missing
+      // Firestore requires an index for orderBy, so we'll handle errors gracefully
+      try {
+        constraints.push(orderBy('submissionDate', 'desc'));
+      } catch (e) {
+        // If orderBy fails (e.g., missing index), continue without it
+        console.warn('Could not order by submissionDate, continuing without ordering:', e);
+      }
       
       if (filters?.limitCount) {
         constraints.push(limit(filters.limitCount));
@@ -207,6 +269,60 @@ export const applicantService = {
     } catch (error) {
       console.error('Error deleting applicant:', error);
       throw error;
+    }
+  },
+
+  /**
+   * Subscribe to real-time updates for all applicants
+   * Returns an unsubscribe function
+   * Flexible subscription that handles whatever data structure the frontend sends
+   */
+  subscribeToApplicants(
+    callback: (applicants: Applicant[]) => void,
+    filters?: {
+      status?: RegistrationStatus;
+      limitCount?: number;
+    }
+  ): Unsubscribe {
+    try {
+      const constraints: QueryConstraint[] = [];
+      
+      if (filters?.status) {
+        constraints.push(where('status', '==', filters.status));
+      }
+      
+      // Try to order by submissionDate, but handle gracefully if it fails
+      try {
+        constraints.push(orderBy('submissionDate', 'desc'));
+      } catch (e) {
+        // If orderBy fails (e.g., missing index or field), continue without it
+        console.warn('Could not order by submissionDate in subscription, continuing without ordering:', e);
+      }
+      
+      if (filters?.limitCount) {
+        constraints.push(limit(filters.limitCount));
+      }
+      
+      const q = query(collection(db, COLLECTIONS.APPLICANTS), ...constraints);
+      
+      return onSnapshot(q, (snapshot) => {
+        try {
+          const applicants = snapshot.docs.map(firestoreToApplicant);
+          callback(applicants);
+        } catch (error) {
+          console.error('Error processing snapshot data:', error);
+          // Still call callback with empty array to prevent UI breaking
+          callback([]);
+        }
+      }, (error) => {
+        console.error('Error in applicants subscription:', error);
+        // Call callback with empty array on error to prevent UI breaking
+        callback([]);
+      });
+    } catch (error) {
+      console.error('Error setting up applicants subscription:', error);
+      // Return a no-op unsubscribe function if setup fails
+      return () => {};
     }
   }
 };

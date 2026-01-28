@@ -14,8 +14,44 @@ export enum AccountType {
   ORDINARY = 'ORDINARY'
 }
 
-export type ShareholdingsVerificationChannel = 'EMAIL' | 'SMS';
 export type ShareholdingsVerificationMatchResult = 'MATCH' | 'NO_MATCH';
+
+/**
+ * Internal workflow status states (used by system logic)
+ */
+export type WorkflowStatusInternal =
+  | 'EMAIL_VERIFICATION_PENDING'
+  | 'EMAIL_VERIFIED'
+  | 'SHAREHOLDINGS_DECLINED'
+  | 'REGISTRATION_PENDING'
+  | 'AWAITING_IRO_REVIEW'
+  | 'RESUBMISSION_REQUIRED'
+  | 'VERIFIED';
+
+/**
+ * Frontend display labels for workflow status
+ */
+export type WorkflowStatusFrontend =
+  | 'VERIFY EMAIL'
+  | 'VERIFIED EMAIL NOTIFICATION'
+  | 'VERIFY YOUR ACCOUNT'
+  | 'CONTINUE TO VERIFY YOUR ACCOUNT'
+  | 'PENDING'
+  | 'VERIFIED';
+
+export interface EmailOtpVerificationState {
+  /**
+   * Email OTP (Phase 1 / Step 2)
+   * - Expires in 1 hour
+   * - 3 attempts max
+   * - After 3 failures: lock for 3 days (user can retry verification after 3 days)
+   */
+  lastIssuedAt?: string; // ISO
+  expiresAt?: string; // ISO
+  attemptsRemaining?: number;
+  lockedUntil?: string; // ISO
+  verifiedAt?: string; // ISO
+}
 
 export interface ShareholdingsVerificationStep1 {
   firstName: string;
@@ -44,18 +80,6 @@ export interface ShareholdingsVerificationStep4 {
   lastResult?: ShareholdingsVerificationMatchResult;
   failedAttempts: number;
   lastReviewedAt?: string; // ISO string
-  verificationDeadlineAt?: string; // ISO string - 3 days from IRO approval
-}
-
-export interface ShareholdingsVerificationStep5 {
-  channel: ShareholdingsVerificationChannel;
-  code: string;
-  expiresAt: string; // ISO string
-  attemptsRemaining: number;
-  invalidatedAt?: string; // ISO string
-  resendAvailableAt?: string; // ISO string
-  messagePreview: string;
-  manuallySentAt?: string; // ISO string - tracks if manual send button was used (one-time only)
 }
 
 export interface ShareholdingsVerificationState {
@@ -63,11 +87,11 @@ export interface ShareholdingsVerificationState {
   step2?: ShareholdingsVerificationStep2;
   step3: ShareholdingsVerificationStep3;
   step4: ShareholdingsVerificationStep4;
-  step5?: ShareholdingsVerificationStep5;
+  step6?: { verifiedAt: string }; // ISO string (Phase 3 / Step 6)
 }
 
 // @google/genai guidelines: Define a shared ViewType for navigation consistency
-export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders' | 'compliance' | 'firebase';
+export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders';
 
 export interface HoldingsDataPoint {
   timestamp: string; // ISO string
@@ -109,6 +133,7 @@ export interface Applicant {
   idDocumentUrl: string;
   taxDocumentUrl: string;
   holdingsRecord?: HoldingsRecord; // Optional, only for verified shareholders
+  emailOtpVerification?: EmailOtpVerificationState;
   shareholdingsVerification?: ShareholdingsVerificationState;
 }
 

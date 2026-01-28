@@ -1,11 +1,7 @@
-import { RegistrationStatus, Shareholder, ShareholdingsVerificationChannel, ShareholdingsVerificationMatchResult, ShareholdingsVerificationState, Applicant } from './types';
+import { RegistrationStatus, Shareholder, ShareholdingsVerificationMatchResult, ShareholdingsVerificationState, Applicant, WorkflowStatusInternal } from './types';
 
 const MAX_FAILED_ATTEMPTS = 3;
 const LOCKOUT_DAYS = 7;
-const CODE_VALIDITY_HOURS = 168; // 7 days (7 * 24 hours) as per requirements
-const CODE_MAX_ATTEMPTS = 3;
-// Step 5: cooldown period of 30 seconds to 1 minute. We enforce 1 minute.
-const RESEND_COOLDOWN_MS = 60_000;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -40,17 +36,6 @@ function normalizeId(v: string): string {
 
 function normalizeCountry(v: string): string {
   return normalizeSpaces(v).toUpperCase();
-}
-
-function generate6DigitCode(): string {
-  const n = Math.floor(Math.random() * 1_000_000);
-  return String(n).padStart(6, '0');
-}
-
-function formatExpiryDate(iso: string): string {
-  // Human readable (demo). Example: Jan 30, 2026
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
 }
 
 export function ensureWorkflow(applicant: Applicant): Applicant {
@@ -102,9 +87,9 @@ export function setWantsVerification(applicant: Applicant, wantsVerification: bo
       shareholdingsVerification: {
         ...next,
         step2: undefined,
-        step5: undefined,
         step3: { failedAttempts: 0 },
         step4: { failedAttempts: 0 },
+        step6: undefined,
       },
     };
   }
@@ -179,12 +164,13 @@ export function runAutoVerification(applicant: Applicant, shareholders: Sharehol
   const checkedAt = nowIso();
   const submission = wf.step2;
 
-  // Automatic verification: Only check Shareholdings ID and Company Name
-  // Country is optional and only used for profile display, NOT for verification matching
+  // Automatic verification: check Shareholdings ID + Company Name, and Country if provided.
   const target = shareholders.find((s) => {
     if (normalizeId(s.id) !== normalizeId(submission.shareholdingsId)) return false;
     if (normalizeCompanyName(s.name) !== normalizeCompanyName(submission.companyName)) return false;
-    // Country is NOT checked - it's optional and only for profile display
+    if (submission.country && submission.country.trim()) {
+      if (normalizeCountry(s.country) !== normalizeCountry(submission.country)) return false;
+    }
     return true;
   });
 
@@ -238,11 +224,10 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
   const reviewedAt = nowIso();
 
   if (match) {
-    const verificationDeadline = addDaysIso(reviewedAt, 3); // 3 days from IRO approval
     return {
       ...a,
-      // IRO approved: Keep status as FURTHER_INFO (PENDING) until code is verified
-      status: RegistrationStatus.FURTHER_INFO, // PENDING in frontend
+      // Phase 3 / Step 6: Verified Account (no shareholding OTP step in new workflow)
+      status: RegistrationStatus.APPROVED,
       shareholdingsVerification: {
         ...wf,
         step4: {
@@ -250,8 +235,8 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
           lastResult: 'MATCH',
           failedAttempts: 0, // Reset failed attempts on match
           lastReviewedAt: reviewedAt,
-          verificationDeadlineAt: verificationDeadline, // Set 3-day deadline
         },
+        step6: { verifiedAt: reviewedAt },
       },
     };
   }
@@ -276,194 +261,128 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
         ...wf.step3,
         lockedUntil,
       },
+      step6: undefined,
     },
   };
 }
 
-export function sendVerificationCode(
-  applicant: Applicant,
-  channel: ShareholdingsVerificationChannel,
-  loginLink: string,
-  isManual: boolean = false // Track if this is a manual send (one-time only)
-): Applicant {
-  const a = ensureWorkflow(applicant);
-  const wf = a.shareholdingsVerification!;
-  if (isLocked(a)) return a;
-  if (!wf.step1.wantsVerification) return a;
-  if (!wf.step2) return a;
-  if (wf.step3.lastResult !== 'MATCH' || wf.step4.lastResult !== 'MATCH') return a; // Only send if auto and manual passed
-
-  // If manual send, check if it was already used (one-time only)
-  if (isManual && wf.step5?.manuallySentAt) {
-    return a; // Already manually sent, don't allow again
-  }
-
-  const issuedAt = nowIso();
-  const expiresAt = addHoursIso(issuedAt, CODE_VALIDITY_HOURS);
-  const code = generate6DigitCode();
-
-  const messagePreview =
-    `Your verification code is ${code}\n` +
-    `Expires on ${formatExpiryDate(expiresAt)}\n` +
-    `If you did not request this, ignore this message.\n` +
-    `${loginLink}`;
-
-  // Simulated delivery (no provider integration in this demo)
-  const recipient = channel === 'EMAIL' ? wf.step1.email : wf.step1.contactNumber;
-  console.info(
-    `[ShareholdingsVerification] Simulated ${channel} send to ${recipient}: code=${code}, expires=${expiresAt}${isManual ? ' (MANUAL SEND)' : ''}`
-  );
-
-  return {
-    ...a,
-    // CODE_SENT: Code sent, waiting for user to enter -> PENDING status (FURTHER_INFO)
-    status: RegistrationStatus.FURTHER_INFO, // PENDING in frontend
-    shareholdingsVerification: {
-      ...wf,
-      step5: {
-        channel,
-        code,
-        expiresAt,
-        attemptsRemaining: CODE_MAX_ATTEMPTS,
-        messagePreview,
-        ...(isManual && { manuallySentAt: issuedAt }), // Track manual send timestamp
-      },
-    },
-  };
-}
-
-export function resendVerificationCode(applicant: Applicant, loginLink: string): Applicant {
-  const a = ensureWorkflow(applicant);
-  const wf = a.shareholdingsVerification!;
-  if (isLocked(a)) return a;
-  if (!wf.step5) return a;
-
-  const now = nowIso();
-  const resendAvailableAt = wf.step5.resendAvailableAt;
-  if (isFutureIso(resendAvailableAt)) return a;
-
-  const nextResendAvailableAt = new Date(Date.now() + RESEND_COOLDOWN_MS).toISOString();
-  const updated = sendVerificationCode(a, wf.step5.channel, loginLink);
-  const nextWf = updated.shareholdingsVerification!;
-
-  return {
-    ...updated,
-    shareholdingsVerification: {
-      ...nextWf,
-      step5: {
-        ...nextWf.step5!,
-        resendAvailableAt: nextResendAvailableAt,
-      },
-    },
-  };
-}
-
-export function verifyCode(applicant: Applicant, enteredCode: string): { success: boolean; applicant: Applicant } {
-  const a = ensureWorkflow(applicant);
-  const wf = a.shareholdingsVerification!;
-  
-  if (!wf.step5) {
-    return { success: false, applicant: a };
-  }
-
-  // Check if code is expired
-  const expiresAt = new Date(wf.step5.expiresAt);
-  if (expiresAt.getTime() <= Date.now()) {
-    return { success: false, applicant: a };
-  }
-
-  // Check if code is invalidated
-  if (wf.step5.invalidatedAt) {
-    const invalidatedAt = new Date(wf.step5.invalidatedAt);
-    if (invalidatedAt.getTime() <= Date.now()) {
-      return { success: false, applicant: a };
-    }
-  }
-
-  // Check if attempts remaining
-  if (wf.step5.attemptsRemaining <= 0) {
-    return { success: false, applicant: a };
-  }
-
-  // Verify code
-  const codeMatch = wf.step5.code === enteredCode.trim();
-  
-  if (codeMatch) {
-    // VERIFIED: Successfully completed verification
-    return {
-      success: true,
-      applicant: {
-        ...a,
-        status: RegistrationStatus.APPROVED, // VERIFIED status
-        shareholdingsVerification: {
-          ...wf,
-          step5: {
-            ...wf.step5,
-            attemptsRemaining: 0, // Mark as used
-          },
-        },
-      },
-    };
-  }
-
-  // Code mismatch - decrement attempts
-  const attemptsRemaining = wf.step5.attemptsRemaining - 1;
-  const invalidatedAt = attemptsRemaining <= 0 ? nowIso() : undefined;
-
-  return {
-    success: false,
-    applicant: {
-      ...a,
-      shareholdingsVerification: {
-        ...wf,
-        step5: {
-          ...wf.step5,
-          attemptsRemaining,
-          invalidatedAt,
-        },
-      },
-    },
-  };
-}
-
-export function getVerificationDeadlineInfo(applicant: Applicant): {
-  daysRemaining: number;
-  needsVerification: boolean;
-} | null {
-  const step4 = applicant.shareholdingsVerification?.step4;
-  
-  // Only show for approved applicants who haven't had code sent yet
-  // Check if status is APPROVED OR FURTHER_INFO (since recordManualReview sets it to FURTHER_INFO)
-  const isApprovedState = applicant.status === RegistrationStatus.APPROVED || 
-                          applicant.status === RegistrationStatus.FURTHER_INFO;
-  
-  if (
-    !isApprovedState ||
-    !step4?.verificationDeadlineAt ||
-    step4.lastResult !== 'MATCH' ||
-    applicant.shareholdingsVerification?.step5?.manuallySentAt // Code already sent
-  ) {
-    return null;
-  }
-  
-  const deadline = new Date(step4.verificationDeadlineAt);
-  const now = new Date();
-  const msRemaining = deadline.getTime() - now.getTime();
-  const daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
-  
-  // Only show if deadline hasn't passed
-  if (daysRemaining <= 0) {
-    return null; // Deadline passed, don't show notification
-  }
-  
-  return {
-    daysRemaining: Math.max(0, daysRemaining),
-    needsVerification: true,
-  };
-}
 
 export function getAutoMatchResult(applicant: Applicant): ShareholdingsVerificationMatchResult | undefined {
   return applicant.shareholdingsVerification?.step3.lastResult;
+}
+
+/**
+ * Get the internal workflow status based on applicant state
+ * This determines the current phase of the verification workflow
+ */
+export function getWorkflowStatusInternal(applicant: Applicant): WorkflowStatusInternal {
+  const wf = applicant.shareholdingsVerification;
+  const emailOtp = applicant.emailOtpVerification;
+
+  // Phase 1: Email Verification (highest priority if not completed)
+  // EMAIL_VERIFICATION_PENDING: OTP sent but not verified yet
+  if (emailOtp) {
+    // Check if email is verified
+    if (emailOtp.verifiedAt) {
+      // Email is verified - continue to shareholdings workflow check below
+    } else {
+      // Email not verified yet - check if OTP is still valid
+      const isExpired = emailOtp.expiresAt ? new Date(emailOtp.expiresAt).getTime() <= Date.now() : true;
+      const hasAttempts = emailOtp.attemptsRemaining !== undefined && emailOtp.attemptsRemaining > 0;
+      
+      if (!isExpired && hasAttempts) {
+        return 'EMAIL_VERIFICATION_PENDING';
+      }
+      // If expired or no attempts, still show as pending (user needs to request new code)
+      // But for now, we'll treat expired as needing resubmission
+      // This could be refined to show a specific "OTP expired" state
+    }
+  } else {
+    // No email OTP state - check if workflow exists (for backward compatibility)
+    if (!wf) {
+      // No workflow started - default to email verification pending
+      return 'EMAIL_VERIFICATION_PENDING';
+    }
+  }
+
+  // Phase 2: Shareholdings Verification (only if email is verified or no email OTP required)
+  if (!wf) {
+    // If email is verified but no shareholdings workflow, show email verified
+    if (emailOtp?.verifiedAt) {
+      return 'EMAIL_VERIFIED';
+    }
+    return 'EMAIL_VERIFICATION_PENDING';
+  }
+
+  // SHAREHOLDINGS_DECLINED: User declined shareholdings verification
+  if (wf.step1.wantsVerification === false) {
+    return 'SHAREHOLDINGS_DECLINED';
+  }
+
+  // REGISTRATION_PENDING: User agreed but hasn't submitted Step 2
+  if (wf.step1.wantsVerification === true && !wf.step2) {
+    return 'REGISTRATION_PENDING';
+  }
+
+  // Check if locked (7-day lockout after 3 failed attempts)
+  if (wf.step3.lockedUntil) {
+    const lockedUntil = new Date(wf.step3.lockedUntil);
+    if (lockedUntil.getTime() > Date.now()) {
+      // Still locked - treat as resubmission required
+      return 'RESUBMISSION_REQUIRED';
+    }
+  }
+
+  // Step 3: Auto check passed
+  if (wf.step3.lastResult === 'MATCH') {
+    // AWAITING_IRO_REVIEW: Step 3 passed, waiting for IRO review
+    if (!wf.step4.lastResult) {
+      return 'AWAITING_IRO_REVIEW';
+    }
+
+    // Step 4: IRO review passed -> VERIFIED
+    if (wf.step4.lastResult === 'MATCH') {
+      return 'VERIFIED';
+    }
+
+    // Step 4: IRO review failed -> RESUBMISSION_REQUIRED
+    if (wf.step4.lastResult === 'NO_MATCH') {
+      return 'RESUBMISSION_REQUIRED';
+    }
+  }
+
+  // Step 3: Auto check failed -> RESUBMISSION_REQUIRED
+  if (wf.step3.lastResult === 'NO_MATCH') {
+    return 'RESUBMISSION_REQUIRED';
+  }
+
+  // VERIFIED: Status is APPROVED (completed verification)
+  if (applicant.status === RegistrationStatus.APPROVED && wf.step6?.verifiedAt) {
+    return 'VERIFIED';
+  }
+
+  // Default fallback - if email verified but no shareholdings decision yet
+  if (emailOtp?.verifiedAt && wf.step1.wantsVerification === undefined) {
+    return 'EMAIL_VERIFIED';
+  }
+
+  return 'REGISTRATION_PENDING';
+}
+
+/**
+ * Map internal workflow status to frontend display label
+ */
+export function getWorkflowStatusFrontendLabel(internalStatus: WorkflowStatusInternal): string {
+  const mapping: Record<WorkflowStatusInternal, string> = {
+    'EMAIL_VERIFICATION_PENDING': 'VERIFY EMAIL',
+    'EMAIL_VERIFIED': 'VERIFIED EMAIL NOTIFICATION',
+    'SHAREHOLDINGS_DECLINED': 'VERIFY YOUR ACCOUNT',
+    'REGISTRATION_PENDING': 'CONTINUE TO VERIFY YOUR ACCOUNT',
+    'AWAITING_IRO_REVIEW': 'PENDING',
+    'RESUBMISSION_REQUIRED': 'VERIFY YOUR ACCOUNT',
+    'VERIFIED': 'VERIFIED',
+  };
+  return mapping[internalStatus] || 'CONTINUE TO VERIFY YOUR ACCOUNT';
 }
 
 

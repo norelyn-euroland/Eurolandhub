@@ -1,6 +1,6 @@
 import { Applicant, RegistrationStatus, HoldingsRecord } from './types';
 import { MOCK_SHAREHOLDERS } from './mockShareholders';
-import { ensureWorkflow, setWantsVerification, submitShareholdingInfo, recordManualReview, sendVerificationCode } from './shareholdingsVerification';
+import { ensureWorkflow, setWantsVerification, submitShareholdingInfo, recordManualReview } from './shareholdingsVerification';
 
 /**
  * Create HoldingsRecord for an applicant if they are a verified shareholder
@@ -210,8 +210,8 @@ export const MOCK_APPLICANTS: Applicant[] = BASE_APPLICANTS.map((a) => {
       break;
     }
 
-    // Scenario 5: Step 1-3: Passed + Step 4: IRO approved + Step 5: Code sent (Code Sent)
-    // Event-driven: submitShareholdingInfo automatically runs Step 3 verification
+    // Scenario 5: Step 1-4: Passed + Step 5: IRO approved -> VERIFIED (Phase 3 / Step 6)
+    // Event-driven: submitShareholdingInfo automatically runs Step 4 verification
     case '201199876': { // Ana Patricia Tan (Jollibee)
       next = setWantsVerification(next, true);
       next = submitShareholdingInfo(next, {
@@ -220,7 +220,6 @@ export const MOCK_APPLICANTS: Applicant[] = BASE_APPLICANTS.map((a) => {
         country: 'Philippines',
       }, MOCK_SHAREHOLDERS); // Pass shareholders for automatic verification
       next = recordManualReview(next, true); // IRO approved
-      next = sendVerificationCode(next, 'EMAIL', 'https://eurolandhub.com/login');
       break;
     }
 

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brevo Connection Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        button {
+            background: #4F46E5;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #4338CA;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 6px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .success {
+            background: #D1FAE5;
+            border: 1px solid #10B981;
+            color: #065F46;
+        }
+        .error {
+            background: #FEE2E2;
+            border: 1px solid #EF4444;
+            color: #991B1B;
+        }
+        .info {
+            background: #DBEAFE;
+            border: 1px solid #3B82F6;
+            color: #1E40AF;
+        }
+        .loading {
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Brevo Connection Test</h1>
+        <p>This page tests your Brevo API connection and template access.</p>
+        
+        <button onclick="testConnection()">Test Brevo Connection</button>
+        <button onclick="testSendOTP()">Test Send OTP Email</button>
+        <button onclick="testSendVerified()">Test Send Verified Email</button>
+        
+        <div id="result"></div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        function showResult(message, type = 'info') {
+            const resultDiv = document.getElementById('result');
+            resultDiv.className = `result ${type}`;
+            resultDiv.textContent = message;
+        }
+
+        async function testConnection() {
+            showResult('Testing Brevo connection...', 'loading');
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/test-brevo-connection`);
+                const data = await response.json();
+                
+                if (response.ok && data.overall?.connected) {
+                    showResult(JSON.stringify(data, null, 2), 'success');
+                } else {
+                    showResult(JSON.stringify(data, null, 2), 'error');
+                }
+            } catch (error) {
+                showResult(`Error: ${error.message}\n\nMake sure:\n1. The API endpoint is deployed\n2. Environment variables are set in Vercel\n3. You're testing on the correct domain`, 'error');
+            }
+        }
+
+        async function testSendOTP() {
+            const email = prompt('Enter test email address:');
+            if (!email) return;
+            
+            const firstName = prompt('Enter first name (or leave empty):') || 'Test';
+            
+            showResult('Sending OTP email...', 'loading');
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/send-email-otp`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ toEmail: email, firstName }),
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResult(`✅ OTP email sent successfully!\n\n${JSON.stringify(data, null, 2)}\n\nCheck ${email} for the verification code.`, 'success');
+                } else {
+                    showResult(`❌ Failed to send OTP email:\n\n${JSON.stringify(data, null, 2)}`, 'error');
+                }
+            } catch (error) {
+                showResult(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testSendVerified() {
+            const email = prompt('Enter test email address:');
+            if (!email) return;
+            
+            const firstName = prompt('Enter first name (or leave empty):') || 'Test';
+            
+            showResult('Sending verified email...', 'loading');
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/send-account-verified`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ toEmail: email, firstName }),
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResult(`✅ Verified email sent successfully!\n\n${JSON.stringify(data, null, 2)}\n\nCheck ${email} for the confirmation.`, 'success');
+                } else {
+                    showResult(`❌ Failed to send verified email:\n\n${JSON.stringify(data, null, 2)}`, 'error');
+                }
+            } catch (error) {
+                showResult(`Error: ${error.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>
+

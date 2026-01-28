@@ -2,10 +2,11 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Applicant, RegistrationStatus, ShareholdingsVerificationState } from '../lib/types';
+import { Applicant, RegistrationStatus } from '../lib/types';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import Tooltip from './Tooltip';
+import { getWorkflowStatusInternal, getWorkflowStatusFrontendLabel } from '../lib/shareholdingsVerification';
 
 // Helper function to get initials (first letter of first name and last name)
 const getInitials = (fullName: string): string => {
@@ -76,71 +77,6 @@ interface DashboardHomeProps {
 
 type TabType = 'PENDING' | 'VERIFIED' | 'NON_VERIFIED' | 'ALL';
 
-const StatusBadge: React.FC<{ status: RegistrationStatus }> = ({ status }) => {
-  const getStyles = (s: RegistrationStatus) => {
-    switch(s) {
-      case RegistrationStatus.APPROVED:
-        return {
-          container: 'bg-[#E6F9F1] text-[#166534] border-[#D1F2E4]',
-          icon: (
-            <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-              <path d="m9 12 2 2 4-4"></path>
-            </svg>
-          ),
-          label: 'Verify'
-        };
-      case RegistrationStatus.PENDING:
-        return {
-          container: 'bg-indigo-50 text-indigo-700 border-indigo-100',
-          icon: (
-            <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="12" y1="16" x2="12" y2="12"></line>
-              <line x1="12" y1="8" x2="12.01" y2="8"></line>
-            </svg>
-          ),
-          label: 'Pending'
-        };
-      case RegistrationStatus.REJECTED:
-        return {
-          container: 'bg-[#FEF3E7] text-[#9A3412] border-[#FDE0C3]',
-          icon: (
-            <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="15" y1="9" x2="9" y2="15"></line>
-              <line x1="9" y1="9" x2="15" y2="15"></line>
-            </svg>
-          ),
-          label: 'Unverify'
-        };
-      case RegistrationStatus.FURTHER_INFO:
-        return {
-          container: 'bg-indigo-50 text-indigo-700 border-indigo-100',
-          icon: (
-            <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="12" y1="16" x2="12" y2="12"></line>
-              <line x1="12" y1="8" x2="12.01" y2="8"></line>
-            </svg>
-          ),
-          label: 'Pending'
-        };
-      default:
-        return { container: 'bg-neutral-100 text-neutral-500', icon: null, label: s };
-    }
-  };
-
-  const style = getStyles(status);
-
-  return (
-    <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold border ${style.container}`}>
-      {style.icon}
-      {style.label}
-    </span>
-  );
-};
-
 const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tabRequest }) => {
   const [activeTab, setActiveTab] = useState<TabType>('ALL');
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -182,96 +118,40 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
     { id: 'NON_VERIFIED', label: 'Pending' },
   ];
 
-  const getStatusLabel = (s: RegistrationStatus) => {
-    if (s === RegistrationStatus.APPROVED) return 'Verify';
-    if (s === RegistrationStatus.FURTHER_INFO) return 'Pending';
-    if (s === RegistrationStatus.REJECTED) return 'Unverify';
-    if (s === RegistrationStatus.PENDING) return 'Pending';
-    return s;
-  };
-
   // Helper function to get workflow status from shareholdingsVerification state
+  // Maps internal workflow status to frontend display label with appropriate colors
   const getWorkflowStatus = (applicant: Applicant): { label: string; color: string; bgColor: string } => {
-    const wf = applicant.shareholdingsVerification;
-    
-    if (!wf) {
-      return { label: 'Not Started', color: 'text-neutral-500', bgColor: 'bg-neutral-100' };
-    }
+    const internalStatus = getWorkflowStatusInternal(applicant);
+    const frontendLabel = getWorkflowStatusFrontendLabel(internalStatus);
 
-    // UNVERIFIED: User declined shareholdings verification
-    if (wf.step1.wantsVerification === false) {
-      return { label: 'UNVERIFIED', color: 'text-[#9A3412]', bgColor: 'bg-[#FEF3E7]' };
-    }
+    // Color mapping based on internal status
+    const statusColors: Record<string, { color: string; bgColor: string }> = {
+      'EMAIL_VERIFICATION_PENDING': { color: 'text-blue-700', bgColor: 'bg-blue-50' },
+      'EMAIL_VERIFIED': { color: 'text-green-700', bgColor: 'bg-green-50' },
+      'SHAREHOLDINGS_DECLINED': { color: 'text-[#9A3412]', bgColor: 'bg-[#FEF3E7]' },
+      'REGISTRATION_PENDING': { color: 'text-indigo-700', bgColor: 'bg-indigo-50' },
+      'AWAITING_IRO_REVIEW': { color: 'text-purple-700', bgColor: 'bg-purple-50' },
+      'RESUBMISSION_REQUIRED': { color: 'text-orange-700', bgColor: 'bg-orange-50' },
+      'VERIFIED': { color: 'text-green-700', bgColor: 'bg-green-50' },
+    };
 
-    // REGISTRATION_PENDING: User agreed but hasn't submitted Step 2
-    if (wf.step1.wantsVerification === true && !wf.step2) {
-      return { label: 'REGISTRATION_PENDING', color: 'text-indigo-700', bgColor: 'bg-indigo-50' };
-    }
+    const colors = statusColors[internalStatus] || { color: 'text-neutral-600', bgColor: 'bg-neutral-100' };
 
-    // LOCKED_7_DAYS: Locked after 3 failed attempts
-    if (wf.step3.lockedUntil) {
-      const lockedUntil = new Date(wf.step3.lockedUntil);
-      if (lockedUntil.getTime() > Date.now()) {
-        return { label: 'LOCKED_7_DAYS', color: 'text-red-700', bgColor: 'bg-red-50' };
-      }
-    }
-
-    // AUTO_CHECK_FAILED: Failed Step 3 but not locked yet
-    if (wf.step3.lastResult === 'NO_MATCH' && (!wf.step3.lockedUntil || new Date(wf.step3.lockedUntil).getTime() <= Date.now())) {
-      return { label: 'AUTO_CHECK_FAILED', color: 'text-orange-700', bgColor: 'bg-orange-50' };
-    }
-
-    // Step 3: Auto check passed
-    if (wf.step3.lastResult === 'MATCH') {
-      // AWAITING_IRO_REVIEW: Step 3 passed, waiting for IRO review
-      if (!wf.step4.lastResult) {
-        return { label: 'AWAITING_IRO_REVIEW', color: 'text-purple-700', bgColor: 'bg-purple-50' };
-      }
-      
-      // Step 4: IRO review passed
-      if (wf.step4.lastResult === 'MATCH') {
-        // CODE_SENT: Code sent, waiting for user to enter
-        if (wf.step5) {
-          // Check if code is still valid (not invalidated and not expired)
-          const expiresAt = new Date(wf.step5.expiresAt);
-          const isExpired = expiresAt.getTime() <= Date.now();
-          const isInvalidated = wf.step5.invalidatedAt && new Date(wf.step5.invalidatedAt).getTime() <= Date.now();
-          
-          if (!isExpired && !isInvalidated && wf.step5.attemptsRemaining > 0) {
-            return { label: 'CODE_SENT', color: 'text-blue-700', bgColor: 'bg-blue-50' };
-          }
-          // Code expired - treat as UNVERIFIED
-          return { label: 'UNVERIFIED', color: 'text-neutral-500', bgColor: 'bg-neutral-100' };
-        }
-        // Awaiting code to be sent
-        return { label: 'AWAITING_IRO_REVIEW', color: 'text-indigo-700', bgColor: 'bg-indigo-50' };
-      }
-      
-      // Step 4: IRO review failed - treat as UNVERIFIED
-      if (wf.step4.lastResult === 'NO_MATCH') {
-        return { label: 'UNVERIFIED', color: 'text-orange-700', bgColor: 'bg-orange-50' };
-      }
-    }
-    
-    // VERIFIED: Status is APPROVED (completed verification)
-    if (applicant.status === RegistrationStatus.APPROVED && wf.step5 && wf.step5.attemptsRemaining === 0) {
-      return { label: 'VERIFIED', color: 'text-green-700', bgColor: 'bg-green-50' };
-    }
-
-    // Default fallback
-    return { label: 'In Progress', color: 'text-neutral-600', bgColor: 'bg-neutral-100' };
+    return {
+      label: frontendLabel,
+      ...colors,
+    };
   };
 
   const handleExportCSV = () => {
-    const headers = ['ID', 'Full Name', 'Email', 'Workflow Status', 'Submission Date', 'Last Active', 'IRO Status'];
+    const headers = ['ID', 'Full Name', 'Email', 'Submission Date', 'Last Active', 'Status'];
     const csvRows = filteredData.map(a => [
       a.id,
       `"${a.fullName}"`,
       a.email,
-      getWorkflowStatus(a).label,
       a.submissionDate,
       a.lastActive,
-      getStatusLabel(a.status)
+      getWorkflowStatusInternal(a)
     ].join(','));
 
     const csvContent = [headers.join(','), ...csvRows].join('\n');
@@ -294,14 +174,13 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
     doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
     doc.text(`Filter View: ${activeTab}`, 14, 35);
 
-    const tableHeaders = [['ID', 'NAME', 'WORKFLOW STATUS', 'DATE', 'ACTIVE', 'IRO STATUS']];
+    const tableHeaders = [['ID', 'NAME', 'DATE', 'ACTIVE', 'STATUS']];
     const tableData = filteredData.map(a => [
       a.id,
       a.fullName,
-      getWorkflowStatus(a).label,
       a.submissionDate,
       a.lastActive,
-      getStatusLabel(a.status)
+      getWorkflowStatusInternal(a)
     ]);
 
     doc.autoTable({
@@ -396,10 +275,9 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
           <thead>
             <tr className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest border-b border-neutral-100">
               <th className="px-8 py-4">Investor Profile</th>
-              <th className="px-8 py-4">Workflow Status</th>
               <th className="px-8 py-4">Submission</th>
               <th className="px-8 py-4">Last Activity</th>
-              <th className="px-8 py-4">IRO Status</th>
+              <th className="px-8 py-4">Status</th>
               <th className="px-8 py-4 text-right">Review</th>
             </tr>
           </thead>
@@ -418,16 +296,6 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
                       </div>
                     </div>
                   </td>
-                  <td className="px-8 py-5">
-                    {(() => {
-                      const workflowStatus = getWorkflowStatus(applicant);
-                      return (
-                        <span className={`text-[10px] font-bold uppercase tracking-tighter px-2.5 py-1 rounded-full border ${workflowStatus.color} ${workflowStatus.bgColor} border-current/20`}>
-                          {workflowStatus.label}
-                        </span>
-                      );
-                    })()}
-                  </td>
                   <td className="px-8 py-5 text-xs text-neutral-500 font-medium">
                     {applicant.submissionDate}
                   </td>
@@ -435,7 +303,25 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
                     {applicant.lastActive}
                   </td>
                   <td className="px-8 py-5">
-                    <StatusBadge status={applicant.status} />
+                    {(() => {
+                      const internalStatus = getWorkflowStatusInternal(applicant);
+                      // Color mapping for internal status
+                      const statusColors: Record<string, { color: string; bgColor: string }> = {
+                        'EMAIL_VERIFICATION_PENDING': { color: 'text-blue-700', bgColor: 'bg-blue-50' },
+                        'EMAIL_VERIFIED': { color: 'text-green-700', bgColor: 'bg-green-50' },
+                        'SHAREHOLDINGS_DECLINED': { color: 'text-[#9A3412]', bgColor: 'bg-[#FEF3E7]' },
+                        'REGISTRATION_PENDING': { color: 'text-indigo-700', bgColor: 'bg-indigo-50' },
+                        'AWAITING_IRO_REVIEW': { color: 'text-purple-700', bgColor: 'bg-purple-50' },
+                        'RESUBMISSION_REQUIRED': { color: 'text-orange-700', bgColor: 'bg-orange-50' },
+                        'VERIFIED': { color: 'text-green-700', bgColor: 'bg-green-50' },
+                      };
+                      const colors = statusColors[internalStatus] || { color: 'text-neutral-600', bgColor: 'bg-neutral-100' };
+                      return (
+                        <span className={`text-[10px] font-bold uppercase tracking-tighter px-2.5 py-1 rounded-full border ${colors.color} ${colors.bgColor} border-current/20`}>
+                          {internalStatus}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-8 py-5 text-right">
                     <button 
@@ -449,7 +335,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
               ))
             ) : (
               <tr>
-                <td colSpan={6} className="px-8 py-12 text-center text-xs font-bold text-neutral-400 uppercase tracking-widest">
+                <td colSpan={5} className="px-8 py-12 text-center text-xs font-bold text-neutral-400 uppercase tracking-widest">
                   No records found in current queue
                 </td>
               </tr>
