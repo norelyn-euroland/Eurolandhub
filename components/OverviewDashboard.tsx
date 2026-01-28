@@ -561,24 +561,78 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
             <thead>
               <tr className="bg-neutral-900 text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em]">
                 <th className="px-10 py-5 w-16 text-center">Rank</th>
-                <th className="px-10 py-5">Shareholder</th>
+                <th className="px-10 py-5">Investor</th>
                 <th className="px-10 py-5">Account Status</th>
                 <th className="px-10 py-5">Holdings</th>
                 <th className="px-10 py-5 text-right">Last Activity</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100">
-              {engagedInvestors.map((investor) => (
-                <tr key={investor.id} onClick={() => setSelectedInvestor(investor)} className="hover:bg-neutral-50 transition-all cursor-pointer group">
+              {engagedInvestors.map((investor) => {
+                const isTopThree = investor.rank <= 3;
+                const rankColors = {
+                  1: { 
+                    bg: 'bg-gradient-to-r from-yellow-50 to-amber-50', 
+                    border: 'border-yellow-300', 
+                    badge: 'bg-gradient-to-br from-yellow-400 to-amber-500', 
+                    text: 'text-yellow-900', 
+                    icon: 'https://img.icons8.com/windows/32/medal2.png',
+                    iconColor: 'brightness(0) saturate(100%) invert(70%) sepia(100%) saturate(2000%) hue-rotate(0deg) brightness(110%) contrast(120%)'
+                  },
+                  2: { 
+                    bg: 'bg-gradient-to-r from-gray-50 to-slate-50', 
+                    border: 'border-gray-300', 
+                    badge: 'bg-gradient-to-br from-gray-400 to-slate-500', 
+                    text: 'text-gray-900', 
+                    icon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAACXBIWXMAAAsTAAALEwEAmpwYAAABRUlEQVR4nN2TQUoDQRBFH5idujWH8AyJOYUGAhG9gBDwAho3XkUSvIRbxZ3MbNStCpq4EMVECv5A0fTE6ZmVfiiY+V1d9et3N/w3DIElkAOtEm4NuBNna5RwUVTZPIyI2I9wv06RqXjIZYGAVoSjyRTLJurDKfJIoVrep0yRN1UfTpEBp8AN8KGw7xMVTlbvp7h3tpTFQx31hj3gW0UugA6wrugCE61Zzm5q8TbwpgJHK/JGynkFtlIajJ3yAn3gEXgOmk6Va2dSGbfa1HHcE3AADIC543eUawdfGTNt2oisnQNX7n9TuWZpZcxLGhwCL8B2pIGJSraoG5zBe2CboVfHojNtmjju0939L8dfirPHmHRNC5tGK/KOnT1J17SwZKECU1lRPLSeU77Qo6yFvpskFrMmxb1dY+BazSzs2zxPtuXv4Qc+TI21/xkT+wAAAABJRU5ErkJggg==',
+                    iconColor: 'brightness(0) saturate(100%) invert(60%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(90%) contrast(100%)'
+                  },
+                  3: { 
+                    bg: 'bg-gradient-to-r from-orange-50 to-amber-50', 
+                    border: 'border-orange-300', 
+                    badge: 'bg-gradient-to-br from-orange-400 to-amber-500', 
+                    text: 'text-orange-900', 
+                    icon: 'https://img.icons8.com/ios-glyphs/30/medal2-third-place--v1.png',
+                    iconColor: 'brightness(0) saturate(100%) invert(67%) sepia(93%) saturate(1352%) hue-rotate(348deg) brightness(101%) contrast(101%)'
+                  },
+                };
+                const rankStyle = isTopThree ? rankColors[investor.rank as 1 | 2 | 3] : null;
+                
+                return (
+                <tr 
+                  key={investor.id} 
+                  onClick={() => setSelectedInvestor(investor)} 
+                  className={`hover:bg-neutral-50 transition-all cursor-pointer group relative ${
+                    isTopThree ? `${rankStyle?.bg} ${rankStyle?.border} border-l-4` : ''
+                  }`}
+                >
                   <td className="px-10 py-7 text-center">
-                    <span className="text-xs font-black text-neutral-300 group-hover:text-primary transition-colors">#{investor.rank}</span>
+                    {isTopThree ? (
+                      <div className="flex items-center justify-center">
+                        <img 
+                          src={rankStyle?.icon} 
+                          alt={`${investor.rank} place medal`}
+                          width="32" 
+                          height="32"
+                          className="drop-shadow-sm"
+                          style={{ filter: rankStyle?.iconColor }}
+                        />
+                      </div>
+                    ) : (
+                      <span className="text-xs font-black text-neutral-300 group-hover:text-primary transition-colors">#{investor.rank}</span>
+                    )}
                   </td>
                   <td className="px-10 py-7">
                     <div className="flex items-center gap-3">
+                      {isTopThree && (
+                        <div className={`absolute left-0 top-0 bottom-0 w-1 ${rankStyle?.badge}`}></div>
+                      )}
                       <Avatar name={investor.fullName} size={40} />
                       <div className="min-w-0 flex-1">
                         <Tooltip content={investor.fullName}>
-                          <p className="text-sm font-black text-neutral-900 uppercase tracking-tight truncate max-w-[200px]">{investor.fullName}</p>
+                          <p className={`text-sm font-black uppercase tracking-tight truncate max-w-[200px] ${
+                            isTopThree ? rankStyle?.text : 'text-neutral-900'
+                          }`}>{investor.fullName}</p>
                         </Tooltip>
                       </div>
                     </div>
@@ -629,7 +683,8 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                     <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">{investor.lastActive}</span>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

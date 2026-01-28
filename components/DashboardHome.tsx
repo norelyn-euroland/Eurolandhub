@@ -6,7 +6,7 @@ import { Applicant, RegistrationStatus } from '../lib/types';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import Tooltip from './Tooltip';
-import { getWorkflowStatusInternal, getGeneralAccountStatus } from '../lib/shareholdingsVerification';
+import { getWorkflowStatusInternal, getGeneralAccountStatus, getWorkflowStatusFrontendLabel } from '../lib/shareholdingsVerification';
 
 // Helper function to get initials (first letter of first name and last name)
 const getInitials = (fullName: string): string => {
@@ -123,6 +123,172 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
     { id: 'NON_VERIFIED', label: 'Pending' },
   ];
 
+  // Helper function to parse submissionDate (handles YYYY-MM-DD format)
+  const parseSubmissionDate = (dateStr: string): Date | null => {
+    if (!dateStr) return null;
+    try {
+      // Handle YYYY-MM-DD format
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+      }
+      // Try parsing as ISO string
+      return new Date(dateStr);
+    } catch {
+      return null;
+    }
+  };
+
+  // Helper function to check if date is older than N days
+  const isOlderThanDays = (dateStr: string, days: number): boolean => {
+    const date = parseSubmissionDate(dateStr);
+    if (!date) return false;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+    return date.getTime() < cutoffDate.getTime();
+  };
+
+  // Helper function to check if date is within a range (last N days)
+  const isWithinLastDays = (dateStr: string, days: number): boolean => {
+    const date = parseSubmissionDate(dateStr);
+    if (!date) return false;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+    return date.getTime() >= cutoffDate.getTime();
+  };
+
+  // Helper function to check if date is between two day ranges
+  const isBetweenDays = (dateStr: string, minDays: number, maxDays: number): boolean => {
+    const date = parseSubmissionDate(dateStr);
+    if (!date) return false;
+    const now = new Date();
+    const minDate = new Date(now);
+    minDate.setDate(minDate.getDate() - maxDays);
+    const maxDate = new Date(now);
+    maxDate.setDate(maxDate.getDate() - minDays);
+    return date.getTime() >= minDate.getTime() && date.getTime() < maxDate.getTime();
+  };
+
+  // Helper functions to calculate counts
+  const getUnverifiedCount = (): number => {
+    return applicants.filter(a => {
+      const internalStatus = getWorkflowStatusInternal(a);
+      return getGeneralAccountStatus(internalStatus) === 'UNVERIFIED';
+    }).length;
+  };
+
+  const getVerifiedCount = (): number => {
+    return applicants.filter(a => {
+      const internalStatus = getWorkflowStatusInternal(a);
+      return getGeneralAccountStatus(internalStatus) === 'VERIFIED';
+    }).length;
+  };
+
+  const getPendingCount = (): number => {
+    return applicants.filter(a => {
+      const internalStatus = getWorkflowStatusInternal(a);
+      return getGeneralAccountStatus(internalStatus) === 'PENDING';
+    }).length;
+  };
+
+  const getAwaitingIROCount = (): number => {
+    return applicants.filter(a => {
+      const internalStatus = getWorkflowStatusInternal(a);
+      return internalStatus === 'AWAITING_IRO_REVIEW';
+    }).length;
+  };
+
+  const getAwaitingUserActionsCount = (): number => {
+    return applicants.filter(a => {
+      const internalStatus = getWorkflowStatusInternal(a);
+      return ['EMAIL_VERIFICATION_PENDING', 'REGISTRATION_PENDING', 'RESUBMISSION_REQUIRED'].includes(internalStatus);
+    }).length;
+  };
+
+  const getOverdueReviewsCount = (): number => {
+    return applicants.filter(a => {
+      const internalStatus = getWorkflowStatusInternal(a);
+      const generalStatus = getGeneralAccountStatus(internalStatus);
+      // Count pending verifications older than 3 days
+      return generalStatus === 'PENDING' && isOlderThanDays(a.submissionDate, 3);
+    }).length;
+  };
+
+  // Helper function to calculate 7-day trend based on current data
+  // Compares accounts that entered this status in last 7 days vs 7-14 days ago
+  const calculateTrend = (
+    currentCount: number,
+    filterFn: (a: Applicant) => boolean
+  ): { percent: number; direction: 'up' | 'down' | 'neutral' } => {
+    // Count accounts in this status that were submitted in the last 7 days (recent)
+    const recentCount = applicants.filter(a => {
+      return filterFn(a) && isWithinLastDays(a.submissionDate, 7);
+    }).length;
+
+    // Count accounts in this status that were submitted 7-14 days ago (previous period)
+    const previousCount = applicants.filter(a => {
+      return filterFn(a) && isBetweenDays(a.submissionDate, 7, 14);
+    }).length;
+
+    // If no previous period data, compare recent vs all older data
+    if (previousCount === 0) {
+      const olderCount = applicants.filter(a => {
+        return filterFn(a) && isOlderThanDays(a.submissionDate, 7);
+      }).length;
+      
+      if (olderCount === 0) {
+        // If no older data but we have recent data, show as positive trend
+        if (recentCount > 0) {
+          return { percent: 100, direction: 'up' };
+        }
+        // If no data at all, return neutral
+        return { percent: 0, direction: 'neutral' };
+      }
+      
+      // Compare recent vs older
+      const percent = ((recentCount - olderCount) / olderCount) * 100;
+      const direction = percent > 0 ? 'up' : percent < 0 ? 'down' : 'neutral';
+      return { percent: Math.abs(percent), direction };
+    }
+
+    // Compare recent period vs previous period
+    const percent = previousCount > 0 
+      ? ((recentCount - previousCount) / previousCount) * 100
+      : recentCount > 0 ? 100 : 0;
+    const direction = percent > 0 ? 'up' : percent < 0 ? 'down' : 'neutral';
+
+    return { percent: Math.abs(percent), direction };
+  };
+
+  // Calculate all metrics and trends
+  const unverifiedCount = getUnverifiedCount();
+  const verifiedCount = getVerifiedCount();
+  const pendingCount = getPendingCount();
+  const awaitingIROCount = getAwaitingIROCount();
+  const awaitingUserActionsCount = getAwaitingUserActionsCount();
+  const overdueCount = getOverdueReviewsCount();
+
+  const unverifiedTrend = calculateTrend(unverifiedCount, (a) => {
+    const internalStatus = getWorkflowStatusInternal(a);
+    return getGeneralAccountStatus(internalStatus) === 'UNVERIFIED';
+  });
+
+  const verifiedTrend = calculateTrend(verifiedCount, (a) => {
+    const internalStatus = getWorkflowStatusInternal(a);
+    return getGeneralAccountStatus(internalStatus) === 'VERIFIED';
+  });
+
+  const pendingTrend = calculateTrend(pendingCount, (a) => {
+    const internalStatus = getWorkflowStatusInternal(a);
+    return getGeneralAccountStatus(internalStatus) === 'PENDING';
+  });
+
+  const overdueTrend = calculateTrend(overdueCount, (a) => {
+    const internalStatus = getWorkflowStatusInternal(a);
+    const generalStatus = getGeneralAccountStatus(internalStatus);
+    return generalStatus === 'PENDING' && isOlderThanDays(a.submissionDate, 3);
+  });
+
   // Helper function to get workflow status from shareholdingsVerification state
   // Maps internal workflow status to frontend display label with appropriate colors
   const getWorkflowStatus = (applicant: Applicant): { label: string; color: string; bgColor: string } => {
@@ -203,24 +369,176 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
     setIsExportOpen(false);
   };
 
+  // Metrics array with new structure
+  const metrics = [
+    {
+      label: 'Unverified Accounts',
+      value: unverifiedCount,
+      trend: unverifiedTrend,
+      purpose: 'Drop-off / friction',
+      type: 'unverified'
+    },
+    {
+      label: 'Verified Accounts',
+      value: verifiedCount,
+      trend: verifiedTrend,
+      purpose: 'Trust & success',
+      type: 'verified'
+    },
+    {
+      label: 'Pending Verification',
+      value: pendingCount,
+      trend: pendingTrend,
+      purpose: 'Requires review',
+      awaitingIRO: awaitingIROCount,
+      awaitingUser: awaitingUserActionsCount,
+      subLabel: 'Requires IRO action',
+      type: 'pending'
+    },
+    {
+      label: 'Verification Aging/SLA Risk',
+      value: overdueCount,
+      trend: overdueTrend,
+      purpose: 'SLA breach risk',
+      type: 'overdue'
+    }
+  ];
+
+  // Helper function to format trend display
+  const formatTrend = (trend: { percent: number; direction: 'up' | 'down' | 'neutral' }): string => {
+    if (trend.direction === 'neutral') return '0%';
+    const sign = trend.direction === 'up' ? '+' : '-';
+    return `${sign}${trend.percent.toFixed(1)}%`;
+  };
+
+  // Helper function to get trend tracking period info
+  const getTrendTrackingInfo = (): string => {
+    return 'Trend tracked over 14 days: Last 7 days compared to previous 7 days';
+  };
+
   return (
     <div className="space-y-10 max-w-7xl mx-auto">
-      <div className="grid grid-cols-4 gap-8">
-        {[
-          { label: 'Unverified Audit', value: applicants.filter(a => {
-            const internalStatus = getWorkflowStatusInternal(a);
-            return getGeneralAccountStatus(internalStatus) === 'UNVERIFIED';
-          }).length, detail: '+2 since yesterday' },
-          { label: 'Active Shareholders', value: '1,402', detail: 'Across 12 entities' },
-          { label: 'Risk Threshold', value: '18%', detail: 'Historical average' },
-          { label: 'Compliance Score', value: '99.4', detail: 'Audit target: 99.0' }
-        ].map((stat, i) => (
-          <div key={i} className="bg-white p-6 border border-neutral-200 rounded-lg hover:border-neutral-300 transition-all">
-            <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-1">{stat.label}</p>
-            <div className="text-3xl font-bold text-neutral-900 mb-1">{stat.value}</div>
-            <p className="text-[10px] text-neutral-400 font-medium">{stat.detail}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-4 gap-8 items-stretch">
+        {metrics.map((metric, i) => {
+          const InfoIcon: React.FC = () => {
+            const [showTooltip, setShowTooltip] = useState(false);
+            return (
+              <div className="relative inline-block">
+                <svg
+                  className="w-4 h-4 text-neutral-400 hover:text-neutral-600 cursor-help transition-colors"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  onMouseEnter={() => setShowTooltip(true)}
+                  onMouseLeave={() => setShowTooltip(false)}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                {showTooltip && (
+                  <div className="absolute z-50 px-3 py-2 bg-neutral-800 text-white text-xs font-medium rounded-lg shadow-xl whitespace-nowrap pointer-events-none bottom-full left-1/2 transform -translate-x-1/2 mb-2">
+                    {getTrendTrackingInfo()}
+                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
+                      <div className="border-4 border-transparent border-t-neutral-800"></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          };
+
+          return (
+            <div
+              key={i}
+              className="bg-white p-6 border border-neutral-200 rounded-lg hover:border-neutral-300 transition-all grid grid-rows-[auto_1fr_auto_auto] h-full"
+            >
+              {/* Title + info icon */}
+              <div className="flex items-center gap-2 mb-2">
+                <p className="text-sm font-medium text-neutral-700">{metric.label}</p>
+                <InfoIcon />
+              </div>
+
+              {/* Value block */}
+              <div className="relative flex items-start">
+                <div
+                  className={`font-bold text-neutral-900 leading-none ${
+                    metric.type === 'pending' ? 'text-4xl' : 'text-5xl'
+                  }`}
+                >
+                  {metric.value}
+                </div>
+
+                {/* Trend indicator — anchored bottom-right */}
+                <div className="absolute bottom-0 right-0 flex items-center gap-1.5">
+                  {metric.trend.direction === 'up' && (
+                    <>
+                      <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                      </svg>
+                      <span className="text-sm font-medium text-green-600">
+                        {formatTrend(metric.trend)}
+                      </span>
+                    </>
+                  )}
+
+                  {metric.trend.direction === 'down' && (
+                    <>
+                      <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                      </svg>
+                      <span className="text-sm font-medium text-red-600">
+                        {formatTrend(metric.trend)}
+                      </span>
+                    </>
+                  )}
+
+                  {metric.trend.direction === 'neutral' && (
+                    <>
+                      <svg className="w-4 h-4 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14" />
+                      </svg>
+                      <span className="text-sm font-medium text-neutral-400">0%</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Detail row */}
+              <div>
+                {metric.type === 'pending' && (
+                  <div className="mt-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
+                        Awaiting IRO
+                      </span>
+                      <span className="text-xs font-bold text-neutral-900">
+                        {metric.awaitingIRO}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
+                        Awaiting user
+                      </span>
+                      <span className="text-xs font-bold text-neutral-900">
+                        {metric.awaitingUser}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Purpose text always sticks to the bottom */}
+              <p className="text-[11px] text-neutral-400 font-medium mt-auto">
+                {metric.purpose}
+              </p>
+            </div>
+          );
+        })}
       </div>
 
       <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden shadow-sm">

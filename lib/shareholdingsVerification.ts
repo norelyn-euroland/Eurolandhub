@@ -52,7 +52,8 @@ export function ensureWorkflow(applicant: Applicant): Applicant {
       email: applicant.email,
       contactNumber: applicant.phoneNumber || '',
       authProvider: 'GOOGLE',
-      // wantsVerification is intentionally undefined until set by Step 1 decision
+      // wantsVerification is intentionally undefined until set AFTER email verification (Step 2) is complete
+      // The decision "Want to verify account for Investor community?" comes after email verification
     },
     step3: {
       failedAttempts: 0,
@@ -70,9 +71,23 @@ export function isLocked(applicant: Applicant): boolean {
   return isFutureIso(wf?.step3.lockedUntil);
 }
 
+/**
+ * Set whether user wants to proceed with shareholdings verification
+ * This decision is made AFTER email verification (Step 2) is complete
+ * 
+ * Flow:
+ * 1. Step 1: Basic User Registration
+ * 2. Step 2: Email OTP Verification (must complete first)
+ * 3. Decision: "Want to verify account for Investor community?" (this function)
+ *    - If No → SHAREHOLDINGS_DECLINED (unverified account)
+ *    - If Yes → Proceed to Step 3 (Holdings Registration)
+ */
 export function setWantsVerification(applicant: Applicant, wantsVerification: boolean): Applicant {
   const a = ensureWorkflow(applicant);
   const wf = a.shareholdingsVerification!;
+
+  // Note: This decision should only be made AFTER email verification is complete
+  // The frontend should check emailOtpVerification?.verifiedAt before calling this
 
   const next: ShareholdingsVerificationState = {
     ...wf,
@@ -80,13 +95,14 @@ export function setWantsVerification(applicant: Applicant, wantsVerification: bo
   };
 
   if (!wantsVerification) {
-    // Step 1 decision "No": redirect as unverified. In this admin-only demo, we mark unverified.
+    // Decision "No": User declined shareholdings verification after email verification
+    // Redirect to dynamic home page as unverified account
     return {
       ...a,
       status: RegistrationStatus.PENDING, // UNVERIFIED status
       shareholdingsVerification: {
         ...next,
-        step2: undefined,
+        step2: undefined, // Clear any shareholdings submission
         step3: { failedAttempts: 0 },
         step4: { failedAttempts: 0 },
         step6: undefined,
@@ -94,17 +110,22 @@ export function setWantsVerification(applicant: Applicant, wantsVerification: bo
     };
   }
 
-  // REGISTRATION_PENDING: User wants verification but hasn't submitted Step 2 yet
+  // REGISTRATION_PENDING: User wants verification but hasn't submitted Step 3 (Holdings Registration) yet
   // Status should be PENDING (UNVERIFIED) until they submit
   return { 
     ...a, 
-    status: RegistrationStatus.PENDING, // UNVERIFIED status until Step 2 submission
+    status: RegistrationStatus.PENDING, // UNVERIFIED status until Step 3 submission
     shareholdingsVerification: next 
   };
 }
 
 /**
- * Submit shareholdings registration information (Step 2)
+ * Submit shareholdings registration information (Step 3: Holdings Registration)
+ * 
+ * This is called AFTER:
+ * 1. Step 1: Basic User Registration
+ * 2. Step 2: Email OTP Verification (must be verified)
+ * 3. Decision: User chose "Yes" to proceed with shareholdings verification
  * 
  * Required fields:
  * - shareholdingsId: Registration/Shareholdings ID (required)
@@ -113,7 +134,7 @@ export function setWantsVerification(applicant: Applicant, wantsVerification: bo
  * Optional fields:
  * - country: Country (optional) - Only used for profile display, NOT for verification matching
  * 
- * Automatic verification (Step 3) will check:
+ * Automatic verification (Step 4) will check:
  * - Shareholdings ID matches
  * - Company Name matches
  * - Country is NOT checked (optional field for display only)
@@ -138,13 +159,13 @@ export function submitShareholdingInfo(
   // If Step 4 has a NO_MATCH result, this is a resubmission - skip auto verification
   const isResubmission = wf.step4.lastResult === 'NO_MATCH';
 
-  // Step 2: Store submission, status will be set by Step 3 verification
+  // Step 3: Store submission, status will be set by Step 4 (automatic verification)
   const withStep2 = {
     ...a,
-    status: RegistrationStatus.PENDING, // Will be updated by Step 3 or Step 4
+    status: RegistrationStatus.PENDING, // Will be updated by Step 4 or Step 5
     shareholdingsVerification: {
       ...wf,
-      step2,
+      step2, // This is Step 3: Holdings Registration submission
       // Reset Step 3 for resubmission (will skip auto check)
       step3: isResubmission ? {
         ...wf.step3,
@@ -212,7 +233,7 @@ export function runAutoVerification(applicant: Applicant, shareholders: Sharehol
   if (target) {
     return {
       ...a,
-      // Step 3 match: AWAITING_IRO_REVIEW -> PENDING status (FURTHER_INFO)
+      // Step 4 match: AWAITING_IRO_REVIEW -> PENDING status (FURTHER_INFO)
       status: RegistrationStatus.FURTHER_INFO, // PENDING in frontend
       shareholdingsVerification: {
         ...wf,
@@ -230,7 +251,7 @@ export function runAutoVerification(applicant: Applicant, shareholders: Sharehol
   const failedAttempts = (wf.step3.failedAttempts || 0) + 1;
   const lockedUntil = failedAttempts >= MAX_FAILED_ATTEMPTS ? addDaysIso(checkedAt, LOCKOUT_DAYS) : wf.step3.lockedUntil;
 
-  // AUTO_CHECK_FAILED: Failed Step 3 but not locked yet -> UNVERIFIED (PENDING)
+  // AUTO_CHECK_FAILED: Failed Step 4 (automatic verification) but not locked yet -> UNVERIFIED (PENDING)
   // LOCKED_7_DAYS: Failed 3 times -> UNVERIFIED (PENDING)
   return {
     ...a,
@@ -340,21 +361,22 @@ export function getWorkflowStatusInternal(applicant: Applicant): WorkflowStatusI
     }
   }
 
-  // Phase 2: Shareholdings Verification (only if email is verified or no email OTP required)
+  // Phase 2: Shareholdings Verification (only if email is verified)
+  // The decision about shareholdings verification comes AFTER email verification
   if (!wf) {
-    // If email is verified but no shareholdings workflow, show email verified
+    // If email is verified but no shareholdings workflow decision made yet
     if (emailOtp?.verifiedAt) {
-      return 'EMAIL_VERIFIED';
+      return 'EMAIL_VERIFIED'; // Email verified, waiting for shareholdings decision
     }
     return 'EMAIL_VERIFICATION_PENDING';
   }
 
-  // SHAREHOLDINGS_DECLINED: User declined shareholdings verification
+  // SHAREHOLDINGS_DECLINED: User declined shareholdings verification (after email was verified)
   if (wf.step1.wantsVerification === false) {
     return 'SHAREHOLDINGS_DECLINED';
   }
 
-  // REGISTRATION_PENDING: User agreed but hasn't submitted Step 2
+  // REGISTRATION_PENDING: User agreed to shareholdings verification but hasn't submitted Step 3 (Holdings Registration)
   if (wf.step1.wantsVerification === true && !wf.step2) {
     return 'REGISTRATION_PENDING';
   }
@@ -379,35 +401,37 @@ export function getWorkflowStatusInternal(applicant: Applicant): WorkflowStatusI
     return 'AWAITING_IRO_REVIEW';
   }
 
-  // Step 3: Auto check passed
+  // Step 4: Auto check passed
   if (wf.step3.lastResult === 'MATCH') {
-    // AWAITING_IRO_REVIEW: Step 3 passed, waiting for IRO review
+    // AWAITING_IRO_REVIEW: Step 4 (automatic verification) passed, waiting for IRO review (Step 5)
     if (!wf.step4.lastResult) {
       return 'AWAITING_IRO_REVIEW';
     }
 
-    // Step 4: IRO review passed -> VERIFIED
+    // Step 5: IRO review passed -> VERIFIED
     if (wf.step4.lastResult === 'MATCH') {
       return 'VERIFIED';
     }
 
-    // Step 4: IRO review failed -> RESUBMISSION_REQUIRED
+    // Step 5: IRO review failed -> RESUBMISSION_REQUIRED
     if (wf.step4.lastResult === 'NO_MATCH') {
       return 'RESUBMISSION_REQUIRED';
     }
   }
 
-  // Step 3: Auto check failed -> RESUBMISSION_REQUIRED
+  // Step 4: Auto check failed -> RESUBMISSION_REQUIRED
   if (wf.step3.lastResult === 'NO_MATCH') {
     return 'RESUBMISSION_REQUIRED';
   }
 
   // Default fallback - if email verified but no shareholdings decision yet
+  // This means email verification (Step 2) is complete, but user hasn't been asked about shareholdings yet
   if (emailOtp?.verifiedAt && wf.step1.wantsVerification === undefined) {
     return 'EMAIL_VERIFIED';
   }
 
-  // If Step 2 exists but no Step 3 result yet (shouldn't happen, but handle gracefully)
+  // If Step 3 (Holdings Registration) exists but no Step 4 (auto verification) result yet
+  // This shouldn't happen in normal flow, but handle gracefully
   if (wf.step2 && wf.step3.lastResult === undefined) {
     return 'REGISTRATION_PENDING';
   }
