@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 // @google/genai guidelines: Import ViewType from shared types
 import { RegistrationStatus, Applicant, ViewType } from './lib/types';
-import { ensureWorkflow, recordManualReview } from './lib/shareholdingsVerification';
+import { ensureWorkflow, recordManualReview, recordRequestInfo } from './lib/shareholdingsVerification';
 import { MOCK_SHAREHOLDERS } from './lib/mockShareholders';
 import { useApplicants } from './hooks/useApplicants';
 import { applicantService } from './lib/firestore-service';
@@ -34,19 +34,23 @@ const App: React.FC = () => {
     if (!applicant) return;
 
     // Always carry the workflow state, even if the record didn't have it yet.
-    const base = ensureWorkflow({ ...applicant, status });
+    const base = ensureWorkflow(applicant);
 
     let updatedApplicant: Applicant;
 
     // Wire existing admin actions to Step 5 (Manual IRO Verification)
     if (status === RegistrationStatus.APPROVED) {
-      // Step 5: Manual IRO match
+      // Step 5: Manual IRO match -> APPROVED
       updatedApplicant = recordManualReview(base, true);
     } else if (status === RegistrationStatus.REJECTED) {
-      // Step 5: Manual IRO no-match -> apply resubmission rules (same as Step 4)
+      // Step 5: Manual IRO no-match -> PENDING (for resubmission)
       updatedApplicant = recordManualReview(base, false);
+    } else if (status === RegistrationStatus.FURTHER_INFO) {
+      // Step 5: IRO requests more information -> FURTHER_INFO (PENDING in frontend)
+      updatedApplicant = recordRequestInfo(base);
     } else {
-      updatedApplicant = base;
+      // For any other status, just update the status
+      updatedApplicant = { ...base, status };
     }
 
     // Update in Firestore (real-time listener will update the UI automatically)

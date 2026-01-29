@@ -26,6 +26,7 @@ export type WorkflowStatusInternal =
   | 'REGISTRATION_PENDING'
   | 'AWAITING_IRO_REVIEW'
   | 'RESUBMISSION_REQUIRED'
+  | 'LOCKED_FOR_7_DAYS'
   | 'VERIFIED';
 
 /**

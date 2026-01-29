@@ -19,6 +19,8 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { Applicant, RegistrationStatus } from './types';
+import { isLocked } from './shareholdingsVerification';
+import { LockedAccountError, calculateRemainingDays } from './registration-errors';
 
 // Collection names
 const COLLECTIONS = {
@@ -212,14 +214,142 @@ export const applicantService = {
   },
 
   /**
+   * Check for duplicate registrations and lockout status
+   * Throws LockedAccountError if a locked account is found with matching email, phone, or name
+   */
+  async checkDuplicateRegistration(
+    email: string,
+    phoneNumber?: string,
+    fullName?: string
+  ): Promise<void> {
+    try {
+      const constraints: QueryConstraint[] = [];
+      
+      // Build query to check for duplicates by email, phone, or name
+      const conditions: QueryConstraint[] = [];
+      
+      if (email) {
+        conditions.push(where('email', '==', email.toLowerCase().trim()));
+      }
+      
+      if (phoneNumber && phoneNumber.trim()) {
+        conditions.push(where('phoneNumber', '==', phoneNumber.trim()));
+      }
+      
+      if (fullName && fullName.trim()) {
+        // Normalize name for comparison (case-insensitive, trim spaces)
+        const normalizedName = fullName.trim().toLowerCase();
+        conditions.push(where('fullName', '==', normalizedName));
+      }
+      
+      if (conditions.length === 0) {
+        return; // No fields to check
+      }
+      
+      // Use 'or' to check any of the conditions
+      // Note: Firestore 'or' requires all conditions to be on the same field or use array-contains
+      // For multiple fields, we'll need to query separately and combine results
+      const allResults: Applicant[] = [];
+      
+      // Query by email
+      if (email) {
+        const emailQuery = query(collection(db, COLLECTIONS.APPLICANTS), where('email', '==', email.toLowerCase().trim()));
+        const emailSnapshot = await getDocs(emailQuery);
+        allResults.push(...emailSnapshot.docs.map(firestoreToApplicant));
+      }
+      
+      // Query by phone number
+      if (phoneNumber && phoneNumber.trim()) {
+        const phoneQuery = query(collection(db, COLLECTIONS.APPLICANTS), where('phoneNumber', '==', phoneNumber.trim()));
+        const phoneSnapshot = await getDocs(phoneQuery);
+        allResults.push(...phoneSnapshot.docs.map(firestoreToApplicant));
+      }
+      
+      // Query by name - Firestore doesn't support case-insensitive queries natively
+      // So we'll fetch all and filter client-side, or query exact match and filter
+      // For now, we'll query exact match (case-sensitive) and also do client-side filtering
+      if (fullName && fullName.trim()) {
+        // Try exact match first
+        const nameQuery = query(collection(db, COLLECTIONS.APPLICANTS), where('fullName', '==', fullName.trim()));
+        const nameSnapshot = await getDocs(nameQuery);
+        allResults.push(...nameSnapshot.docs.map(firestoreToApplicant));
+      }
+      
+      // Remove duplicates (same applicant ID)
+      const uniqueResults = Array.from(
+        new Map(allResults.map(app => [app.id, app])).values()
+      );
+      
+      // Check if any duplicate is locked
+      for (const existingApplicant of uniqueResults) {
+        // Check if this is a match (case-insensitive for email and name)
+        const emailMatch = email && existingApplicant.email && 
+                          existingApplicant.email.toLowerCase().trim() === email.toLowerCase().trim();
+        const phoneMatch = phoneNumber && existingApplicant.phoneNumber && 
+                          existingApplicant.phoneNumber.trim() === phoneNumber.trim();
+        const nameMatch = fullName && existingApplicant.fullName && 
+                         existingApplicant.fullName.toLowerCase().trim() === fullName.trim().toLowerCase();
+        
+        // Only check lockout if there's an actual match
+        if ((emailMatch || phoneMatch || nameMatch) && isLocked(existingApplicant)) {
+          const lockedUntil = existingApplicant.shareholdingsVerification?.step3.lockedUntil;
+          if (lockedUntil) {
+            const remainingDays = calculateRemainingDays(lockedUntil);
+            
+            // Determine which field matched (prioritize email > phone > name)
+            let matchedField: 'email' | 'phone' | 'name' = 'email';
+            if (emailMatch) {
+              matchedField = 'email';
+            } else if (phoneMatch) {
+              matchedField = 'phone';
+            } else if (nameMatch) {
+              matchedField = 'name';
+            }
+            
+            const fieldLabel = matchedField === 'email' ? 'email address' : 
+                              matchedField === 'phone' ? 'phone number' : 'name';
+            
+            throw new LockedAccountError(
+              `This ${fieldLabel} is associated with an account that is locked for 7 days. Please wait ${remainingDays} day${remainingDays !== 1 ? 's' : ''} before registering again.`,
+              remainingDays,
+              lockedUntil,
+              matchedField
+            );
+          }
+        }
+      }
+    } catch (error) {
+      // Re-throw LockedAccountError as-is
+      if (error instanceof LockedAccountError) {
+        throw error;
+      }
+      // For other errors, log and re-throw
+      console.error('Error checking duplicate registration:', error);
+      throw error;
+    }
+  },
+
+  /**
    * Create a new applicant
+   * Checks for duplicate registrations with locked accounts before creating
    */
   async create(applicant: Applicant): Promise<string> {
     try {
+      // Check for duplicate registrations with locked accounts
+      await this.checkDuplicateRegistration(
+        applicant.email,
+        applicant.phoneNumber,
+        applicant.fullName
+      );
+      
       const docRef = doc(db, COLLECTIONS.APPLICANTS, applicant.id);
       await setDoc(docRef, applicantToFirestore(applicant));
       return docRef.id;
     } catch (error) {
+      // Re-throw LockedAccountError as-is (don't wrap it)
+      if (error instanceof LockedAccountError) {
+        throw error;
+      }
       console.error('Error creating applicant:', error);
       throw error;
     }

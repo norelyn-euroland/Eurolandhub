@@ -322,6 +322,39 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
   };
 }
 
+/**
+ * Record IRO request for further information
+ * This keeps the applicant in AWAITING_IRO_REVIEW state but records the IRO action
+ * The status is set to FURTHER_INFO (which maps to PENDING in frontend)
+ */
+export function recordRequestInfo(applicant: Applicant): Applicant {
+  const a = ensureWorkflow(applicant);
+  const wf = a.shareholdingsVerification!;
+
+  if (isLocked(a)) return a;
+  if (!wf.step1.wantsVerification) return a;
+  if (!wf.step2) return a;
+
+  const requestedAt = nowIso();
+
+  // Request Info: Keep in AWAITING_IRO_REVIEW state, set status to FURTHER_INFO
+  // Don't change step4.lastResult - keep it as undefined or existing value
+  // This allows the user to resubmit and go through the workflow again
+  return {
+    ...a,
+    status: RegistrationStatus.FURTHER_INFO, // PENDING in frontend
+    shareholdingsVerification: {
+      ...wf,
+      step4: {
+        ...wf.step4,
+        // Don't set lastResult - keep awaiting review
+        // Record that IRO requested info
+        lastReviewedAt: requestedAt,
+      },
+    },
+  };
+}
+
 
 export function getAutoMatchResult(applicant: Applicant): ShareholdingsVerificationMatchResult | undefined {
   return applicant.shareholdingsVerification?.step3.lastResult;
@@ -385,8 +418,8 @@ export function getWorkflowStatusInternal(applicant: Applicant): WorkflowStatusI
   if (wf.step3.lockedUntil) {
     const lockedUntil = new Date(wf.step3.lockedUntil);
     if (lockedUntil.getTime() > Date.now()) {
-      // Still locked - treat as resubmission required
-      return 'RESUBMISSION_REQUIRED';
+      // Still locked - return LOCKED_FOR_7_DAYS status
+      return 'LOCKED_FOR_7_DAYS';
     }
   }
 
@@ -450,6 +483,7 @@ export function getWorkflowStatusFrontendLabel(internalStatus: WorkflowStatusInt
     'REGISTRATION_PENDING': 'CONTINUE TO VERIFY YOUR ACCOUNT',
     'AWAITING_IRO_REVIEW': 'PENDING',
     'RESUBMISSION_REQUIRED': 'VERIFY YOUR ACCOUNT',
+    'LOCKED_FOR_7_DAYS': 'VERIFY YOUR ACCOUNT',
     'VERIFIED': 'VERIFIED',
   };
   return mapping[internalStatus] || 'CONTINUE TO VERIFY YOUR ACCOUNT';
@@ -467,6 +501,7 @@ export function getGeneralAccountStatus(internalStatus: WorkflowStatusInternal):
     'REGISTRATION_PENDING': 'PENDING',
     'AWAITING_IRO_REVIEW': 'PENDING',
     'RESUBMISSION_REQUIRED': 'UNVERIFIED',
+    'LOCKED_FOR_7_DAYS': 'UNVERIFIED',
     'VERIFIED': 'VERIFIED',
   };
   return mapping[internalStatus] || 'UNVERIFIED';

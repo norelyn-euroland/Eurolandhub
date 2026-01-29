@@ -48,3 +48,4 @@ console.log('\nNote: For full connection testing, use the test page at /test-fir
 console.log('The client-side test will verify actual Firebase connectivity.');
 
 
+

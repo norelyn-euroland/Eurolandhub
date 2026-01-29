@@ -155,3 +155,4 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
 export default HoldingsSummary;
 
 
+

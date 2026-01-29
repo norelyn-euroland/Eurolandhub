@@ -461,7 +461,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
                 <p className="text-sm font-medium text-neutral-700">{metric.label}</p>
                 <InfoIcon />
               </div>
-
+            
               {/* Value block */}
               <div className="relative flex items-start">
                 <div
@@ -505,11 +505,11 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
                     </>
                   )}
                 </div>
-              </div>
+            </div>
 
               {/* Detail row */}
               <div>
-                {metric.type === 'pending' && (
+            {metric.type === 'pending' && (
                   <div className="mt-4 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
@@ -518,25 +518,25 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
                       <span className="text-xs font-bold text-neutral-900">
                         {metric.awaitingIRO}
                       </span>
-                    </div>
+                </div>
 
-                    <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between">
                       <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
                         Awaiting user
                       </span>
                       <span className="text-xs font-bold text-neutral-900">
                         {metric.awaitingUser}
                       </span>
-                    </div>
-                  </div>
-                )}
+                </div>
+              </div>
+            )}
               </div>
 
               {/* Purpose text always sticks to the bottom */}
               <p className="text-[11px] text-neutral-400 font-medium mt-auto">
                 {metric.purpose}
               </p>
-            </div>
+          </div>
           );
         })}
       </div>
