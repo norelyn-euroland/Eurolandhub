@@ -36,3 +36,5 @@ export function calculateRemainingDays(lockedUntil: string): number {
   return Math.max(0, diffDays);
 }
 
+
+

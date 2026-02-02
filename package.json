@@ -5,12 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:api": "node server.js",
+    "dev:all": "concurrently \"npm run dev:api\" \"npm run dev\"",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@google/genai": "^1.38.0",
     "apexcharts": "^5.3.6",
+    "busboy": "^1.6.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
     "firebase": "^12.8.0",
     "jspdf": "^4.0.0",
     "jspdf-autotable": "^5.0.7",
@@ -23,6 +28,7 @@
     "@types/node": "^22.14.0",
     "@vercel/node": "^5.5.28",
     "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^8.2.2",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

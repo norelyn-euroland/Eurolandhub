@@ -7,6 +7,7 @@ import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import Tooltip from './Tooltip';
 import { getWorkflowStatusInternal, getGeneralAccountStatus, getWorkflowStatusFrontendLabel } from '../lib/shareholdingsVerification';
+import AddInvestorModal from './AddInvestorModal';
 
 // Helper function to get initials (first letter of first name and last name)
 const getInitials = (fullName: string): string => {
@@ -80,6 +81,7 @@ type TabType = 'PENDING' | 'VERIFIED' | 'NON_VERIFIED' | 'ALL';
 const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tabRequest }) => {
   const [activeTab, setActiveTab] = useState<TabType>('ALL');
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isAddInvestorModalOpen, setIsAddInvestorModalOpen] = useState(false);
   
   const exportRef = useRef<HTMLDivElement>(null);
 
@@ -416,6 +418,16 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
     return 'Trend tracked over 14 days: Last 7 days compared to previous 7 days';
   };
 
+  // Handle investor form submission
+  const handleInvestorSave = (data: { investorName: string; holdingId: string; email: string; phone: string; ownershipPercent: string }) => {
+    // TODO: Implement actual save logic to Firestore
+    console.log('Saving investor data:', data);
+    // For now, just close the modal after a delay to show confirmation
+    setTimeout(() => {
+      setIsAddInvestorModalOpen(false);
+    }, 2000);
+  };
+
   return (
     <div className="space-y-10 max-w-7xl mx-auto">
       <div className="grid grid-cols-4 gap-8 items-stretch">
@@ -547,6 +559,15 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-black text-neutral-800 uppercase tracking-wider">Queue: Investor Audit</h2>
               <div className="flex gap-2">
+                 <button 
+                   onClick={() => setIsAddInvestorModalOpen(true)}
+                   className="px-3 py-1.5 text-[10px] font-bold bg-[#4169E1] text-white rounded-lg hover:bg-[#3151C7] transition-colors uppercase tracking-widest flex items-center gap-2 shadow-sm"
+                 >
+                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                   </svg>
+                   Add Investors
+                 </button>
                  <div className="relative" ref={exportRef}>
                    <button 
                     onClick={() => setIsExportOpen(!isExportOpen)}
@@ -669,6 +690,13 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
           </tbody>
         </table>
       </div>
+
+      {/* Add Investor Modal */}
+      <AddInvestorModal
+        isOpen={isAddInvestorModalOpen}
+        onClose={() => setIsAddInvestorModalOpen(false)}
+        onSave={handleInvestorSave}
+      />
     </div>
   );
 };
