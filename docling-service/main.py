@@ -22,12 +22,21 @@ try:
     from docling.document_converter import DocumentConverter, PdfFormatOption
     from docling.datamodel.base_models import InputFormat
     DOCLING_AVAILABLE = True
-except ImportError:
+    logger.info("Docling imported successfully")
+except ImportError as e:
     DOCLING_AVAILABLE = False
     DocumentConverter = None  # Dummy value for type hints
     PdfFormatOption = None
     InputFormat = None
-    logger.warning("Docling not installed. Install with: pip install docling")
+    logger.error(f"Failed to import Docling: {e}")
+    logger.warning("Docling not available - PDF/image parsing will be unavailable. CSV parsing will still work.")
+except Exception as e:
+    DOCLING_AVAILABLE = False
+    DocumentConverter = None
+    PdfFormatOption = None
+    InputFormat = None
+    logger.error(f"Unexpected error importing Docling: {e}")
+    logger.warning("Docling not available - PDF/image parsing will be unavailable. CSV parsing will still work.")
 
 app = FastAPI(
     title="Docling Document Parser",
@@ -56,8 +65,12 @@ if DOCLING_AVAILABLE:
         )
         logger.info("Docling converter initialized successfully")
     except Exception as e:
-        logger.error(f"Failed to initialize Docling converter: {e}")
+        logger.error(f"Failed to initialize Docling converter: {e}", exc_info=True)
+        logger.warning("Service will continue without Docling - PDF/image parsing will be unavailable")
         converter = None
+        DOCLING_AVAILABLE = False  # Mark as unavailable if initialization fails
+else:
+    logger.warning("Docling not available - PDF/image parsing will be unavailable. CSV parsing will still work.")
 
 
 def parse_csv_to_markdown(csv_content: str) -> str:
@@ -145,9 +158,10 @@ def parse_pdf_with_docling(file_content: bytes, filename: str) -> str:
 def parse_image_with_docling(file_content: bytes, filename: str) -> str:
     """Parse image using Docling OCR and convert to markdown."""
     if not DOCLING_AVAILABLE or converter is None:
+        logger.error("Image parsing requested but Docling is not available")
         raise HTTPException(
             status_code=503,
-            detail="Docling is not available. Please install docling: pip install docling"
+            detail="Image parsing is currently unavailable. Docling service is not initialized. Please contact support or try uploading a CSV file instead."
         )
     
     try:
