@@ -13,6 +13,10 @@ import os
 from typing import Optional
 import logging
 
+# Configure logging first
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Import Docling
 try:
     from docling.document_converter import DocumentConverter, PdfFormatOption
@@ -20,11 +24,10 @@ try:
     DOCLING_AVAILABLE = True
 except ImportError:
     DOCLING_AVAILABLE = False
-    print("Warning: Docling not installed. Install with: pip install docling")
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+    DocumentConverter = None  # Dummy value for type hints
+    PdfFormatOption = None
+    InputFormat = None
+    logger.warning("Docling not installed. Install with: pip install docling")
 
 app = FastAPI(
     title="Docling Document Parser",
@@ -42,7 +45,7 @@ app.add_middleware(
 )
 
 # Initialize Docling converter
-converter: Optional[DocumentConverter] = None
+converter: Optional["DocumentConverter"] = None  # Use string annotation to avoid NameError if import fails
 
 if DOCLING_AVAILABLE:
     try:
