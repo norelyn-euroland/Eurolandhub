@@ -1,8 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { accountVerifiedTemplate, replaceTemplateVariables } from '../lib/email-templates';
+import { sendEmail } from '../lib/resend-service';
 
 /**
- * Brevo Template 2 — Account Fully Verified (Final confirmation)
- * Variables expected by your template:
+ * Account Verified Email
+ * Variables expected by template:
  * - {{ first_name }}
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -11,16 +13,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const apiKey = process.env.BREVO_API_KEY;
+  const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
-    res.status(500).json({ error: 'Missing BREVO_API_KEY on server' });
-    return;
-  }
-
-  const templateIdRaw = process.env.BREVO_TEMPLATE_ACCOUNT_VERIFIED_ID;
-  const templateId = templateIdRaw ? Number(templateIdRaw) : NaN;
-  if (!Number.isFinite(templateId)) {
-    res.status(500).json({ error: 'Missing/invalid BREVO_TEMPLATE_ACCOUNT_VERIFIED_ID on server' });
+    res.status(500).json({ error: 'Missing RESEND_API_KEY on server' });
     return;
   }
 
@@ -30,32 +25,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const payload: any = {
-    sender: {
-      name: 'EurolandHUB',
-      email: 'no-reply@eurolandhub.com',
-    },
-    to: [{ email: toEmail, name: firstName || toEmail }],
-    templateId,
-    params: {
-      first_name: firstName || '',
-    },
-  };
+  // Replace variables in account verified template
+  const htmlContent = replaceTemplateVariables(accountVerifiedTemplate.html, {
+    first_name: firstName || '',
+  });
+
+  const subject = replaceTemplateVariables(accountVerifiedTemplate.subject, {
+    first_name: firstName || '',
+  });
 
   try {
-    const r = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'api-key': apiKey,
-        'content-type': 'application/json',
-        accept: 'application/json',
-      },
-      body: JSON.stringify(payload),
+    const result = await sendEmail({
+      to: toEmail,
+      subject,
+      html: htmlContent,
     });
 
-    const bodyText = await r.text();
-    if (!r.ok) {
-      res.status(502).json({ error: 'Brevo send failed', status: r.status, body: bodyText });
+    if (!result.success) {
+      res.status(502).json({ 
+        error: 'Resend send failed', 
+        details: result.error || 'Unknown error' 
+      });
       return;
     }
 
@@ -64,6 +54,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(500).json({ error: 'Unexpected error sending email', detail: String(e?.message ?? e) });
   }
 }
+
+
+
 
 
 

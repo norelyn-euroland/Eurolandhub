@@ -49,18 +49,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) => {
           Settings
         </button>
       </nav>
-
-      <div className="p-8 border-t border-neutral-800">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-neutral-800 border border-neutral-700 flex items-center justify-center text-[10px] font-bold text-neutral-400">
-            IRT
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold truncate text-neutral-200">IR Team</p>
-            <p className="text-xs text-neutral-500 truncate">Core Operations</p>
-          </div>
-        </div>
-      </div>
     </aside>
   );
 };

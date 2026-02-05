@@ -76,20 +76,26 @@ interface DashboardHomeProps {
   tabRequest?: { tab: TabType; requestId: number };
 }
 
-type TabType = 'PENDING' | 'VERIFIED' | 'NON_VERIFIED' | 'ALL';
+type TabType = 'PENDING' | 'VERIFIED' | 'NON_VERIFIED' | 'PRE_VERIFIED' | 'ALL';
 
 const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tabRequest }) => {
   const [activeTab, setActiveTab] = useState<TabType>('ALL');
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isAddInvestorModalOpen, setIsAddInvestorModalOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   
   const exportRef = useRef<HTMLDivElement>(null);
+  const filterRef = useRef<HTMLDivElement>(null);
 
   // Close dropdowns on click outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (exportRef.current && !exportRef.current.contains(event.target as Node)) {
         setIsExportOpen(false);
+      }
+      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
+        setIsFilterOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -103,14 +109,41 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
   }, [tabRequest?.requestId]);
 
   const filteredData = applicants.filter((applicant) => {
-    // Tab Filter - Use General Account Status for categorization
+    // Search Filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      const matchesSearch = 
+        applicant.fullName.toLowerCase().includes(query) ||
+        applicant.email?.toLowerCase().includes(query) ||
+        applicant.id.toLowerCase().includes(query) ||
+        applicant.phoneNumber?.toLowerCase().includes(query);
+      if (!matchesSearch) return false;
+    }
+    
+    // Pre-verified: Only accounts created by IRO through Add Investors with email addresses
+    if (activeTab === 'PRE_VERIFIED') {
+      // Must be marked as pre-verified (created by IRO)
+      if (!applicant.isPreVerified) {
+        return false;
+      }
+      // Must have an email address
+      const hasEmail = applicant.email && applicant.email.trim().length > 0;
+      return hasEmail;
+    }
+    
+    // Exclude pre-verified accounts from all other categories (ALL, PENDING, VERIFIED, NON_VERIFIED)
+    // Pre-verified accounts use different status mapping and should only appear in PRE_VERIFIED tab
+    if (applicant.isPreVerified) {
+      return false;
+    }
+    
+    // Tab Filter - Use General Account Status for categorization (only for non-pre-verified accounts)
     if (activeTab === 'ALL') return true;
     
     const internalStatus = getWorkflowStatusInternal(applicant);
     const generalStatus = getGeneralAccountStatus(internalStatus);
     
     const matchesTab = 
-      activeTab === 'ALL' ||
       (activeTab === 'PENDING' && generalStatus === 'UNVERIFIED') ||
       (activeTab === 'VERIFIED' && generalStatus === 'VERIFIED') ||
       (activeTab === 'NON_VERIFIED' && generalStatus === 'PENDING');
@@ -118,11 +151,12 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
     return matchesTab;
   });
 
-  const tabs: { id: TabType; label: string }[] = [
-    { id: 'ALL', label: 'All Files' },
+  const filterOptions: Array<{ id: TabType; label: string }> = [
+    { id: 'ALL', label: 'All' },
     { id: 'PENDING', label: 'Unverified' },
     { id: 'VERIFIED', label: 'Verified' },
     { id: 'NON_VERIFIED', label: 'Pending' },
+    { id: 'PRE_VERIFIED', label: 'Pre-verified' },
   ];
 
   // Helper function to parse submissionDate (handles YYYY-MM-DD format)
@@ -419,13 +453,11 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
   };
 
   // Handle investor form submission
+  // Note: Actual saving is now handled in AddInvestorModal via Firebase
+  // This callback is kept for backward compatibility but is no longer used for saving
   const handleInvestorSave = (data: { investorName: string; holdingId: string; email: string; phone: string; ownershipPercent: string }) => {
-    // TODO: Implement actual save logic to Firestore
-    console.log('Saving investor data:', data);
-    // For now, just close the modal after a delay to show confirmation
-    setTimeout(() => {
-      setIsAddInvestorModalOpen(false);
-    }, 2000);
+    // Saving is handled in AddInvestorModal component
+    // Modal will close automatically after successful save
   };
 
   return (
@@ -558,16 +590,69 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
           <div className="flex flex-col gap-4 w-full">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-black text-neutral-800 uppercase tracking-wider">Queue: Investor Audit</h2>
-              <div className="flex gap-2">
-                 <button 
-                   onClick={() => setIsAddInvestorModalOpen(true)}
-                   className="px-3 py-1.5 text-[10px] font-bold bg-[#4169E1] text-white rounded-lg hover:bg-[#3151C7] transition-colors uppercase tracking-widest flex items-center gap-2 shadow-sm"
-                 >
-                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-                   </svg>
-                   Add Investors
-                 </button>
+              <div className="flex items-center gap-2">
+                {/* Search Container */}
+                <div className="relative">
+                  <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                  </svg>
+                  <input 
+                    type="text"
+                    placeholder="Search registration queue..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10 pr-4 py-1.5 bg-neutral-50 border border-neutral-200 rounded-lg text-xs focus:ring-1 focus:ring-black focus:border-black outline-none w-64 transition-all placeholder:text-neutral-400 font-medium"
+                  />
+                </div>
+
+                {/* Filter (icon) */}
+                <div className="relative" ref={filterRef}>
+                  <button
+                    type="button"
+                    onClick={() => setIsFilterOpen(v => !v)}
+                    className="h-[34px] w-[34px] inline-flex items-center justify-center bg-neutral-50 border border-neutral-200 rounded-lg hover:bg-neutral-100 transition-colors"
+                    aria-label="Filter queue"
+                    aria-expanded={isFilterOpen}
+                  >
+                    {/* Funnel icon */}
+                    <svg className="w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4h18l-7 8v6l-4 2v-8L3 4z" />
+                    </svg>
+                  </button>
+
+                  {isFilterOpen && (
+                    <div className="absolute top-full right-0 mt-2 w-44 bg-white border border-neutral-200 rounded-lg shadow-xl z-50 overflow-hidden">
+                      {filterOptions.map((opt) => {
+                        const isActive = activeTab === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => {
+                              setActiveTab(opt.id);
+                              setIsFilterOpen(false);
+                            }}
+                            className={`w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors ${
+                              isActive ? 'bg-neutral-50 text-neutral-900' : 'hover:bg-neutral-50 text-neutral-700'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                
+                <button 
+                  onClick={() => setIsAddInvestorModalOpen(true)}
+                  className="px-3 py-1.5 text-[10px] font-bold bg-[#4169E1] text-white rounded-lg hover:bg-[#3151C7] transition-colors uppercase tracking-widest flex items-center gap-2 shadow-sm"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Add Investors
+                </button>
                  <div className="relative" ref={exportRef}>
                    <button 
                     onClick={() => setIsExportOpen(!isExportOpen)}
@@ -598,91 +683,123 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
                  </div>
               </div>
             </div>
-            
-            <div className="flex gap-8 border-t border-neutral-50 pt-4">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`pb-2 text-[10px] font-black uppercase tracking-[0.2em] transition-all relative ${
-                    activeTab === tab.id ? 'text-neutral-900' : 'text-neutral-400 hover:text-neutral-600'
-                  }`}
-                >
-                  {tab.label}
-                  {activeTab === tab.id && (
-                    <div className="absolute bottom-0 left-0 w-full h-0.5 bg-neutral-900"></div>
-                  )}
-                </button>
-              ))}
-            </div>
           </div>
         </div>
         
         <table className="w-full text-left">
           <thead>
             <tr className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest border-b border-neutral-100">
-              <th className="px-8 py-4">Investor Profile</th>
-              <th className="px-8 py-4">Submission</th>
-              <th className="px-8 py-4">Last Activity</th>
-              <th className="px-8 py-4">Status</th>
-              <th className="px-8 py-4 text-right">Review</th>
+              {activeTab === 'PRE_VERIFIED' ? (
+                <>
+                  <th className="px-8 py-4">Name</th>
+                  <th className="px-8 py-4">Registration ID</th>
+                  <th className="px-8 py-4">Email</th>
+                  <th className="px-8 py-4">Stage</th>
+                  <th className="px-8 py-4">Status</th>
+                  <th className="px-8 py-4 text-right">Action</th>
+                </>
+              ) : (
+                <>
+                  <th className="px-8 py-4">Investor Profile</th>
+                  <th className="px-8 py-4">Submission</th>
+                  <th className="px-8 py-4">Last Activity</th>
+                  <th className="px-8 py-4">Status</th>
+                  <th className="px-8 py-4 text-right">Review</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-50">
             {filteredData.length > 0 ? (
               filteredData.map((applicant) => (
                 <tr key={applicant.id} className="group hover:bg-neutral-50/50 transition-colors">
-                  <td className="px-8 py-5">
-                    <div className="flex items-center gap-4">
-                      <Avatar name={applicant.fullName} size={36} />
-                      <div className="min-w-0 flex-1">
-                        <Tooltip content={applicant.fullName}>
-                          <div className="text-sm font-bold text-neutral-900 leading-none mb-1 truncate">{applicant.fullName}</div>
-                        </Tooltip>
-                        <div className="text-[10px] text-neutral-400 font-medium uppercase tracking-tight">{applicant.id}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-8 py-5 text-xs text-neutral-500 font-medium">
-                    {applicant.submissionDate}
-                  </td>
-                  <td className="px-8 py-5 text-[10px] font-black text-neutral-400 uppercase tracking-widest">
-                    {applicant.lastActive}
-                  </td>
-                  <td className="px-8 py-5">
-                    {(() => {
-                      const internalStatus = getWorkflowStatusInternal(applicant);
-                      // Color mapping for internal status
-                      const statusColors: Record<string, { color: string; bgColor: string }> = {
-                        'EMAIL_VERIFICATION_PENDING': { color: 'text-blue-700', bgColor: 'bg-blue-50' },
-                        'EMAIL_VERIFIED': { color: 'text-green-700', bgColor: 'bg-green-50' },
-                        'SHAREHOLDINGS_DECLINED': { color: 'text-[#9A3412]', bgColor: 'bg-[#FEF3E7]' },
-                        'REGISTRATION_PENDING': { color: 'text-indigo-700', bgColor: 'bg-indigo-50' },
-                        'AWAITING_IRO_REVIEW': { color: 'text-purple-700', bgColor: 'bg-purple-50' },
-                        'RESUBMISSION_REQUIRED': { color: 'text-orange-700', bgColor: 'bg-orange-50' },
-                        'VERIFIED': { color: 'text-green-700', bgColor: 'bg-green-50' },
-                      };
-                      const colors = statusColors[internalStatus] || { color: 'text-neutral-600', bgColor: 'bg-neutral-100' };
-                      return (
-                        <span className={`text-[10px] font-bold uppercase tracking-tighter px-2.5 py-1 rounded-full border ${colors.color} ${colors.bgColor} border-current/20`}>
-                          {internalStatus}
-                        </span>
-                      );
-                    })()}
-                  </td>
-                  <td className="px-8 py-5 text-right">
-                    <button 
-                      onClick={() => onSelect(applicant)}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-neutral-200 text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-neutral-900 hover:text-white hover:border-neutral-900 transition-all shadow-sm"
-                    >
-                      Audit
-                    </button>
-                  </td>
+                  {activeTab === 'PRE_VERIFIED' ? (
+                    <>
+                      <td className="px-8 py-5">
+                        <div className="text-sm font-bold text-neutral-900">{applicant.fullName}</div>
+                      </td>
+                      <td className="px-8 py-5">
+                        <div className="text-xs text-neutral-600 font-medium">
+                          {applicant.registrationId || 'N/A'}
+                        </div>
+                      </td>
+                      <td className="px-8 py-5 text-xs text-neutral-600 font-medium">
+                        {applicant.email || 'N/A'}
+                      </td>
+                      <td className="px-8 py-5">
+                        <div className="text-xs font-medium text-neutral-700">
+                          {applicant.workflowStage || 'N/A'}
+                        </div>
+                      </td>
+                      <td className="px-8 py-5">
+                        <div className="text-xs font-medium text-neutral-700">
+                          {applicant.systemStatus || 'N/A'}
+                        </div>
+                      </td>
+                      <td className="px-8 py-5 text-right">
+                        <button 
+                          onClick={() => onSelect(applicant)}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-neutral-200 text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-neutral-900 hover:text-white hover:border-neutral-900 transition-all shadow-sm"
+                        >
+                          Edit
+                        </button>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-8 py-5">
+                        <div className="flex items-center gap-4">
+                          <Avatar name={applicant.fullName} size={36} />
+                          <div className="min-w-0 flex-1">
+                            <Tooltip content={applicant.fullName}>
+                              <div className="text-sm font-bold text-neutral-900 leading-none mb-1 truncate">{applicant.fullName}</div>
+                            </Tooltip>
+                            <div className="text-[10px] text-neutral-400 font-medium uppercase tracking-tight">{applicant.id}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-8 py-5 text-xs text-neutral-500 font-medium">
+                        {applicant.submissionDate}
+                      </td>
+                      <td className="px-8 py-5 text-[10px] font-black text-neutral-400 uppercase tracking-widest">
+                        {applicant.lastActive}
+                      </td>
+                      <td className="px-8 py-5">
+                        {(() => {
+                          const internalStatus = getWorkflowStatusInternal(applicant);
+                          // Color mapping for internal status
+                          const statusColors: Record<string, { color: string; bgColor: string }> = {
+                            'EMAIL_VERIFICATION_PENDING': { color: 'text-blue-700', bgColor: 'bg-blue-50' },
+                            'EMAIL_VERIFIED': { color: 'text-green-700', bgColor: 'bg-green-50' },
+                            'SHAREHOLDINGS_DECLINED': { color: 'text-[#9A3412]', bgColor: 'bg-[#FEF3E7]' },
+                            'REGISTRATION_PENDING': { color: 'text-indigo-700', bgColor: 'bg-indigo-50' },
+                            'AWAITING_IRO_REVIEW': { color: 'text-purple-700', bgColor: 'bg-purple-50' },
+                            'RESUBMISSION_REQUIRED': { color: 'text-orange-700', bgColor: 'bg-orange-50' },
+                            'VERIFIED': { color: 'text-green-700', bgColor: 'bg-green-50' },
+                          };
+                          const colors = statusColors[internalStatus] || { color: 'text-neutral-600', bgColor: 'bg-neutral-100' };
+                          return (
+                            <span className={`text-[10px] font-bold uppercase tracking-tighter px-2.5 py-1 rounded-full border ${colors.color} ${colors.bgColor} border-current/20`}>
+                              {internalStatus}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-8 py-5 text-right">
+                        <button 
+                          onClick={() => onSelect(applicant)}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-neutral-200 text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-neutral-900 hover:text-white hover:border-neutral-900 transition-all shadow-sm"
+                        >
+                          Audit
+                        </button>
+                      </td>
+                    </>
+                  )}
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={5} className="px-8 py-12 text-center text-xs font-bold text-neutral-400 uppercase tracking-widest">
+                <td colSpan={activeTab === 'PRE_VERIFIED' ? 6 : 5} className="px-8 py-12 text-center text-xs font-bold text-neutral-400 uppercase tracking-widest">
                   No records found in current queue
                 </td>
               </tr>

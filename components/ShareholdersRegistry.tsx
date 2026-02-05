@@ -1,8 +1,9 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MOCK_SHAREHOLDERS } from '../lib/mockShareholders';
+import { batchService } from '../lib/firestore-service';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import Tooltip from './Tooltip';
@@ -28,6 +29,32 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
   const [isAuditOpen, setIsAuditOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [localQuery, setLocalQuery] = useState('');
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [migrationStatus, setMigrationStatus] = useState<string>('');
+
+  // One-time migration function - can be called from browser console
+  const handleMigrateShareholders = async () => {
+    setIsMigrating(true);
+    setMigrationStatus('Starting migration...');
+    try {
+      await batchService.migrateShareholders(MOCK_SHAREHOLDERS);
+      setMigrationStatus(`✅ Successfully migrated ${MOCK_SHAREHOLDERS.length} shareholders to Firebase!`);
+      console.log('✅ Shareholders migration completed!');
+    } catch (error: any) {
+      setMigrationStatus(`❌ Error: ${error.message}`);
+      console.error('❌ Migration failed:', error);
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
+  // Make migration function available globally for console access
+  useEffect(() => {
+    (window as any).migrateShareholders = handleMigrateShareholders;
+    return () => {
+      delete (window as any).migrateShareholders;
+    };
+  }, []);
 
   const effectiveQuery = (localQuery.trim() || searchQuery.trim()).toLowerCase();
   const filtered = MOCK_SHAREHOLDERS.filter(s => {
@@ -56,13 +83,13 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     doc.text(`CERTIFIED LEDGER • GENERATED: ${new Date().toLocaleString().toUpperCase()}`, 14, 32);
     doc.text('CONFIDENTIAL - FOR INTERNAL COMPLIANCE USE ONLY', 14, 37);
 
-    const tableHeaders = [['RANK', 'HOLDINGS', 'STAKE %', 'INVESTOR ID', 'NAME', 'CO ADDRESS', 'COUNTRY (POST)', 'TYPE OF ACCOUNT']];
+    const tableHeaders = [['RANK', 'HOLDINGS', 'STAKE %', 'INVESTOR ID', 'NAME', 'ADDRESS', 'COUNTRY', 'TYPE OF ACCOUNT']];
     const tableData = filtered.map(s => [
       s.rank,
       s.holdings.toLocaleString(),
       s.stake.toFixed(5),
-      s.id,
-      s.name,
+      s.id.length > 6 ? s.id.slice(-6) : s.id,
+      s.name.toUpperCase(),
       s.coAddress || 'Registered Office',
       s.country,
       s.accountType
@@ -128,11 +155,29 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
         </div>
       </div>
 
+      {/* Migration Status */}
+      {migrationStatus && (
+        <div className={`p-4 rounded-lg mb-4 ${
+          migrationStatus.includes('✅') 
+            ? 'bg-green-50 border border-green-200 text-green-800' 
+            : 'bg-red-50 border border-red-200 text-red-800'
+        }`}>
+          <p className="text-sm font-medium">{migrationStatus}</p>
+        </div>
+      )}
+
       {/* Top Header Section */}
       <div className="flex items-end justify-between">
         <div>
           <h2 className="text-2xl font-black text-neutral-900 tracking-tighter uppercase">Registry Master</h2>
           <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-[0.2em] mt-1">Verified Shareholder Ledger • Updated Today</p>
+          <button
+            onClick={handleMigrateShareholders}
+            disabled={isMigrating}
+            className="mt-2 px-4 py-2 text-xs font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-neutral-400 disabled:cursor-not-allowed"
+          >
+            {isMigrating ? 'Migrating...' : 'Upload Mock Data to Firebase'}
+          </button>
         </div>
         <div className="flex items-center gap-3">
           <div className="relative">
@@ -219,8 +264,8 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                 <th className="px-6 py-5">Stake %</th>
                 <th className="px-6 py-5">INVESTOR ID</th>
                 <th className="px-6 py-5">Name</th>
-                <th className="px-6 py-5">CO address</th>
-                <th className="px-6 py-5">Country (post)</th>
+                <th className="px-6 py-5">Address</th>
+                <th className="px-6 py-5">Country</th>
                 <th className="px-6 py-5 text-right">Type of account</th>
               </tr>
             </thead>
@@ -249,15 +294,14 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                     </div>
                   </td>
                   <td className="px-6 py-5">
-                    <span className="text-sm font-black text-neutral-900 font-mono tracking-tighter bg-neutral-100 px-2.5 py-1 rounded border border-neutral-200">
-                      {sh.id}
+                    <span className="text-sm font-black text-neutral-900 font-mono tracking-tighter bg-neutral-100 px-2.5 py-1 rounded border border-neutral-200 whitespace-nowrap">
+                      {sh.id.length > 6 ? sh.id.slice(-6) : sh.id}
                     </span>
                   </td>
                   <td className="px-6 py-5">
-                    <Tooltip content={sh.name}>
-                      <p className="text-sm font-bold text-neutral-900 uppercase truncate max-w-[200px]">{sh.name}</p>
+                    <Tooltip content={sh.name.toUpperCase()}>
+                      <p className="text-sm font-bold text-neutral-900 uppercase truncate max-w-[200px]">{sh.name.toUpperCase()}</p>
                     </Tooltip>
-                    <p className="text-[10px] text-neutral-400 font-medium italic">{sh.firstName || 'Primary Account Holder'}</p>
                   </td>
                   <td className="px-6 py-5">
                     <Tooltip content={sh.coAddress || 'Registered Office'}>
@@ -270,7 +314,7 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                     <span className="text-xs font-bold text-neutral-700">{sh.country}</span>
                   </td>
                   <td className="px-6 py-5 text-right">
-                    <span className="inline-block px-3 py-1 bg-neutral-100 text-[10px] font-black text-neutral-600 rounded-full uppercase tracking-widest border border-neutral-200 group-hover:bg-white transition-colors">
+                    <span className="inline-block px-3 py-1 bg-neutral-100 text-[10px] font-black text-neutral-600 rounded-full uppercase tracking-widest border border-neutral-200 group-hover:bg-white transition-colors whitespace-nowrap">
                       {sh.accountType}
                     </span>
                   </td>

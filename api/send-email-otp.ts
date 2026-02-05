@@ -1,5 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { randomInt } from 'crypto';
+import { otpTemplate, replaceTemplateVariables } from '../lib/email-templates';
+import { sendEmail } from '../lib/resend-service';
 
 function generate6DigitCode(): string {
   // crypto-secure 0..999999
@@ -14,8 +16,8 @@ function addHoursIso(fromIso: string, hours: number): string {
 
 /**
  * Vercel Serverless Function
- * - Reads BREVO_API_KEY from server env (never expose in Vite client)
- * - Sends a 6-digit OTP via Brevo transactional email
+ * - Reads RESEND_API_KEY from server env (never expose in Vite client)
+ * - Sends a 6-digit OTP via Resend transactional email
  * - OTP expires in 1 hour (returns expiresAt to the client)
  *
  * NOTE: For a production-ready flow, you should store a hash of the OTP + attempts/lockout state
@@ -27,16 +29,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const apiKey = process.env.BREVO_API_KEY;
+  const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
-    res.status(500).json({ error: 'Missing BREVO_API_KEY on server' });
-    return;
-  }
-
-  const templateIdRaw = process.env.BREVO_TEMPLATE_EMAIL_OTP_ID;
-  const templateId = templateIdRaw ? Number(templateIdRaw) : NaN;
-  if (!Number.isFinite(templateId)) {
-    res.status(500).json({ error: 'Missing/invalid BREVO_TEMPLATE_EMAIL_OTP_ID on server' });
+    res.status(500).json({ error: 'Missing RESEND_API_KEY on server' });
     return;
   }
 
@@ -50,38 +45,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const expiresAt = addHoursIso(issuedAt, 1); // 1 hour validity
   const code = generate6DigitCode();
 
-  // Brevo Template 1 — Email Verification (OTP)
-  // Variables expected by your template:
-  // - {{ first_name }}
-  // - {{ otp_code }}
-  const payload: any = {
-    sender: {
-      // Use a verified sender in Brevo, or set from env if you prefer.
-      name: 'EurolandHUB',
-      email: 'no-reply@eurolandhub.com',
-    },
-    to: [{ email: toEmail, name: firstName || toEmail }],
-    templateId,
-    params: {
-      first_name: firstName || '',
-      otp_code: code,
-    },
-  };
+  // Replace variables in OTP template
+  const htmlContent = replaceTemplateVariables(otpTemplate.html, {
+    first_name: firstName || '',
+    otp_code: code,
+  });
+
+  const subject = replaceTemplateVariables(otpTemplate.subject, {
+    first_name: firstName || '',
+  });
 
   try {
-    const r = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'api-key': apiKey,
-        'content-type': 'application/json',
-        accept: 'application/json',
-      },
-      body: JSON.stringify(payload),
+    const result = await sendEmail({
+      to: toEmail,
+      subject,
+      html: htmlContent,
     });
 
-    const bodyText = await r.text();
-    if (!r.ok) {
-      res.status(502).json({ error: 'Brevo send failed', status: r.status, body: bodyText });
+    if (!result.success) {
+      res.status(502).json({ 
+        error: 'Resend send failed', 
+        details: result.error || 'Unknown error' 
+      });
       return;
     }
 

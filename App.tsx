@@ -101,14 +101,6 @@ const App: React.FC = () => {
     }
   };
 
-  const getSearchPlaceholder = () => {
-    switch(view) {
-      case 'dashboard': return 'Search top investors...';
-      case 'registrations': return 'Search registration queue...';
-      case 'shareholders': return 'Search master ledger...';
-      default: return 'Search...';
-    }
-  };
 
   return (
     <div className="flex min-h-screen bg-neutral-50 text-neutral-900 overflow-hidden">
@@ -119,10 +111,7 @@ const App: React.FC = () => {
       
       <div className="flex-1 flex flex-col min-w-0 ml-64">
         <Header 
-          searchQuery={searchQuery} 
-          onSearchChange={setSearchQuery} 
           viewTitle={getViewTitle()}
-          searchPlaceholder={getSearchPlaceholder()}
           pendingApplicants={pendingApplicants}
           onNotificationAction={handleNotificationAction}
         />

@@ -18,7 +18,7 @@ import {
   Unsubscribe
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { Applicant, RegistrationStatus } from './types';
+import { Applicant, RegistrationStatus, Shareholder } from './types';
 import { isLocked } from './shareholdingsVerification';
 import { LockedAccountError, calculateRemainingDays } from './registration-errors';
 
@@ -141,13 +141,31 @@ const firestoreToApplicant = (doc: QueryDocumentSnapshot<DocumentData>): Applica
     holdingsRecord: data.holdingsRecord || undefined,
     emailOtpVerification: data.emailOtpVerification || undefined,
     shareholdingsVerification: data.shareholdingsVerification || undefined,
+    // Pre-verified workflow fields
+    workflowStage: data.workflowStage || undefined,
+    accountStatus: data.accountStatus || undefined,
+    systemStatus: data.systemStatus || undefined,
+    statusInFrontend: data.statusInFrontend || undefined,
+    isPreVerified: data.isPreVerified || undefined,
+    registrationId: data.registrationId || undefined,
+    // Email tracking fields
+    emailGeneratedAt: data.emailGeneratedAt || undefined,
+    emailSentAt: data.emailSentAt || undefined,
+    emailOpenedAt: data.emailOpenedAt || undefined,
+    emailOpenedCount: data.emailOpenedCount || undefined,
+    linkClickedAt: data.linkClickedAt || undefined,
+    linkClickedCount: data.linkClickedCount || undefined,
+    accountClaimedAt: data.accountClaimedAt || undefined,
     // Include any additional fields the frontend might send
     ...Object.fromEntries(
       Object.entries(data).filter(([key]) => 
         !['fullName', 'name', 'email', 'phoneNumber', 'phone', 'location', 
           'submissionDate', 'lastActive', 'status', 'idDocumentUrl', 'idDocument',
           'taxDocumentUrl', 'taxDocument', 'holdingsRecord', 'emailOtpVerification',
-          'shareholdingsVerification'].includes(key)
+          'shareholdingsVerification', 'workflowStage', 'accountStatus', 'systemStatus',
+          'statusInFrontend', 'isPreVerified', 'registrationId', 'emailGeneratedAt',
+          'emailSentAt', 'emailOpenedAt', 'emailOpenedCount', 'linkClickedAt',
+          'linkClickedCount', 'accountClaimedAt'].includes(key)
       )
     ),
   } as Applicant;
@@ -458,6 +476,160 @@ export const applicantService = {
 };
 
 /**
+ * Convert Shareholder data for Firestore (handles numeric fields and removes undefined values)
+ */
+const shareholderToFirestore = (shareholder: Shareholder): DocumentData => {
+  // Remove undefined values recursively (Firestore doesn't allow undefined)
+  const cleaned = removeUndefined(shareholder);
+  
+  return cleaned;
+};
+
+/**
+ * Convert Firestore document to Shareholder
+ */
+const firestoreToShareholder = (doc: QueryDocumentSnapshot<DocumentData>): Shareholder => {
+  const data = doc.data();
+  
+  return {
+    id: doc.id,
+    name: data.name || '',
+    holdings: data.holdings || 0,
+    stake: data.stake || 0,
+    rank: data.rank || 0,
+    coAddress: data.coAddress || '',
+    country: data.country || '',
+    accountType: data.accountType || '',
+    firstName: data.firstName || undefined,
+  } as Shareholder;
+};
+
+/**
+ * Shareholder Service
+ */
+export const shareholderService = {
+  /**
+   * Get a single shareholder by ID
+   */
+  async getById(shareholderId: string): Promise<Shareholder | null> {
+    try {
+      const docRef = doc(db, COLLECTIONS.SHAREHOLDERS, shareholderId);
+      const docSnap = await getDoc(docRef);
+      
+      if (docSnap.exists()) {
+        return firestoreToShareholder(docSnap as QueryDocumentSnapshot<DocumentData>);
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting shareholder:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get all shareholders with optional filters
+   */
+  async getAll(filters?: {
+    limitCount?: number;
+  }): Promise<Shareholder[]> {
+    try {
+      const constraints: QueryConstraint[] = [];
+      
+      // Order by holdings descending (highest first)
+      try {
+        constraints.push(orderBy('holdings', 'desc'));
+      } catch (e) {
+        console.warn('Could not order by holdings, continuing without ordering:', e);
+      }
+      
+      if (filters?.limitCount) {
+        constraints.push(limit(filters.limitCount));
+      }
+      
+      const q = query(collection(db, COLLECTIONS.SHAREHOLDERS), ...constraints);
+      const querySnapshot = await getDocs(q);
+      
+      return querySnapshot.docs.map(firestoreToShareholder);
+    } catch (error) {
+      console.error('Error getting shareholders:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Create a new shareholder
+   */
+  async create(shareholder: Shareholder): Promise<string> {
+    try {
+      const docRef = doc(db, COLLECTIONS.SHAREHOLDERS, shareholder.id);
+      await setDoc(docRef, shareholderToFirestore(shareholder));
+      return docRef.id;
+    } catch (error) {
+      console.error('Error creating shareholder:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Update an existing shareholder
+   */
+  async update(shareholderId: string, updates: Partial<Shareholder>): Promise<void> {
+    try {
+      const docRef = doc(db, COLLECTIONS.SHAREHOLDERS, shareholderId);
+      
+      // Remove undefined values recursively (Firestore doesn't allow undefined)
+      const updateData = removeUndefined(updates);
+      
+      await updateDoc(docRef, updateData);
+    } catch (error) {
+      console.error('Error updating shareholder:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Delete a shareholder
+   */
+  async delete(shareholderId: string): Promise<void> {
+    try {
+      const docRef = doc(db, COLLECTIONS.SHAREHOLDERS, shareholderId);
+      await deleteDoc(docRef);
+    } catch (error) {
+      console.error('Error deleting shareholder:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Subscribe to real-time updates for all shareholders
+   * Returns an unsubscribe function
+   */
+  subscribeToShareholders(
+    callback: (shareholders: Shareholder[]) => void
+  ): Unsubscribe {
+    try {
+      const q = query(collection(db, COLLECTIONS.SHAREHOLDERS), orderBy('holdings', 'desc'));
+      
+      return onSnapshot(q, (snapshot) => {
+        try {
+          const shareholders = snapshot.docs.map(firestoreToShareholder);
+          callback(shareholders);
+        } catch (error) {
+          console.error('Error processing snapshot data:', error);
+          callback([]);
+        }
+      }, (error) => {
+        console.error('Error in shareholders subscription:', error);
+        callback([]);
+      });
+    } catch (error) {
+      console.error('Error setting up shareholders subscription:', error);
+      return () => {};
+    }
+  }
+};
+
+/**
  * Batch operations for migrating existing data
  */
 export const batchService = {
@@ -473,6 +645,22 @@ export const batchService = {
       console.log(`Successfully migrated ${applicants.length} applicants to Firestore`);
     } catch (error) {
       console.error('Error migrating applicants:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Migrate mock shareholders to Firestore
+   */
+  async migrateShareholders(shareholders: Shareholder[]): Promise<void> {
+    try {
+      const promises = shareholders.map(shareholder => 
+        shareholderService.create(shareholder)
+      );
+      await Promise.all(promises);
+      console.log(`Successfully migrated ${shareholders.length} shareholders to Firestore`);
+    } catch (error) {
+      console.error('Error migrating shareholders:', error);
       throw error;
     }
   }

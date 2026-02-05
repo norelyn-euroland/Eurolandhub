@@ -45,6 +45,21 @@ export type WorkflowStatusFrontend =
  */
 export type GeneralAccountStatus = 'UNVERIFIED' | 'PENDING' | 'VERIFIED';
 
+/**
+ * Pre-verified account workflow stages
+ */
+export type WorkflowStage = 'SEND_EMAIL' | 'SENT_EMAIL' | 'CLAIM_IN_PROGRESS' | 'ACCOUNT_CLAIMED' | 'INVITE_EXPIRED';
+
+/**
+ * Account status for dashboard display
+ */
+export type AccountStatus = 'PENDING' | 'VERIFIED' | 'UNVERIFIED';
+
+/**
+ * System status for internal tracking
+ */
+export type SystemStatus = 'NULL' | 'ACTIVE' | 'CLAIMED' | 'INACTIVE';
+
 export interface EmailOtpVerificationState {
   /**
    * Email OTP (Phase 1 / Step 2)
@@ -141,6 +156,21 @@ export interface Applicant {
   holdingsRecord?: HoldingsRecord; // Optional, only for verified shareholders
   emailOtpVerification?: EmailOtpVerificationState;
   shareholdingsVerification?: ShareholdingsVerificationState;
+  // Pre-verified account workflow fields
+  workflowStage?: WorkflowStage; // Current workflow stage for pre-verified accounts
+  accountStatus?: AccountStatus; // Account status displayed in dashboard
+  systemStatus?: SystemStatus; // Internal system status
+  statusInFrontend?: string; // Status label for frontend display (optional)
+  isPreVerified?: boolean; // Flag to indicate this originated from manual provisioning workflow
+  registrationId?: string; // Registration ID (holdingId) for pre-verified accounts created by IRO
+  // Email tracking fields
+  emailGeneratedAt?: string; // ISO timestamp when message was generated
+  emailSentAt?: string; // ISO timestamp when email was sent
+  emailOpenedAt?: string; // ISO timestamp when email was first opened
+  emailOpenedCount?: number; // Number of times email was opened
+  linkClickedAt?: string; // ISO timestamp when link was first clicked
+  linkClickedCount?: number; // Number of times link was clicked
+  accountClaimedAt?: string; // ISO timestamp when account was verified/claimed
 }
 
 export interface Shareholder {

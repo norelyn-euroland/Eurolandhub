@@ -80,7 +80,7 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
     };
   }, []);
 
-  // Calculate data from actual applicants
+  // Calculate data from actual applicants (include all accounts for dashboard)
   const registeredWithHoldings = applicants.filter(a => a.holdingsRecord !== undefined).length;
   const registeredNoHoldings = applicants.filter(a => a.holdingsRecord === undefined).length;
   const totalRegistered = applicants.length;
@@ -407,13 +407,63 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
     }
   }, [selectedInvestor]);
 
-  const engagedInvestors = applicants.map((a, i) => ({
+  // Separate accounts by status
+  const regularApplicants = applicants.filter(a => !a.isPreVerified);
+  const preVerifiedApplicants = applicants.filter(a => a.isPreVerified === true);
+  
+  // Calculate status for regular accounts
+  const getAccountStatus = (applicant: Applicant) => {
+    if (applicant.isPreVerified) return null; // Pre-verified uses different status mapping
+    const internalStatus = getWorkflowStatusInternal(applicant);
+    return getGeneralAccountStatus(internalStatus);
+  };
+  
+  const unverifiedAccounts = regularApplicants.filter(a => getAccountStatus(a) === 'UNVERIFIED');
+  const verifiedAccounts = regularApplicants.filter(a => getAccountStatus(a) === 'VERIFIED');
+  const pendingAccounts = regularApplicants.filter(a => getAccountStatus(a) === 'PENDING');
+  
+  // Ranking/Leaderboard: Top 5 accounts (excluding pre-verified)
+  // Randomly select top 5 for now (based on activity/interactions)
+  const shuffledRegularApplicants = [...regularApplicants].sort(() => Math.random() - 0.5);
+  const rankedInvestors = shuffledRegularApplicants
+    .slice(0, 5)
+    .map((a, i) => ({
+      ...a,
+      rank: i + 1,
+      engagementScore: 98 - (i * 3),
+      holdingsDisplay: a.status === RegistrationStatus.APPROVED && a.holdingsRecord
+        ? a.holdingsRecord.sharesHeld.toLocaleString()
+        : 'Pending Disclosure'
+    }));
+  
+  // Get IDs of ranked investors to exclude them from other containers
+  const rankedInvestorIds = new Set(rankedInvestors.map(a => a.id));
+  
+  // Filter out ranked investors from other containers
+  const unverifiedWithoutRanked = unverifiedAccounts.filter(a => !rankedInvestorIds.has(a.id));
+  const verifiedWithoutRanked = verifiedAccounts.filter(a => !rankedInvestorIds.has(a.id));
+  
+  // Sort verified accounts by holdings (high to low) for ranking
+  const verifiedSorted = verifiedWithoutRanked
+    .map((a) => ({
+      ...a,
+      holdings: a.holdingsRecord?.sharesHeld || 0
+    }))
+    .sort((a, b) => b.holdings - a.holdings);
+  
+  // Sort unverified accounts (just for ordering)
+  const unverifiedSorted = [...unverifiedWithoutRanked];
+  
+  // Assign sequential ranking starting from 6 (after top 5)
+  let currentRank = 6;
+  const verifiedRanked = verifiedSorted.map((a) => ({
     ...a,
-    rank: i + 1,
-    engagementScore: 98 - (i * 3),
-    holdingsDisplay: a.status === RegistrationStatus.APPROVED && a.holdingsRecord
-      ? a.holdingsRecord.sharesHeld.toLocaleString()
-      : 'Pending Disclosure'
+    rank: currentRank++
+  }));
+  
+  const unverifiedRanked = unverifiedSorted.map((a) => ({
+    ...a,
+    rank: currentRank++
   }));
 
   if (selectedInvestor) {
@@ -547,14 +597,13 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
         <ShareholderSnapshot applicants={applicants} />
       </div>
 
+      {/* Ranking/Leaderboard - Top 5 */}
       <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-sm">
         <div className="px-10 py-8 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/30">
           <div>
-            <h3 className="text-2xl font-black text-neutral-900 uppercase tracking-tighter">Top Engaged Retail Investors</h3>
+            <h3 className="text-2xl font-black text-neutral-900 uppercase tracking-tighter">Top 5 Leaderboard</h3>
+            <p className="text-xs text-neutral-500 mt-1">Top 5 most active investors based on frontend interactions (pre-verified accounts excluded)</p>
           </div>
-          <button className="px-8 py-3 bg-primary text-white text-[10px] font-black uppercase tracking-[0.2em] hover:bg-primary-dark transition-all rounded-lg shadow-sm shadow-primary/20">
-            Full Registry Ledger
-          </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
@@ -568,7 +617,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100">
-              {engagedInvestors.map((investor) => {
+              {rankedInvestors.map((investor) => {
                 const isTopThree = investor.rank <= 3;
                 const rankColors = {
                   1: { 
@@ -685,6 +734,198 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                 </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Verified Accounts Container - Below Top 5 Leaderboard */}
+      <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-sm">
+        <div className="px-10 py-8 border-b border-neutral-100 bg-neutral-50/30">
+          <h3 className="text-2xl font-black text-neutral-900 uppercase tracking-tighter">Verified Accounts</h3>
+          <p className="text-xs text-neutral-500 mt-1">{verifiedRanked.length} accounts (excluding leaderboard)</p>
+        </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-neutral-50 text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em]">
+                  <th className="px-10 py-5 w-16 text-center">Rank</th>
+                  <th className="px-10 py-5">Investor</th>
+                  <th className="px-10 py-5">Holdings</th>
+                  <th className="px-10 py-5 text-right">Last Activity</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100">
+                {verifiedRanked.length > 0 ? (
+                  verifiedRanked.map((applicant) => (
+                    <tr 
+                      key={applicant.id} 
+                      onClick={() => setSelectedInvestor(applicant)} 
+                      className="hover:bg-neutral-50 transition-all cursor-pointer"
+                    >
+                      <td className="px-10 py-7 text-center">
+                        <span className="text-xs font-black text-neutral-300">#{applicant.rank}</span>
+                      </td>
+                      <td className="px-10 py-7">
+                        <div className="flex items-center gap-3">
+                          <Avatar name={applicant.fullName} size={40} />
+                          <div className="min-w-0 flex-1">
+                            <Tooltip content={applicant.fullName}>
+                              <p className="text-sm font-black uppercase tracking-tight truncate max-w-[200px] text-neutral-900">{applicant.fullName}</p>
+                            </Tooltip>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-10 py-7">
+                        <p className="text-sm font-black text-neutral-900">
+                          {applicant.holdingsRecord?.sharesHeld.toLocaleString() || 'N/A'}
+                        </p>
+                      </td>
+                      <td className="px-10 py-7 text-right">
+                        <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">{applicant.lastActive}</span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="px-10 py-12 text-center text-xs font-bold text-neutral-400 uppercase tracking-widest">
+                      No verified accounts (excluding leaderboard)
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+        </div>
+      </div>
+
+      {/* Unverified Accounts Container - Below Verified Accounts */}
+      <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-sm">
+        <div className="px-10 py-8 border-b border-neutral-100 bg-neutral-50/30">
+          <h3 className="text-2xl font-black text-neutral-900 uppercase tracking-tighter">Unverified Accounts</h3>
+          <p className="text-xs text-neutral-500 mt-1">{unverifiedRanked.length} accounts (excluding leaderboard)</p>
+        </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-neutral-50 text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em]">
+                  <th className="px-10 py-5 w-16 text-center">Rank</th>
+                  <th className="px-10 py-5">Name</th>
+                  <th className="px-10 py-5">Account Status</th>
+                  <th className="px-10 py-5 text-right">Last Activity</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100">
+                {unverifiedRanked.length > 0 ? (
+                  unverifiedRanked.map((applicant) => (
+                    <tr 
+                      key={applicant.id} 
+                      onClick={() => setSelectedInvestor(applicant)} 
+                      className="hover:bg-neutral-50 transition-all cursor-pointer"
+                    >
+                      <td className="px-10 py-7 text-center">
+                        <span className="text-xs font-black text-neutral-300">#{applicant.rank}</span>
+                      </td>
+                      <td className="px-10 py-7">
+                        <div className="flex items-center gap-3">
+                          <Avatar name={applicant.fullName} size={40} />
+                          <div className="min-w-0 flex-1">
+                            <Tooltip content={applicant.fullName}>
+                              <p className="text-sm font-black uppercase tracking-tight truncate max-w-[200px] text-neutral-900">{applicant.fullName}</p>
+                            </Tooltip>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-10 py-7">
+                        <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold border bg-[#FEF3E7] text-[#9A3412] border-[#FDE0C3]">
+                          <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                          </svg>
+                          Unverified
+                        </span>
+                      </td>
+                      <td className="px-10 py-7 text-right">
+                        <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">{applicant.lastActive}</span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="px-10 py-12 text-center text-xs font-bold text-neutral-400 uppercase tracking-widest">
+                      No unverified accounts (excluding leaderboard)
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      {/* Pre-verified Accounts - Same style as Top 5 Leaderboard */}
+      <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-sm">
+        <div className="px-10 py-8 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/30">
+          <div>
+            <h3 className="text-2xl font-black text-neutral-900 uppercase tracking-tighter">Pre-verified Accounts</h3>
+            <p className="text-xs text-neutral-500 mt-1">{preVerifiedApplicants.length} accounts</p>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-neutral-900 text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em]">
+                <th className="px-10 py-5">Name</th>
+                <th className="px-10 py-5">Registration ID</th>
+                <th className="px-10 py-5">Email</th>
+                <th className="px-10 py-5">Workflow Stage</th>
+                <th className="px-10 py-5 text-right">System Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-100">
+              {preVerifiedApplicants.length > 0 ? (
+                preVerifiedApplicants.map((applicant) => (
+                  <tr 
+                    key={applicant.id} 
+                    onClick={() => setSelectedInvestor(applicant)} 
+                    className="hover:bg-neutral-50 transition-all cursor-pointer group"
+                  >
+                    <td className="px-10 py-7">
+                      <div className="flex items-center gap-3">
+                        <Avatar name={applicant.fullName} size={40} />
+                        <div className="min-w-0 flex-1">
+                          <Tooltip content={applicant.fullName}>
+                            <p className="text-sm font-black uppercase tracking-tight truncate max-w-[200px] text-neutral-900">{applicant.fullName}</p>
+                          </Tooltip>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-10 py-7">
+                      <p className="text-xs text-neutral-600 font-medium">
+                        {applicant.registrationId && applicant.registrationId.length > 6 
+                          ? applicant.registrationId.slice(-6) 
+                          : applicant.registrationId || 'N/A'}
+                      </p>
+                    </td>
+                    <td className="px-10 py-7 text-xs text-neutral-600 font-medium">
+                      {applicant.email || 'N/A'}
+                    </td>
+                    <td className="px-10 py-7">
+                      <p className="text-xs font-medium text-neutral-700">
+                        {applicant.workflowStage || 'N/A'}
+                      </p>
+                    </td>
+                    <td className="px-10 py-7 text-right">
+                      <p className="text-xs font-medium text-neutral-700">
+                        {applicant.systemStatus || 'N/A'}
+                      </p>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={5} className="px-10 py-12 text-center text-xs font-bold text-neutral-400 uppercase tracking-widest">
+                    No pre-verified accounts
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
