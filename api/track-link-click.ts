@@ -25,6 +25,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Only set first click timestamp if not already set
       if (!applicant.linkClickedAt) {
         updates.linkClickedAt = now;
+        
+        // Update workflow stage to CLAIM_IN_PROGRESS when link is first clicked
+        // Following investor provisioning workflow: CLAIM_IN_PROGRESS -> ACTIVE (system status stays ACTIVE)
+        if (applicant.isPreVerified && applicant.workflowStage !== 'ACCOUNT_CLAIMED' && applicant.workflowStage !== 'INVITE_EXPIRED') {
+          updates.workflowStage = 'CLAIM_IN_PROGRESS';
+          updates.systemStatus = 'ACTIVE'; // Ensure system status is ACTIVE
+          updates.accountStatus = 'PENDING'; // Account status remains PENDING during claim process
+        }
       }
       
       await applicantService.update(String(applicantId), updates);

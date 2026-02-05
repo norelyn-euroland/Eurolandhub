@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { randomBytes } from 'crypto';
 import { invitationTemplate } from '../lib/email-templates';
 import { sendEmail } from '../lib/resend-service';
+import { applicantService } from '../lib/firestore-service';
 
 /**
  * Generate secure token for registration link
@@ -413,7 +414,8 @@ REQUIRED: The wording MUST be different from the input. Rewrite actively.`
           },
           {
             role: 'user',
-            content: `Reference template (for context only):
+            content: normalizedStyle === 'default' 
+              ? `Reference template to format:
 
 Subject: ${baseSubject}
 
@@ -423,16 +425,56 @@ ${baseBody}
 ────────────────────────────────────────
 YOUR TASK
 ────────────────────────────────────────
-${normalizedStyle === 'default' 
-  ? 'For DEFAULT style: ONLY format the text with proper paragraph breaks. DO NOT change any wording - keep the exact original text.'
-  : `Generate a COMPLETE email in ${normalizedStyle.toUpperCase()} style.
+For DEFAULT style: ONLY format the text with proper paragraph breaks. DO NOT change any wording - keep the exact original text.`
+              : `GENERATE A NEW EMAIL
 
-Write from scratch. Do NOT copy or closely mirror the reference template.
-Include all required information and placeholders.
-Make it natural and well-developed.`}`
+Style: ${normalizedStyle.toUpperCase()}
+
+Required placeholders you MUST include in your email:
+- [PROTECTED_FIRST_NAME] - the recipient's first name
+- [PROTECTED_LAST_NAME] - the recipient's last name
+- [PROTECTED_REGISTRATION_LINK] - the registration URL (must appear on its own line)
+
+Write a natural, human-sounding email in ${normalizedStyle.toUpperCase()} style.
+
+EMAIL STRUCTURE (follow this flow):
+1. Greeting - personalized opening
+2. Introduction - why you're reaching out (shareholder records, pre-verified account)
+3. Body - details about what they can do (complete registration, access features)
+4. Call to Action - the link ALONE on its own line
+5. Important note - 30-day validity, what to do if unexpected
+6. Closing - brief sign-off with "Euroland Team"
+
+CRITICAL LINK RULE:
+The link [PROTECTED_REGISTRATION_LINK] must ALWAYS be on its own line.
+WRONG: "Click here to register: [PROTECTED_REGISTRATION_LINK] to get started"
+CORRECT: 
+"Click here to register:
+
+[PROTECTED_REGISTRATION_LINK]
+
+Once registered, you'll have access..."
+
+Output format:
+Subject:
+<subject line>
+
+Body:
+<greeting>,
+
+<introduction paragraph>
+
+<body paragraph>
+
+[PROTECTED_REGISTRATION_LINK]
+
+<important note paragraph>
+
+<closing>,
+Euroland Team`
           }
         ],
-        temperature: 0.7,
+        temperature: normalizedStyle === 'default' ? 0.3 : 0.85,
         max_tokens: 2000,
       }),
     });
@@ -816,24 +858,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           protectedBodyLength: protectedBody.length
         });
         
-        const adapted = await adaptMessageStyle(protectedSubject, protectedBody, messageStyle, groqApiKey);
-        
-        console.log('Received adapted message:', {
-          messageStyle: messageStyle,
-          adaptedSubjectLength: adapted.subject.length,
-          adaptedBodyLength: adapted.body.length
-        });
+        let adapted;
+        try {
+          adapted = await adaptMessageStyle(protectedSubject, protectedBody, messageStyle, groqApiKey);
+          
+          console.log('Received adapted message:', {
+            messageStyle: messageStyle,
+            adaptedSubjectLength: adapted.subject.length,
+            adaptedBodyLength: adapted.body.length
+          });
+        } catch (llmError: any) {
+          console.error('Error in adaptMessageStyle:', llmError);
+          // If LLM fails, fall back to default template
+          console.warn('LLM adaptation failed, falling back to default template');
+          finalSubject = templateSubject
+            .replace(/\{\{ first_name \}\}/gi, actualFirstName)
+            .replace(/\{\{firstName\}\}/gi, actualFirstName);
+          
+          finalBody = templateBodyText
+            .replace(/\{\{ first_name \}\}/gi, actualFirstName)
+            .replace(/\{\{ registration_link \}\}/gi, registrationLink)
+            .replace(/\{\{ registration_id \}\}/gi, actualRegistrationId)
+            .replace(/\{\{firstName\}\}/gi, actualFirstName)
+            .replace(/\{\{registrationLink\}\}/gi, registrationLink)
+            .replace(/\{\{registrationId\}\}/gi, actualRegistrationId);
+          
+          finalBody = structureMessageBody(finalBody);
+          
+          // Continue with fallback template
+        }
 
-        // Replace protected placeholders with actual values
-        finalSubject = adapted.subject
-          .replace(/\[PROTECTED_FIRST_NAME\]/g, actualFirstName)
-          .replace(/\[PROTECTED_LAST_NAME\]/g, actualLastName);
-        
-        finalBody = adapted.body
-          .replace(/\[PROTECTED_FIRST_NAME\]/g, actualFirstName)
-          .replace(/\[PROTECTED_LAST_NAME\]/g, actualLastName)
-          .replace(/\[PROTECTED_REGISTRATION_LINK\]/g, registrationLink)
-          .replace(/\[PROTECTED_REGISTRATION_ID\]/g, actualRegistrationId);
+        // Only replace placeholders if we got a successful adaptation
+        if (adapted) {
+          // Replace protected placeholders with actual values
+          finalSubject = adapted.subject
+            .replace(/\[PROTECTED_FIRST_NAME\]/g, actualFirstName)
+            .replace(/\[PROTECTED_LAST_NAME\]/g, actualLastName);
+          
+          finalBody = adapted.body
+            .replace(/\[PROTECTED_FIRST_NAME\]/g, actualFirstName)
+            .replace(/\[PROTECTED_LAST_NAME\]/g, actualLastName)
+            .replace(/\[PROTECTED_REGISTRATION_LINK\]/g, registrationLink)
+            .replace(/\[PROTECTED_REGISTRATION_ID\]/g, actualRegistrationId);
+        }
       }
     }
 
@@ -953,16 +1020,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     // Update Firebase when email is sent (only if we have registrationId)
+    // Following investor provisioning workflow mapping:
+    // SENT_EMAIL -> PENDING (accountStatus), ACTIVE (systemStatus)
     if (registrationId) {
       try {
-        const { applicantService } = require('../lib/firestore-service');
         await applicantService.update(registrationId, {
           emailSentAt: new Date().toISOString(),
           workflowStage: 'SENT_EMAIL',
           systemStatus: 'ACTIVE',
+          accountStatus: 'PENDING', // Account status remains PENDING until claimed
         });
         console.log('Updated email sent timestamp in Firebase for applicant:', registrationId);
-      } catch (firebaseError) {
+      } catch (firebaseError: any) {
         console.error('Failed to update email sent timestamp in Firebase:', firebaseError);
         // Don't fail the request if Firebase update fails
       }

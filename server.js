@@ -1067,6 +1067,8 @@ Euroland Team`;
     });
 
     // Update Firebase when email is sent (only if we have registrationId)
+    // Following investor provisioning workflow mapping:
+    // SENT_EMAIL -> PENDING (accountStatus), ACTIVE (systemStatus)
     if (registrationId) {
       try {
         const { applicantService } = require('./lib/firestore-service');
@@ -1074,6 +1076,7 @@ Euroland Team`;
           emailSentAt: new Date().toISOString(),
           workflowStage: 'SENT_EMAIL',
           systemStatus: 'ACTIVE',
+          accountStatus: 'PENDING', // Account status remains PENDING until claimed
         });
         console.log('Updated email sent timestamp in Firebase for applicant:', registrationId);
       } catch (firebaseError) {

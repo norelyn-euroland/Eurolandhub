@@ -27,16 +27,63 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
     return stageMap[stage] || stage;
   };
 
-  // Helper to get system status display label
-  const getSystemStatusLabel = (status?: string): string => {
-    if (!status) return 'N/A';
-    const statusMap: Record<string, string> = {
-      'NULL': 'NULL',
-      'ACTIVE': 'Active',
-      'CLAIMED': 'Claimed',
-      'INACTIVE': 'Inactive'
-    };
-    return statusMap[status] || status;
+  // Helper to get system status display label - follows investor provisioning workflow mapping
+  const getSystemStatusLabel = (): string => {
+    if (!applicant.isPreVerified) {
+      // For regular accounts, use the basic systemStatus
+      if (!applicant.systemStatus) return 'N/A';
+      const statusMap: Record<string, string> = {
+        'NULL': 'NULL',
+        'ACTIVE': 'Active',
+        'CLAIMED': 'Claimed',
+        'INACTIVE': 'Inactive'
+      };
+      return statusMap[applicant.systemStatus] || applicant.systemStatus;
+    }
+
+    // For pre-verified accounts, follow the exact workflow stage to system status mapping:
+    // SEND_EMAIL -> NULL
+    // SENT_EMAIL -> ACTIVE
+    // CLAIM_IN_PROGRESS -> ACTIVE
+    // ACCOUNT_CLAIMED -> CLAIMED
+    // INVITE_EXPIRED -> INACTIVE
+    const { workflowStage, systemStatus } = applicant;
+
+    // Primary: Use workflowStage to determine system status (following documented mapping)
+    if (workflowStage) {
+      const workflowToSystemStatus: Record<string, string> = {
+        'SEND_EMAIL': 'NULL',
+        'SENT_EMAIL': 'ACTIVE',
+        'CLAIM_IN_PROGRESS': 'ACTIVE',
+        'ACCOUNT_CLAIMED': 'CLAIMED',
+        'INVITE_EXPIRED': 'INACTIVE'
+      };
+      
+      const mappedStatus = workflowToSystemStatus[workflowStage];
+      if (mappedStatus) {
+        // Map to display label
+        const statusMap: Record<string, string> = {
+          'NULL': 'NULL',
+          'ACTIVE': 'Active',
+          'CLAIMED': 'Claimed',
+          'INACTIVE': 'Inactive'
+        };
+        return statusMap[mappedStatus] || mappedStatus;
+      }
+    }
+
+    // Fallback: Use actual systemStatus if workflowStage is not available
+    if (systemStatus) {
+      const statusMap: Record<string, string> = {
+        'NULL': 'NULL',
+        'ACTIVE': 'Active',
+        'CLAIMED': 'Claimed',
+        'INACTIVE': 'Inactive'
+      };
+      return statusMap[systemStatus] || systemStatus;
+    }
+
+    return 'N/A';
   };
 
   // Helper to get account status display label for pre-verified accounts
@@ -361,7 +408,7 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
                 { label: 'Current status', value: getAuditStatusLabel(applicant.status) },
                 ...(applicant.isPreVerified ? [
                   { label: 'Workflow Stage', value: getWorkflowStageLabel(applicant.workflowStage) },
-                  { label: 'System Status', value: getSystemStatusLabel(applicant.systemStatus) }
+                  { label: 'System Status', value: getSystemStatusLabel() }
                 ] : [])
               ].map((item, idx) => (
                 <div key={idx}>
@@ -541,114 +588,195 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
                 Email Activity Log
               </h2>
               
-              <div className="space-y-4">
-                {applicant.emailGeneratedAt && (
-                  <div className="flex items-center justify-between py-3 border-b border-neutral-100">
-                    <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                      <span className="text-sm font-medium text-neutral-700">Email generated</span>
-                    </div>
-                    <span className="text-xs text-neutral-500 font-mono">
-                      {new Date(applicant.emailGeneratedAt).toLocaleString('en-US', { 
-                        year: 'numeric', 
-                        month: '2-digit', 
-                        day: '2-digit', 
-                        hour: '2-digit', 
-                        minute: '2-digit', 
-                        second: '2-digit',
-                        hour12: false 
-                      }).replace(',', '')}
-                    </span>
-                  </div>
-                )}
-                
-                {applicant.emailSentAt && (
-                  <div className="flex items-center justify-between py-3 border-b border-neutral-100">
-                    <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                      <span className="text-sm font-medium text-neutral-700">Email sent</span>
-                    </div>
-                    <span className="text-xs text-neutral-500 font-mono">
-                      {new Date(applicant.emailSentAt).toLocaleString('en-US', { 
-                        year: 'numeric', 
-                        month: '2-digit', 
-                        day: '2-digit', 
-                        hour: '2-digit', 
-                        minute: '2-digit', 
-                        second: '2-digit',
-                        hour12: false 
-                      }).replace(',', '')}
-                    </span>
-                  </div>
-                )}
-                
-                {applicant.emailOpenedAt && (
-                  <div className="flex items-center justify-between py-3 border-b border-neutral-100">
-                    <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
-                      <span className="text-sm font-medium text-neutral-700">
-                        Email opened {applicant.emailOpenedCount && applicant.emailOpenedCount > 1 ? `(${applicant.emailOpenedCount} times)` : ''}
-                      </span>
-                    </div>
-                    <span className="text-xs text-neutral-500 font-mono">
-                      {new Date(applicant.emailOpenedAt).toLocaleString('en-US', { 
-                        year: 'numeric', 
-                        month: '2-digit', 
-                        day: '2-digit', 
-                        hour: '2-digit', 
-                        minute: '2-digit', 
-                        second: '2-digit',
-                        hour12: false 
-                      }).replace(',', '')}
-                    </span>
-                  </div>
-                )}
-                
-                {applicant.linkClickedAt && (
-                  <div className="flex items-center justify-between py-3 border-b border-neutral-100">
-                    <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-purple-500"></div>
-                      <span className="text-sm font-medium text-neutral-700">
-                        Link clicked {applicant.linkClickedCount && applicant.linkClickedCount > 1 ? `(${applicant.linkClickedCount} times)` : ''}
-                      </span>
-                    </div>
-                    <span className="text-xs text-neutral-500 font-mono">
-                      {new Date(applicant.linkClickedAt).toLocaleString('en-US', { 
-                        year: 'numeric', 
-                        month: '2-digit', 
-                        day: '2-digit', 
-                        hour: '2-digit', 
-                        minute: '2-digit', 
-                        second: '2-digit',
-                        hour12: false 
-                      }).replace(',', '')}
-                    </span>
-                  </div>
-                )}
-                
-                {applicant.accountClaimedAt && (
-                  <div className="flex items-center justify-between py-3 border-b border-neutral-100">
-                    <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                      <span className="text-sm font-medium text-neutral-700">Account verified</span>
-                    </div>
-                    <span className="text-xs text-neutral-500 font-mono">
-                      {new Date(applicant.accountClaimedAt).toLocaleString('en-US', { 
-                        year: 'numeric', 
-                        month: '2-digit', 
-                        day: '2-digit', 
-                        hour: '2-digit', 
-                        minute: '2-digit', 
-                        second: '2-digit',
-                        hour12: false 
-                      }).replace(',', '')}
-                    </span>
-                  </div>
-                )}
-                
-                {!applicant.emailGeneratedAt && !applicant.emailSentAt && (
-                  <p className="text-sm text-neutral-400 italic">No activity recorded yet</p>
-                )}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-neutral-50/50 text-[10px] font-black text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200">
+                      <th className="px-6 py-4">Activity</th>
+                      <th className="px-6 py-4">Date</th>
+                      <th className="px-6 py-4">Time</th>
+                      <th className="px-6 py-4 text-right">Count</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-100">
+                    {applicant.emailGeneratedAt && (
+                      <tr className="hover:bg-neutral-50/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                            <span className="text-sm font-medium text-neutral-700">Email Generated</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs text-neutral-600 font-medium">
+                            {new Date(applicant.emailGeneratedAt).toLocaleDateString('en-US', { 
+                              year: 'numeric', 
+                              month: 'short', 
+                              day: 'numeric'
+                            })}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs text-neutral-500 font-mono">
+                            {new Date(applicant.emailGeneratedAt).toLocaleTimeString('en-US', { 
+                              hour: '2-digit', 
+                              minute: '2-digit', 
+                              second: '2-digit',
+                              hour12: false 
+                            })}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className="text-xs text-neutral-400">—</span>
+                        </td>
+                      </tr>
+                    )}
+                    
+                    {applicant.emailSentAt && (
+                      <tr className="hover:bg-neutral-50/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                            <span className="text-sm font-medium text-neutral-700">Email Sent</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs text-neutral-600 font-medium">
+                            {new Date(applicant.emailSentAt).toLocaleDateString('en-US', { 
+                              year: 'numeric', 
+                              month: 'short', 
+                              day: 'numeric'
+                            })}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs text-neutral-500 font-mono">
+                            {new Date(applicant.emailSentAt).toLocaleTimeString('en-US', { 
+                              hour: '2-digit', 
+                              minute: '2-digit', 
+                              second: '2-digit',
+                              hour12: false 
+                            })}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className="text-xs text-neutral-400">—</span>
+                        </td>
+                      </tr>
+                    )}
+                    
+                    {applicant.emailOpenedAt && (
+                      <tr className="hover:bg-neutral-50/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
+                            <span className="text-sm font-medium text-neutral-700">Email Opened</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs text-neutral-600 font-medium">
+                            {new Date(applicant.emailOpenedAt).toLocaleDateString('en-US', { 
+                              year: 'numeric', 
+                              month: 'short', 
+                              day: 'numeric'
+                            })}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs text-neutral-500 font-mono">
+                            {new Date(applicant.emailOpenedAt).toLocaleTimeString('en-US', { 
+                              hour: '2-digit', 
+                              minute: '2-digit', 
+                              second: '2-digit',
+                              hour12: false 
+                            })}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className="text-xs font-medium text-neutral-600">
+                            {applicant.emailOpenedCount && applicant.emailOpenedCount > 1 ? `${applicant.emailOpenedCount}x` : '1x'}
+                          </span>
+                        </td>
+                      </tr>
+                    )}
+                    
+                    {applicant.linkClickedAt && (
+                      <tr className="hover:bg-neutral-50/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-2 h-2 rounded-full bg-purple-500"></div>
+                            <span className="text-sm font-medium text-neutral-700">Link Clicked</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs text-neutral-600 font-medium">
+                            {new Date(applicant.linkClickedAt).toLocaleDateString('en-US', { 
+                              year: 'numeric', 
+                              month: 'short', 
+                              day: 'numeric'
+                            })}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs text-neutral-500 font-mono">
+                            {new Date(applicant.linkClickedAt).toLocaleTimeString('en-US', { 
+                              hour: '2-digit', 
+                              minute: '2-digit', 
+                              second: '2-digit',
+                              hour12: false 
+                            })}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className="text-xs font-medium text-neutral-600">
+                            {applicant.linkClickedCount && applicant.linkClickedCount > 1 ? `${applicant.linkClickedCount}x` : '1x'}
+                          </span>
+                        </td>
+                      </tr>
+                    )}
+                    
+                    {applicant.accountClaimedAt && (
+                      <tr className="hover:bg-neutral-50/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                            <span className="text-sm font-medium text-neutral-700">Account Verified</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs text-neutral-600 font-medium">
+                            {new Date(applicant.accountClaimedAt).toLocaleDateString('en-US', { 
+                              year: 'numeric', 
+                              month: 'short', 
+                              day: 'numeric'
+                            })}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs text-neutral-500 font-mono">
+                            {new Date(applicant.accountClaimedAt).toLocaleTimeString('en-US', { 
+                              hour: '2-digit', 
+                              minute: '2-digit', 
+                              second: '2-digit',
+                              hour12: false 
+                            })}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <span className="text-xs text-neutral-400">—</span>
+                        </td>
+                      </tr>
+                    )}
+                    
+                    {!applicant.emailGeneratedAt && !applicant.emailSentAt && (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-8 text-center">
+                          <p className="text-sm text-neutral-400 italic">No activity recorded yet</p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </section>
           )}
