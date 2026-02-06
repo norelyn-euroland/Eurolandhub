@@ -1080,18 +1080,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // SENT_EMAIL -> PENDING (accountStatus), ACTIVE (systemStatus)
     if (registrationId) {
       try {
-        // Check if document exists before updating
-        const existingApplicant = await applicantService.getById(registrationId);
+        // First, try to find applicant by ID (in case registrationId is the applicant.id)
+        let existingApplicant = await applicantService.getById(registrationId);
+        
+        // If not found, search by registrationId field (holdingId) or email
         if (!existingApplicant) {
-          console.warn(`Applicant document not found: ${registrationId}. Skipping Firebase update.`);
+          const allApplicants = await applicantService.getAll();
+          existingApplicant = allApplicants.find(a => 
+            a.registrationId === registrationId || 
+            (a.email && a.email.toLowerCase() === toEmail.trim().toLowerCase())
+          ) || null;
+        }
+        
+        if (!existingApplicant) {
+          console.warn(`Applicant document not found for registrationId: ${registrationId}, email: ${toEmail.trim()}. Skipping Firebase update.`);
         } else {
-          await applicantService.update(registrationId, {
+          await applicantService.update(existingApplicant.id, {
             emailSentAt: new Date().toISOString(),
             workflowStage: 'SENT_EMAIL',
             systemStatus: 'ACTIVE',
             accountStatus: 'PENDING', // Account status remains PENDING until claimed
           });
-          console.log('Updated email sent timestamp in Firebase for applicant:', registrationId);
+          console.log('Updated email sent timestamp in Firebase for applicant:', existingApplicant.id);
         }
       } catch (firebaseError: any) {
         // Handle specific error codes

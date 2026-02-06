@@ -455,7 +455,22 @@ export const applicantService = {
       
       return onSnapshot(q, (snapshot) => {
         try {
+          // Firestore onSnapshot automatically handles deletions - deleted docs are removed from snapshot.docs
+          // This means the callback will receive an updated array without deleted documents
           const applicants = snapshot.docs.map(firestoreToApplicant);
+          
+          // Log changes for debugging (only in development)
+          if (process.env.NODE_ENV === 'development') {
+            const changeCounts = snapshot.docChanges().reduce((acc, change) => {
+              acc[change.type] = (acc[change.type] || 0) + 1;
+              return acc;
+            }, {} as Record<string, number>);
+            
+            if (Object.keys(changeCounts).length > 0) {
+              console.log('Applicants snapshot changes:', changeCounts, `Total: ${applicants.length}`);
+            }
+          }
+          
           callback(applicants);
         } catch (error) {
           console.error('Error processing snapshot data:', error);
@@ -612,7 +627,22 @@ export const shareholderService = {
       
       return onSnapshot(q, (snapshot) => {
         try {
+          // Firestore onSnapshot automatically handles deletions - deleted docs are removed from snapshot.docs
+          // This means the callback will receive an updated array without deleted documents
           const shareholders = snapshot.docs.map(firestoreToShareholder);
+          
+          // Log changes for debugging (only in development)
+          if (process.env.NODE_ENV === 'development') {
+            const changeCounts = snapshot.docChanges().reduce((acc, change) => {
+              acc[change.type] = (acc[change.type] || 0) + 1;
+              return acc;
+            }, {} as Record<string, number>);
+            
+            if (Object.keys(changeCounts).length > 0) {
+              console.log('Shareholders snapshot changes:', changeCounts, `Total: ${shareholders.length}`);
+            }
+          }
+          
           callback(shareholders);
         } catch (error) {
           console.error('Error processing snapshot data:', error);
