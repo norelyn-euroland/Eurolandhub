@@ -670,11 +670,39 @@ Euroland Team`
       
       // Recover first_name in subject if missing
       if (missingInSubject.includes(requiredPlaceholders.first_name)) {
-        // Try to find where it should be and insert
+        // Try to insert placeholder in subject
+        // Check if subject has a pattern we can replace
         if (baseSubject.includes('[PROTECTED_FIRST_NAME]')) {
-          // Use base subject as fallback
+          // Use base subject as fallback (it has the placeholder)
           adaptedSubject = baseSubject;
           console.log('Recovered: Used base subject with [PROTECTED_FIRST_NAME]');
+        } else {
+          // Try to insert placeholder at the beginning or replace common patterns
+          // Look for patterns like "Invitation to..." or "Your invitation..."
+          const subjectPatterns = [
+            /^(Invitation\s+to)/i,
+            /^(Your\s+invitation)/i,
+            /^(Complete\s+your)/i,
+            /^(Verify\s+your)/i
+          ];
+          
+          let inserted = false;
+          for (const pattern of subjectPatterns) {
+            if (pattern.test(adaptedSubject) && !inserted) {
+              adaptedSubject = adaptedSubject.replace(pattern, (match) => {
+                inserted = true;
+                return `${match} [PROTECTED_FIRST_NAME]`;
+              });
+              console.log('Recovered: Inserted [PROTECTED_FIRST_NAME] in subject');
+              break;
+            }
+          }
+          
+          // If no pattern found, prepend placeholder
+          if (!inserted) {
+            adaptedSubject = `[PROTECTED_FIRST_NAME]: ${adaptedSubject}`;
+            console.log('Recovered: Prepended [PROTECTED_FIRST_NAME] to subject');
+          }
         }
       }
       
@@ -1031,15 +1059,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // SENT_EMAIL -> PENDING (accountStatus), ACTIVE (systemStatus)
     if (registrationId) {
       try {
-        await applicantService.update(registrationId, {
-          emailSentAt: new Date().toISOString(),
-          workflowStage: 'SENT_EMAIL',
-          systemStatus: 'ACTIVE',
-          accountStatus: 'PENDING', // Account status remains PENDING until claimed
-        });
-        console.log('Updated email sent timestamp in Firebase for applicant:', registrationId);
+        // Check if document exists before updating
+        const existingApplicant = await applicantService.getById(registrationId);
+        if (!existingApplicant) {
+          console.warn(`Applicant document not found: ${registrationId}. Skipping Firebase update.`);
+        } else {
+          await applicantService.update(registrationId, {
+            emailSentAt: new Date().toISOString(),
+            workflowStage: 'SENT_EMAIL',
+            systemStatus: 'ACTIVE',
+            accountStatus: 'PENDING', // Account status remains PENDING until claimed
+          });
+          console.log('Updated email sent timestamp in Firebase for applicant:', registrationId);
+        }
       } catch (firebaseError: any) {
-        console.error('Failed to update email sent timestamp in Firebase:', firebaseError);
+        // Handle specific error codes
+        if (firebaseError?.code === 'not-found' || firebaseError?.message?.includes('No document to update')) {
+          console.warn(`Applicant document not found in Firebase: ${registrationId}. Email was sent successfully.`);
+        } else {
+          console.error('Failed to update email sent timestamp in Firebase:', firebaseError);
+        }
         // Don't fail the request if Firebase update fails
       }
     }
