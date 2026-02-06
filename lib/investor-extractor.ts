@@ -3,7 +3,7 @@
  * Extracts investor data directly from CSV files using template structure
  */
 
-import { parseCSV, normalizeHeaderName } from './csv-parser';
+import { parseCSV, normalizeHeaderName } from './csv-parser.js';
 
 export interface ExtractedInvestor {
   investorName: string;

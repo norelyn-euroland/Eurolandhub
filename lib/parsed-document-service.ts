@@ -12,7 +12,7 @@ import {
   DocumentData,
   QueryDocumentSnapshot,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db } from './firebase.js';
 
 // Collection name for parsed documents
 const COLLECTIONS = {

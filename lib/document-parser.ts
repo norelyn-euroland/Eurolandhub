@@ -3,8 +3,8 @@
  * Handles CSV file parsing for investor data
  */
 
-import { parsedDocumentService } from './parsed-document-service';
-import { readCSVFile } from './csv-parser';
+import { parsedDocumentService } from './parsed-document-service.js';
+import { readCSVFile } from './csv-parser.js';
 
 export interface ParseDocumentResponse {
   success: boolean;

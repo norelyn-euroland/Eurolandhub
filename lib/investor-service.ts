@@ -3,10 +3,10 @@
  * Handles saving investors to Firestore based on contact information
  */
 
-import { ExtractedInvestor } from './investor-extractor';
-import { Shareholder, Applicant, RegistrationStatus, WorkflowStage, AccountStatus, SystemStatus } from './types';
-import { shareholderService } from './firestore-service';
-import { applicantService } from './firestore-service';
+import { ExtractedInvestor } from './investor-extractor.js';
+import { Shareholder, Applicant, RegistrationStatus, WorkflowStage, AccountStatus, SystemStatus } from './types.js';
+import { shareholderService } from './firestore-service.js';
+import { applicantService } from './firestore-service.js';
 
 export interface SaveInvestorResult {
   shareholderId: string;

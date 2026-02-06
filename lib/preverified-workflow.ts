@@ -12,10 +12,10 @@
  * - INVITE_EXPIRED -> INACTIVE (Invitation expired after 30 days)
  */
 
-import { Applicant, WorkflowStage, SystemStatus, AccountStatus } from './types';
-import { applicantService } from './firestore-service';
-import { accountVerifiedTemplate, replaceTemplateVariables } from './email-templates';
-import { sendEmail } from './resend-service';
+import { Applicant, WorkflowStage, SystemStatus, AccountStatus } from './types.js';
+import { applicantService } from './firestore-service.js';
+import { accountVerifiedTemplate, replaceTemplateVariables } from './email-templates.js';
+import { sendEmail } from './resend-service.js';
 
 /**
  * Check if an invitation has expired (30 days since emailSentAt)

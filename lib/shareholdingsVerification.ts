@@ -1,4 +1,4 @@
-import { RegistrationStatus, Shareholder, ShareholdingsVerificationMatchResult, ShareholdingsVerificationState, Applicant, WorkflowStatusInternal, GeneralAccountStatus } from './types';
+import { RegistrationStatus, Shareholder, ShareholdingsVerificationMatchResult, ShareholdingsVerificationState, Applicant, WorkflowStatusInternal, GeneralAccountStatus } from './types.js';
 
 const MAX_FAILED_ATTEMPTS = 3;
 const LOCKOUT_DAYS = 7;

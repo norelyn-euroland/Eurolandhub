@@ -17,10 +17,10 @@ import {
   QueryDocumentSnapshot,
   Unsubscribe
 } from 'firebase/firestore';
-import { db } from './firebase';
-import { Applicant, RegistrationStatus, Shareholder } from './types';
-import { isLocked } from './shareholdingsVerification';
-import { LockedAccountError, calculateRemainingDays } from './registration-errors';
+import { db } from './firebase.js';
+import { Applicant, RegistrationStatus, Shareholder } from './types.js';
+import { isLocked } from './shareholdingsVerification.js';
+import { LockedAccountError, calculateRemainingDays } from './registration-errors.js';
 
 // Collection names
 const COLLECTIONS = {
