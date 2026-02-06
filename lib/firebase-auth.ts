@@ -23,7 +23,10 @@ export const authService = {
       return userCredential.user;
     } catch (error: any) {
       console.error('Error signing in:', error);
-      throw new Error(error.message || 'Failed to sign in');
+      // Preserve the original error with code for better error handling
+      const authError: any = new Error(error.message || 'Failed to sign in');
+      authError.code = error.code;
+      throw authError;
     }
   },
 

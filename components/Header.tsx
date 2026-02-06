@@ -3,6 +3,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Applicant, BreadcrumbItem } from '../lib/types';
+import { useAuth } from '../hooks/useAuth';
 
 interface HeaderProps {
   viewTitle: string;
@@ -17,6 +18,7 @@ const Header: React.FC<HeaderProps> = ({
   onNotificationAction,
   breadcrumbItems = [],
 }) => {
+  const { signOut } = useAuth();
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => new Set(['shareholders_new_data']));
@@ -220,7 +222,7 @@ const Header: React.FC<HeaderProps> = ({
 
           {isProfileOpen && (
             <div className="absolute top-full right-0 mt-3 w-64 bg-white border border-neutral-200 rounded-xl shadow-xl z-50 overflow-hidden">
-              <div className="px-4 py-4">
+              <div className="px-4 py-4 relative">
                 <div className="flex flex-col items-center">
                   <div className="w-12 h-12 rounded-full bg-neutral-800 border border-neutral-700 flex items-center justify-center text-xs font-bold text-neutral-400 mb-3">
                     IRT
@@ -228,6 +230,23 @@ const Header: React.FC<HeaderProps> = ({
                   <p className="text-sm font-semibold text-neutral-900 mb-1">IR Team</p>
                   <p className="text-xs text-neutral-500">Core Operations</p>
                 </div>
+                {/* Logout button - bottom right */}
+                <button
+                  onClick={async () => {
+                    try {
+                      await signOut();
+                      // User will be redirected to login page automatically via App.tsx auth check
+                    } catch (error) {
+                      console.error('Logout failed:', error);
+                    }
+                  }}
+                  className="absolute bottom-4 right-4 w-8 h-8 flex items-center justify-center text-neutral-400 hover:text-neutral-900 hover:bg-neutral-100 rounded-lg transition-colors"
+                  aria-label="Logout"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                </button>
               </div>
             </div>
           )}

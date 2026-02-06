@@ -1,18 +1,22 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState, startTransition } from 'react';
 // @google/genai guidelines: Import ViewType from shared types
 import { RegistrationStatus, Applicant, ViewType, RegistrationsTabType, BreadcrumbItem } from './lib/types';
 import { ensureWorkflow, recordManualReview, recordRequestInfo } from './lib/shareholdingsVerification';
 import { MOCK_SHAREHOLDERS } from './lib/mockShareholders';
 import { useApplicants } from './hooks/useApplicants';
 import { applicantService } from './lib/firestore-service';
+import { useAuth } from './hooks/useAuth';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import DashboardHome from './components/DashboardHome';
 import ApplicantDetail from './components/ApplicantDetail';
 import ShareholdersRegistry from './components/ShareholdersRegistry';
 import OverviewDashboard from './components/OverviewDashboard';
+import LoginPage from './components/LoginPage';
 
-const App: React.FC = () => {
+const FADE_DURATION_MS = 300;
+
+const AuthedApp: React.FC = () => {
   const [view, setView] = useState<ViewType>('dashboard');
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
   const { applicants, loading: applicantsLoading } = useApplicants({ realTime: true });
@@ -149,7 +153,18 @@ const App: React.FC = () => {
         items.push({
           label: 'Registrations',
           view: 'registrations',
-          onClick: () => setView('registrations'),
+          onClick: () => {
+            // Only update if not already in the desired state to prevent lag
+            if (activeRegistrationsTab !== 'ALL' || registrationsSearchQuery !== '') {
+              // Batch state updates to prevent rapid re-renders
+              startTransition(() => {
+                setView('registrations');
+                setActiveRegistrationsTab('ALL');
+                setRegistrationsSearchQuery('');
+                setRegistrationsTabRequest({ tab: 'ALL', requestId: Date.now() });
+              });
+            }
+          },
           filter: {
             tab: activeRegistrationsTab,
             searchQuery: registrationsSearchQuery
@@ -276,7 +291,6 @@ const App: React.FC = () => {
     }
   };
 
-
   return (
     <div className="flex min-h-screen bg-neutral-50 text-neutral-900 overflow-hidden">
       <Sidebar 
@@ -319,6 +333,67 @@ const App: React.FC = () => {
           )}
         </main>
       </div>
+    </div>
+  );
+};
+
+const App: React.FC = () => {
+  // Check authentication first
+  const { loading: authLoading, isAuthenticated } = useAuth();
+
+  // Crossfade login -> app so the dashboard doesn't appear "suddenly"
+  const [loginMounted, setLoginMounted] = useState(true);
+  const [loginVisible, setLoginVisible] = useState(true);
+  const [appVisible, setAppVisible] = useState(false);
+
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (!isAuthenticated) {
+      // Ensure login is mounted and visible
+      setLoginMounted(true);
+      requestAnimationFrame(() => setLoginVisible(true));
+      setAppVisible(false);
+      return;
+    }
+
+    // Authenticated: fade out login overlay
+    setLoginVisible(false);
+    const t = window.setTimeout(() => setLoginMounted(false), FADE_DURATION_MS);
+    requestAnimationFrame(() => setAppVisible(true));
+    return () => window.clearTimeout(t);
+  }, [authLoading, isAuthenticated]);
+
+  // Show loading state while checking authentication
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-neutral-50">
+        <div className="text-sm font-bold text-neutral-600">Loading...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative min-h-screen">
+      {isAuthenticated && (
+        <div
+          className={`transition-opacity duration-300 ease-out ${appVisible ? 'opacity-100' : 'opacity-0'}`}
+          style={{ transitionDuration: `${FADE_DURATION_MS}ms` }}
+        >
+          <AuthedApp />
+        </div>
+      )}
+
+      {loginMounted && (
+        <div
+          className={`fixed inset-0 z-50 transition-opacity duration-300 ease-out ${
+            loginVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+          style={{ transitionDuration: `${FADE_DURATION_MS}ms` }}
+        >
+          <LoginPage />
+        </div>
+      )}
     </div>
   );
 };
