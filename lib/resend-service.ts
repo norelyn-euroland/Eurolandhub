@@ -75,6 +75,15 @@ export async function sendEmail(options: SendEmailOptions): Promise<SendEmailRes
     const from = `${fromName} <${fromEmail}>`;
     const replyTo = options.replyTo || fromEmail;
     
+    // Log the sender email being used (for debugging)
+    console.log('Resend sender email:', {
+      fromEmail,
+      fromName,
+      from,
+      replyTo,
+      envFromEmail: process.env.RESEND_FROM_EMAIL
+    });
+    
     // Normalize 'to' to array
     const toEmails = Array.isArray(options.to) ? options.to : [options.to];
     
