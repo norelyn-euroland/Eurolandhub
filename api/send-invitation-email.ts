@@ -7,9 +7,9 @@ console.log("ENV CHECK:", {
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { randomBytes } from 'crypto';
-import { invitationTemplate } from '../lib/email-templates';
-import { sendEmail } from '../lib/resend-service';
-import { applicantService } from '../lib/firestore-service';
+import { invitationTemplate } from '../lib/email-templates.js';
+import { sendEmail } from '../lib/resend-service.js';
+import { applicantService } from '../lib/firestore-service.js';
 
 /**
  * Generate secure token for registration link

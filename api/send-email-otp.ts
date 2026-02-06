@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { randomInt } from 'crypto';
-import { otpTemplate, replaceTemplateVariables } from '../lib/email-templates';
-import { sendEmail } from '../lib/resend-service';
+import { otpTemplate, replaceTemplateVariables } from '../lib/email-templates.js';
+import { sendEmail } from '../lib/resend-service.js';
 
 function generate6DigitCode(): string {
   // crypto-secure 0..999999

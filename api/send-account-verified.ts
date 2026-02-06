@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { accountVerifiedTemplate, replaceTemplateVariables } from '../lib/email-templates';
-import { sendEmail } from '../lib/resend-service';
+import { accountVerifiedTemplate, replaceTemplateVariables } from '../lib/email-templates.js';
+import { sendEmail } from '../lib/resend-service.js';
 
 /**
  * Account Verified Email
