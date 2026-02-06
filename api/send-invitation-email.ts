@@ -396,7 +396,7 @@ REQUIRED: The wording MUST be different from the input. Rewrite actively.`
   };
 
   // Model configuration: Primary and Fallback
-  const primaryModel = 'qwen2.5-32b-instruct';
+  const primaryModel = 'qwen/qwen3-32b';
   const fallbackModel = 'llama-3.3-70b-versatile';
 
   const stylePrompt = stylePrompts[normalizedStyle] || stylePrompts['professional'];
