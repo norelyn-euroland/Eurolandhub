@@ -620,14 +620,35 @@ Euroland Team`
       // Check if greeting exists and add first_name placeholder if missing
       if (missingInBody.includes(requiredPlaceholders.first_name)) {
         // Look for greeting pattern and insert placeholder
-        const greetingPattern = /(Hello|Hi|Dear)\s+[^,\n]+/i;
-        if (greetingPattern.test(adaptedBody)) {
-          adaptedBody = adaptedBody.replace(greetingPattern, (match) => {
-            return match.replace(/(Hello|Hi|Dear)\s+[^,\n]+/i, '$1 [PROTECTED_FIRST_NAME]');
-          });
-          console.log('Recovered: Re-inserted [PROTECTED_FIRST_NAME] in greeting');
-        } else {
-          // Add greeting at the beginning if missing
+        // Match patterns like "Hi [PROTECTED_LAST_NAME]," or "Dear [PROTECTED_LAST_NAME]," or just "Hi," or "Hello,"
+        const greetingPatterns = [
+          /^(Hello|Hi|Dear)\s+\[PROTECTED_LAST_NAME\]/i,
+          /^(Hello|Hi|Dear)\s+[^,\n]+/i,
+          /^(Hello|Hi|Dear)\s*,/i,
+          /^(Hello|Hi|Dear)$/i
+        ];
+        
+        let inserted = false;
+        for (const pattern of greetingPatterns) {
+          if (pattern.test(adaptedBody) && !inserted) {
+            adaptedBody = adaptedBody.replace(pattern, (match) => {
+              inserted = true;
+              // If it already has LAST_NAME, replace with FIRST_NAME, otherwise add FIRST_NAME
+              if (match.includes('[PROTECTED_LAST_NAME]')) {
+                return match.replace('[PROTECTED_LAST_NAME]', '[PROTECTED_FIRST_NAME]');
+              } else if (match.endsWith(',')) {
+                return match.replace(/(Hello|Hi|Dear)\s*,/i, '$1 [PROTECTED_FIRST_NAME],');
+              } else {
+                return match.replace(/(Hello|Hi|Dear)\s+[^,\n]+/i, '$1 [PROTECTED_FIRST_NAME]');
+              }
+            });
+            console.log('Recovered: Re-inserted [PROTECTED_FIRST_NAME] in greeting');
+            break;
+          }
+        }
+        
+        // If no greeting pattern found, add greeting at the beginning
+        if (!inserted) {
           adaptedBody = `Hello [PROTECTED_FIRST_NAME],\n\n${adaptedBody}`;
           console.log('Recovered: Added greeting with [PROTECTED_FIRST_NAME] at start');
         }
