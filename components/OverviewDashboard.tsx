@@ -7,6 +7,63 @@ import Tooltip from './Tooltip';
 import Chart from 'react-apexcharts';
 import HoldingsSummary from './HoldingsSummary';
 import { getWorkflowStatusInternal, getGeneralAccountStatus } from '../lib/shareholdingsVerification';
+import MetricCard from './MetricCard';
+
+// CopyableField component with copy notification
+const CopyableField: React.FC<{ label: string; value: string; copyable: boolean }> = ({ label, value, copyable }) => {
+  const [showCopied, setShowCopied] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleCopy = async () => {
+    if (!copyable || !value || value === 'Not provided') return;
+    
+    try {
+      await navigator.clipboard.writeText(value);
+      setShowCopied(true);
+      
+      // Clear existing timeout if any
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      
+      // Hide notification after 2 seconds
+      timeoutRef.current = setTimeout(() => {
+        setShowCopied(false);
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  return (
+    <div className="relative">
+      <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">{label}</p>
+      {copyable && value && value !== 'Not provided' ? (
+        <button
+          onClick={handleCopy}
+          className="text-sm font-black text-neutral-900 hover:text-primary transition-colors cursor-pointer relative group"
+        >
+          {value}
+          {showCopied && (
+            <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap z-10">
+              Copied!
+            </span>
+          )}
+        </button>
+      ) : (
+        <p className="text-sm font-black text-neutral-900">{value}</p>
+      )}
+    </div>
+  );
+};
 
 interface OverviewDashboardProps {
   applicants: Applicant[];
@@ -395,15 +452,13 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
       if (!hasAnimatedRef.current) {
         hasAnimatedRef.current = true;
         setIsPulsing(true);
-        // Reset after animation completes (1.5 seconds)
-        const timer = setTimeout(() => {
-          setIsPulsing(false);
-        }, 1500);
-        return () => clearTimeout(timer);
+        // Keep isPulsing true after animation completes - don't reset it
+        // This keeps the calendar icon on the right side
       }
     } else {
       // Reset flag when navigating to detail view so it animates again when returning
       hasAnimatedRef.current = false;
+      setIsPulsing(false);
     }
   }, [selectedInvestor]);
 
@@ -496,15 +551,12 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
             {activeDetailTab === 'profile' ? (
               <div className="grid grid-cols-4 gap-12">
                 {[
-                  { label: 'Correspondence', value: selectedInvestor.email },
-                  { label: 'Contact Number', value: selectedInvestor.phoneNumber || 'Not provided' },
-                  { label: 'Network Origin', value: selectedInvestor.location || 'Global Hub' },
-                  { label: 'Registry Date', value: selectedInvestor.submissionDate }
+                  { label: 'Email', value: selectedInvestor.email, copyable: true },
+                  { label: 'Contact Number', value: selectedInvestor.phoneNumber || 'Not provided', copyable: true },
+                  { label: 'Network Origin', value: selectedInvestor.location || 'Global Hub', copyable: false },
+                  { label: 'Registry Date', value: selectedInvestor.submissionDate, copyable: false }
                 ].map((item, i) => (
-                  <div key={i}>
-                    <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">{item.label}</p>
-                    <p className="text-sm font-black text-neutral-900">{item.value}</p>
-                  </div>
+                  <CopyableField key={i} label={item.label} value={item.value} copyable={item.copyable} />
                 ))}
               </div>
             ) : (
@@ -520,7 +572,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
     <div className="space-y-10 max-w-7xl mx-auto pb-12">
       {/* EXACT CODE FOR ANIMATED GREETINGS CARD */}
       <div className={`bg-black p-12 rounded-xl text-white relative overflow-hidden group transition-all duration-700 cursor-default premium-ease
-        ${isPulsing ? 'shadow-black/60 -translate-y-1' : 'shadow-2xl hover:shadow-black/60 hover:-translate-y-1'}
+        ${isPulsing ? 'shadow-black/60' : 'shadow-2xl hover:shadow-black/60'}
       `}
       onMouseEnter={() => setIsPulsing(true)}
       onMouseLeave={() => setIsPulsing(false)}
@@ -564,22 +616,56 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
 
       <div className="grid grid-cols-4 gap-8">
         {[
-          { label: 'Shareholders', value: '2,128', trend: '+12%', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
-          { label: 'Engagement', value: '68%', trend: '+5%', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10' },
-          { label: 'Net Asset Delta', value: '3.2%', trend: '-0.8%', icon: 'M13 17h8m0 0V9m0 8l-8-8-4 4-6-6' },
-          { label: 'Queue Depth', value: '2,103', trend: '-5%', icon: 'M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0z' }
-        ].map((stat, i) => (
-          <div key={i} className="bg-white p-8 border border-neutral-200 rounded-xl shadow-sm hover:border-primary transition-all cursor-default group">
-            <div className="flex justify-between items-start mb-6">
-              <div className="p-3 bg-neutral-100 rounded-lg group-hover:bg-primary group-hover:text-white transition-colors text-neutral-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={stat.icon}/></svg>
-              </div>
-              <span className="text-[10px] font-black text-primary bg-primary/10 px-2 py-1 rounded">{stat.trend}</span>
-            </div>
-            <p className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">{stat.label}</p>
-            <p className="text-3xl font-black text-neutral-900 tracking-tighter">{stat.value}</p>
-          </div>
-        ))}
+          { 
+            label: 'Shareholders', 
+            value: '2,128', 
+            trend: { percent: 12, direction: 'up' as const },
+            chartColor: '#7C3AED'
+          },
+          { 
+            label: 'Engagement', 
+            value: '68%', 
+            trend: { percent: 5, direction: 'up' as const },
+            chartColor: '#10B981'
+          },
+          { 
+            label: 'Net Asset Delta', 
+            value: '3.2%', 
+            trend: { percent: 0.8, direction: 'down' as const },
+            chartColor: '#F59E0B'
+          },
+          { 
+            label: 'Queue Depth', 
+            value: '2,103', 
+            trend: { percent: 5, direction: 'down' as const },
+            chartColor: '#EF4444'
+          }
+        ].map((stat, i) => {
+          // Generate chart data based on trend
+          const baseValue = typeof stat.value === 'string' 
+            ? parseFloat(stat.value.replace(/[^0-9.]/g, '')) || 100 
+            : stat.value;
+          const chartData = Array.from({ length: 7 }, (_, idx) => {
+            const progress = idx / 6;
+            const trendMultiplier = stat.trend.direction === 'up' 
+              ? 1 + (stat.trend.percent / 100) * progress
+              : stat.trend.direction === 'down'
+              ? 1 - (stat.trend.percent / 100) * progress
+              : 1;
+            return baseValue * trendMultiplier * (1 + (Math.random() - 0.5) * 0.1);
+          });
+
+          return (
+            <MetricCard
+              key={i}
+              title={stat.label}
+              value={stat.value}
+              trend={stat.trend}
+              chartData={chartData}
+              chartColor={stat.chartColor}
+            />
+          );
+        })}
       </div>
 
       {/* Shareholder Snapshot */}

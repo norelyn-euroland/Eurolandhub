@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, Time, ColorType } from 'lightweight-charts';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Line } from 'react-chartjs-2';
+// Side-effect: registers Chart.js scales/elements once
+import '../lib/chartjs-setup';
 import { fetchHoldingsData } from '../lib/mockHoldingsData';
 import { HoldingsDataPoint } from '../lib/types';
 
@@ -12,11 +14,6 @@ interface HoldingsChartProps {
 type Timeframe = '1d' | '1w' | '1M' | '3M' | '6M' | 'YTD' | 'ALL';
 
 const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
-  const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const sharePriceSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
-  const sharesHeldSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
-  
   const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<HoldingsDataPoint[]>([]);
@@ -24,124 +21,11 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
     sharePrice: number;
     sharesHeld: number;
   } | null>(null);
-  
-  // Track previous values for percentage change calculation
-  const previousValuesRef = useRef<{
+
+  const [previousValues, setPreviousValues] = useState<{
     sharePrice: number;
     sharesHeld: number;
   } | null>(null);
-
-  // Initialize chart
-  useEffect(() => {
-    if (!chartContainerRef.current) return;
-
-    const chart = createChart(chartContainerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#1f2937',
-        padding: {
-          left: 0,
-          right: 0,
-        },
-      },
-      width: chartContainerRef.current.clientWidth || 800,
-      height: 400,
-      grid: {
-        vertLines: { color: '#e5e7eb' },
-        horzLines: { color: '#e5e7eb' },
-      },
-      crosshair: {
-        mode: 1, // normal
-        vertLine: {
-          visible: true,
-          width: 1,
-          color: '#E0E0E0',
-          style: 1, // Dashed/broken line
-          labelVisible: true, // Enable default crosshair labels
-        },
-        horzLine: {
-          visible: true, // Enable horizontal crosshair line
-          width: 1,
-          color: '#E0E0E0',
-          style: 1, // Dashed/broken line
-          labelVisible: true, // Enable default crosshair labels
-        },
-      },
-      rightPriceScale: {
-        borderColor: '#d1d5db',
-        entireTextOnly: false,
-      },
-      leftPriceScale: {
-        borderColor: '#d1d5db',
-        entireTextOnly: false,
-      },
-      handleScroll: {
-        mouseWheel: true,
-        pressedMouseMove: true,
-      },
-      handleScale: {
-        axisPressedMouseMove: false, // Disable vertical scaling - only allow horizontal
-        mouseWheel: true,
-        pinch: true,
-      },
-    });
-
-    chartRef.current = chart;
-
-    // Create three line series - enable default tooltips
-    const sharePriceSeries = chart.addLineSeries({
-      color: '#3b82f6', // Blue
-      lineWidth: 2,
-      priceScaleId: 'left',
-      title: 'Share Price',
-      priceLineVisible: false,
-      lastValueVisible: true, // Enable default value display
-    });
-
-    const sharesHeldSeries = chart.addLineSeries({
-      color: '#10b981', // Green
-      lineWidth: 2,
-      priceScaleId: 'right',
-      title: 'Shares Held',
-      priceLineVisible: false,
-      lastValueVisible: true, // Enable default value display
-    });
-
-    sharePriceSeriesRef.current = sharePriceSeries;
-    sharesHeldSeriesRef.current = sharesHeldSeries;
-
-    // Configure time scale to extend to edges
-    chart.timeScale().applyOptions({
-      rightBarStaysOnScroll: true,
-      timeVisible: true,
-      secondsVisible: false,
-      fixLeftEdge: true,
-      fixRightEdge: true,
-      borderVisible: false,
-    });
-
-    // Handle resize - ensure chart always takes full width
-    const handleResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
-        const width = chartContainerRef.current.clientWidth;
-        if (width > 0) {
-          chartRef.current.applyOptions({
-            width: width,
-          });
-        }
-      }
-    };
-
-    // Initial resize to ensure proper width
-    setTimeout(handleResize, 0);
-
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      chart.remove();
-    };
-  }, []);
 
   // Fetch data when companyId or timeframe changes
   useEffect(() => {
@@ -157,74 +41,137 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
       });
   }, [companyId, timeframe]);
 
-  // Update chart when data changes
+  // Update current values when data changes
   useEffect(() => {
-    if (!sharePriceSeriesRef.current || !sharesHeldSeriesRef.current || data.length === 0) {
-      return;
-    }
-
-    // Convert data to chart format
-    const sharePriceData = data.map((point) => ({
-      time: (new Date(point.timestamp).getTime() / 1000) as Time,
-      value: point.share_price,
-    }));
-
-    const sharesHeldData = data.map((point) => ({
-      time: (new Date(point.timestamp).getTime() / 1000) as Time,
-      value: point.shares_held / 1_000_000, // Convert to millions
-    }));
-
-    // Set all series data first
-    sharePriceSeriesRef.current.setData(sharePriceData);
-    sharesHeldSeriesRef.current.setData(sharesHeldData);
-
-    // Update current values from latest data point
     if (data.length > 0) {
       const latest = data[data.length - 1];
-      const currentSharePrice = latest.share_price;
-      const currentSharesHeld = latest.shares_held / 1_000_000;
-      
-      // Store current values as previous before updating (for percentage change calculation)
-      if (currentValues) {
-        previousValuesRef.current = {
-          sharePrice: currentValues.sharePrice,
-          sharesHeld: currentValues.sharesHeld,
-        };
-      } else {
-        // First time - no previous values, so set current as previous
-        previousValuesRef.current = {
-          sharePrice: currentSharePrice,
-          sharesHeld: currentSharesHeld,
-        };
-      }
-      
-      // Update current values
-      setCurrentValues({
-        sharePrice: currentSharePrice,
-        sharesHeld: currentSharesHeld,
-      });
-    }
+      const sp = latest.share_price;
+      const sh = latest.shares_held / 1_000_000;
 
-    // Fit content AFTER setting all data - this ensures chart extends to edges
-    if (chartRef.current) {
-      chartRef.current.timeScale().fitContent();
-      // Ensure chart uses full width
-      if (chartContainerRef.current) {
-        chartRef.current.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-        });
+      if (currentValues) {
+        setPreviousValues({ sharePrice: currentValues.sharePrice, sharesHeld: currentValues.sharesHeld });
+      } else {
+        setPreviousValues({ sharePrice: sp, sharesHeld: sh });
       }
+      setCurrentValues({ sharePrice: sp, sharesHeld: sh });
     }
   }, [data]);
 
-  // Default TradingView tooltip is now enabled via labelVisible: true in crosshair config
-  // No custom tooltip needed - the library handles it automatically
+  /* ---------- chart config ---------- */
+  const chartData = useMemo(() => {
+    if (data.length === 0) return null;
+
+    const labels = data.map((pt) => {
+      const d = new Date(pt.timestamp);
+      return d.toLocaleDateString('en-US', { month: 'short' });
+    });
+
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'Share Price',
+          data: data.map((pt) => pt.share_price),
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59,130,246,0.08)',
+          yAxisID: 'y',
+          borderWidth: 2,
+          fill: false,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+        },
+        {
+          label: 'Shares Held (M)',
+          data: data.map((pt) => pt.shares_held / 1_000_000),
+          borderColor: '#10b981',
+          backgroundColor: 'rgba(16,185,129,0.08)',
+          yAxisID: 'y1',
+          borderWidth: 2,
+          fill: false,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+        },
+      ],
+    };
+  }, [data]);
+
+  const chartOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index' as const, intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top' as const,
+          labels: { usePointStyle: true, padding: 15, font: { size: 12, weight: 'bold' as const } },
+        },
+        tooltip: {
+          enabled: true,
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          padding: 12,
+          titleFont: { size: 12, weight: 'bold' as const },
+          bodyFont: { size: 11 },
+          callbacks: {
+            label(ctx: any) {
+              const lbl = ctx.dataset.label || '';
+              return ctx.datasetIndex === 0
+                ? `${lbl}: $${ctx.parsed.y.toFixed(3)}`
+                : `${lbl}: ${ctx.parsed.y.toFixed(2)}M`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { color: '#e5e7eb', drawBorder: false },
+          ticks: { font: { size: 11 }, color: '#6b7280' },
+        },
+        y: {
+          type: 'linear' as const,
+          display: true,
+          position: 'left' as const,
+          title: { display: true, text: 'Share Price ($)', color: '#3b82f6', font: { size: 12, weight: 'bold' as const } },
+          grid: { color: '#e5e7eb', drawBorder: false },
+          ticks: { font: { size: 11 }, color: '#3b82f6', callback: (v: any) => '$' + v.toFixed(2) },
+        },
+        y1: {
+          type: 'linear' as const,
+          display: true,
+          position: 'right' as const,
+          title: { display: true, text: 'Shares Held (M)', color: '#10b981', font: { size: 12, weight: 'bold' as const } },
+          grid: { drawOnChartArea: false },
+          ticks: { font: { size: 11 }, color: '#10b981', callback: (v: any) => v.toFixed(2) + 'M' },
+        },
+      },
+    }),
+    [],
+  );
 
   const timeframes: Timeframe[] = ['1d', '1w', '1M', '3M', '6M', 'YTD', 'ALL'];
 
+  /* ---------- percentage helpers ---------- */
+  const calcChange = (cur: number, prev: number) => {
+    if (!prev || prev === 0) return { value: 0, percent: 0 };
+    const change = cur - prev;
+    return { value: change, percent: (change / prev) * 100 };
+  };
+
+  const spChange = previousValues ? calcChange(currentValues?.sharePrice || 0, previousValues.sharePrice) : { value: 0, percent: 0 };
+  const shChange = previousValues ? calcChange(currentValues?.sharesHeld || 0, previousValues.sharesHeld) : { value: 0, percent: 0 };
+
+  const fmtChange = (c: { value: number; percent: number }, isPrice = false) => {
+    const sign = c.percent >= 0 ? '+' : '';
+    const val = isPrice ? `$${Math.abs(c.value).toFixed(3)}` : Math.abs(c.value).toFixed(3);
+    return `${val} (${sign}${c.percent.toFixed(2)}%)`;
+  };
+
+  /* ---------- render ---------- */
   return (
     <div className="w-full">
-      {/* Timeframe Filters */}
+      {/* Timeframe buttons */}
       <div className="flex gap-2 mb-4">
         {timeframes.map((tf) => (
           <button
@@ -241,80 +188,45 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
         ))}
       </div>
 
-      {/* Current Values Display - Below Filters with Percentage Change */}
-      {currentValues && (() => {
-        // Calculate percentage changes
-        const prev = previousValuesRef.current;
-        const calculateChange = (current: number, previous: number) => {
-          if (!previous || previous === 0) return { value: 0, percent: 0 };
-          const change = current - previous;
-          const percent = (change / previous) * 100;
-          return { value: change, percent };
-        };
-
-        const sharePriceChange = prev ? calculateChange(currentValues.sharePrice, prev.sharePrice) : { value: 0, percent: 0 };
-        const sharesHeldChange = prev ? calculateChange(currentValues.sharesHeld, prev.sharesHeld) : { value: 0, percent: 0 };
-
-        const formatChange = (change: { value: number; percent: number }, isPrice: boolean = false) => {
-          const sign = change.percent >= 0 ? '+' : '';
-          const valueStr = isPrice 
-            ? `$${Math.abs(change.value).toFixed(3)}` 
-            : Math.abs(change.value).toFixed(3);
-          const percentStr = `${sign}${change.percent.toFixed(2)}%`;
-          return `${valueStr} (${percentStr})`;
-        };
-
-        return (
-          <div className="flex gap-8 mb-4">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Share Price:</span>
-              <span className="text-lg font-black" style={{ color: '#3b82f6' }}>
-                ${currentValues.sharePrice.toFixed(3)}
+      {/* Current values */}
+      {currentValues && (
+        <div className="flex gap-8 mb-4">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Share Price:</span>
+            <span className="text-lg font-black" style={{ color: '#3b82f6' }}>
+              ${currentValues.sharePrice.toFixed(3)}
+            </span>
+            {previousValues && (
+              <span className="text-sm font-bold" style={{ color: spChange.percent >= 0 ? '#10b981' : '#ef4444' }}>
+                {fmtChange(spChange, true)}
               </span>
-              {prev && (
-                <span 
-                  className="text-sm font-bold" 
-                  style={{ color: sharePriceChange.percent >= 0 ? '#10b981' : '#ef4444' }}
-                >
-                  {formatChange(sharePriceChange, true)}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Holdings:</span>
-              <span className="text-lg font-black" style={{ color: '#10b981' }}>
-                {currentValues.sharesHeld.toFixed(2)}M
-              </span>
-              {prev && (
-                <span 
-                  className="text-sm font-bold" 
-                  style={{ color: sharesHeldChange.percent >= 0 ? '#10b981' : '#ef4444' }}
-                >
-                  {formatChange(sharesHeldChange)}
-                </span>
-              )}
-            </div>
+            )}
           </div>
-        );
-      })()}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Holdings:</span>
+            <span className="text-lg font-black" style={{ color: '#10b981' }}>
+              {currentValues.sharesHeld.toFixed(2)}M
+            </span>
+            {previousValues && (
+              <span className="text-sm font-bold" style={{ color: shChange.percent >= 0 ? '#10b981' : '#ef4444' }}>
+                {fmtChange(shChange)}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
-      {/* Chart Container */}
-      <div className="relative w-full" style={{ position: 'relative', zIndex: 1 }}>
-        <div 
-          ref={chartContainerRef} 
-          className="w-full" 
-          style={{ 
-            height: '400px', 
-            minWidth: '100%',
-            position: 'relative',
-            zIndex: 1,
-          }}
-        />
-
-        {/* Loading State */}
-        {loading && (
+      {/* Chart */}
+      <div className="relative w-full" style={{ height: '400px' }}>
+        {loading ? (
           <div className="absolute inset-0 flex items-center justify-center bg-white/80">
             <div className="text-sm font-bold text-neutral-600">Loading chart data...</div>
+          </div>
+        ) : chartData ? (
+          <Line data={chartData} options={chartOptions} />
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-sm font-bold text-neutral-600">No data available</div>
           </div>
         )}
       </div>
@@ -323,4 +235,3 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
 };
 
 export default HoldingsChart;
-

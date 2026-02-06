@@ -1,11 +1,67 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Applicant, RegistrationStatus } from '../lib/types';
 import { MOCK_SHAREHOLDERS } from '../lib/mockShareholders';
 import { applicantService } from '../lib/firestore-service';
 import Tooltip from './Tooltip';
+
+// CopyableField component with copy notification
+const CopyableField: React.FC<{ label: string; value: string; copyable: boolean }> = ({ label, value, copyable }) => {
+  const [showCopied, setShowCopied] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleCopy = async () => {
+    if (!copyable || !value || value === 'Not provided') return;
+    
+    try {
+      await navigator.clipboard.writeText(value);
+      setShowCopied(true);
+      
+      // Clear existing timeout if any
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      
+      // Hide notification after 2 seconds
+      timeoutRef.current = setTimeout(() => {
+        setShowCopied(false);
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  return (
+    <div className="relative">
+      <label className="block text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">{label}</label>
+      {copyable && value && value !== 'Not provided' ? (
+        <button
+          onClick={handleCopy}
+          className="text-sm font-bold text-neutral-900 hover:text-primary transition-colors cursor-pointer relative group"
+        >
+          {value}
+          {showCopied && (
+            <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap z-10">
+              Copied!
+            </span>
+          )}
+        </button>
+      ) : (
+        <p className="text-sm font-bold text-neutral-900">{value}</p>
+      )}
+    </div>
+  );
+};
 
 interface ApplicantDetailProps {
   applicant: Applicant;
@@ -394,27 +450,25 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
             </h2>
             <div className="grid grid-cols-3 gap-10">
               {[
-                { label: 'Legal name', value: applicant.fullName },
-                { label: 'Email', value: applicant.email },
-                { label: 'Contact Number', value: applicant.phoneNumber || 'Not provided' },
-                ...(getCountryLabel() ? [{ label: 'Country', value: getCountryLabel() }] : []),
+                { label: 'Legal name', value: applicant.fullName, copyable: false },
+                { label: 'Email', value: applicant.email, copyable: true },
+                { label: 'Contact Number', value: applicant.phoneNumber || 'Not provided', copyable: true },
+                ...(getCountryLabel() ? [{ label: 'Country', value: getCountryLabel(), copyable: false }] : []),
                 { 
                   label: 'Registration ID', 
                   value: applicant.isPreVerified && applicant.registrationId 
                     ? (applicant.registrationId.length > 6 ? applicant.registrationId.slice(-6) : applicant.registrationId)
-                    : applicant.id 
+                    : applicant.id,
+                  copyable: false
                 },
-                { label: 'Submission date', value: applicant.submissionDate },
-                { label: 'Current status', value: getAuditStatusLabel(applicant.status) },
+                { label: 'Submission date', value: applicant.submissionDate, copyable: false },
+                { label: 'Current status', value: getAuditStatusLabel(applicant.status), copyable: false },
                 ...(applicant.isPreVerified ? [
-                  { label: 'Workflow Stage', value: getWorkflowStageLabel(applicant.workflowStage) },
-                  { label: 'System Status', value: getSystemStatusLabel() }
+                  { label: 'Workflow Stage', value: getWorkflowStageLabel(applicant.workflowStage), copyable: false },
+                  { label: 'System Status', value: getSystemStatusLabel(), copyable: false }
                 ] : [])
               ].map((item, idx) => (
-                <div key={idx}>
-                  <label className="block text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">{item.label}</label>
-                  <p className="text-sm font-bold text-neutral-900">{item.value}</p>
-                </div>
+                <CopyableField key={idx} label={item.label} value={item.value} copyable={item.copyable} />
               ))}
             </div>
           </section>

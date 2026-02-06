@@ -2,18 +2,20 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Applicant } from '../lib/types';
+import { Applicant, BreadcrumbItem } from '../lib/types';
 
 interface HeaderProps {
   viewTitle: string;
   pendingApplicants?: Applicant[];
   onNotificationAction?: (action: { type: 'open_shareholders' } | { type: 'review_applicant'; applicantId: string }) => void;
+  breadcrumbItems?: BreadcrumbItem[];
 }
 
 const Header: React.FC<HeaderProps> = ({ 
   viewTitle, 
   pendingApplicants = [],
   onNotificationAction,
+  breadcrumbItems = [],
 }) => {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -101,9 +103,41 @@ const Header: React.FC<HeaderProps> = ({
     onNotificationAction?.(action);
   };
 
+  // Generate breadcrumb display - make each segment clickable except the last
+  const renderBreadcrumb = () => {
+    if (!breadcrumbItems || breadcrumbItems.length === 0) {
+      return <h1 className="text-base font-bold text-neutral-900 tracking-tight">{viewTitle}</h1>;
+    }
+
+    return (
+      <div className="flex items-center gap-2 text-base font-bold tracking-tight">
+        {breadcrumbItems.map((item, index) => {
+          const isLast = index === breadcrumbItems.length - 1;
+          const isClickable = item.onClick && !isLast;
+
+          return (
+            <React.Fragment key={index}>
+              {isClickable ? (
+                <button
+                  onClick={item.onClick}
+                  className="text-neutral-500 hover:text-neutral-700 transition-colors font-bold"
+                >
+                  {item.label}
+                </button>
+              ) : (
+                <span className="text-neutral-900 font-bold">{item.label}</span>
+              )}
+              {!isLast && <span className="text-neutral-400">/</span>}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <header className="h-20 bg-white border-b border-neutral-200 px-8 flex items-center justify-between shrink-0">
-      <h1 className="text-xl font-bold text-neutral-900 tracking-tight">{viewTitle}</h1>
+      {renderBreadcrumb()}
       
       <div className="flex items-center gap-6">
         <div className="relative" ref={notifRef}>

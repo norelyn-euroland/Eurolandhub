@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 // @google/genai guidelines: Import ViewType from shared types
-import { RegistrationStatus, Applicant, ViewType } from './lib/types';
+import { RegistrationStatus, Applicant, ViewType, RegistrationsTabType, BreadcrumbItem } from './lib/types';
 import { ensureWorkflow, recordManualReview, recordRequestInfo } from './lib/shareholdingsVerification';
 import { MOCK_SHAREHOLDERS } from './lib/mockShareholders';
 import { useApplicants } from './hooks/useApplicants';
@@ -17,7 +17,12 @@ const App: React.FC = () => {
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
   const { applicants, loading: applicantsLoading } = useApplicants({ realTime: true });
   const [searchQuery, setSearchQuery] = useState('');
-  const [registrationsTabRequest, setRegistrationsTabRequest] = useState<{ tab: 'PENDING' | 'VERIFIED' | 'NON_VERIFIED' | 'ALL'; requestId: number } | null>(null);
+  const [registrationsTabRequest, setRegistrationsTabRequest] = useState<{ tab: RegistrationsTabType; requestId: number } | null>(null);
+  
+  // Navigation state tracking
+  const [activeRegistrationsTab, setActiveRegistrationsTab] = useState<RegistrationsTabType>('ALL');
+  const [registrationsSearchQuery, setRegistrationsSearchQuery] = useState<string>('');
+  const [preservedFilterState, setPreservedFilterState] = useState<{ tab: RegistrationsTabType; searchQuery: string } | null>(null);
 
   const filteredApplicants = applicants.filter(a => 
     a.fullName.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -25,6 +30,13 @@ const App: React.FC = () => {
   );
 
   const handleSelectApplicant = (applicant: Applicant) => {
+    // Preserve current filter state before navigating to detail
+    if (view === 'registrations') {
+      setPreservedFilterState({
+        tab: activeRegistrationsTab,
+        searchQuery: registrationsSearchQuery
+      });
+    }
     setSelectedApplicant(applicant);
     setView('detail');
   };
@@ -101,6 +113,169 @@ const App: React.FC = () => {
     }
   };
 
+  // Tab label mapping for breadcrumb display
+  const getTabLabel = (tab: RegistrationsTabType): string => {
+    const labels: Record<RegistrationsTabType, string> = {
+      'ALL': 'All',
+      'PENDING': 'Unverified',
+      'VERIFIED': 'Verified',
+      'NON_VERIFIED': 'Pending',
+      'PRE_VERIFIED': 'Pre-verified'
+    };
+    return labels[tab];
+  };
+
+  // Generate breadcrumb items based on current view and state
+  const breadcrumbItems = useMemo<BreadcrumbItem[]>(() => {
+    const items: BreadcrumbItem[] = [];
+
+    switch (view) {
+      case 'dashboard':
+        // For dashboard, show "EurolandHUB Dashboard" (current page, not clickable)
+        items.push({
+          label: 'EurolandHUB Dashboard',
+          view: 'dashboard'
+        });
+        break;
+
+      case 'registrations':
+        // Always start with Dashboard
+        items.push({
+          label: 'Dashboard',
+          view: 'dashboard',
+          onClick: () => setView('dashboard')
+        });
+        
+        items.push({
+          label: 'Registrations',
+          view: 'registrations',
+          onClick: () => setView('registrations'),
+          filter: {
+            tab: activeRegistrationsTab,
+            searchQuery: registrationsSearchQuery
+          }
+        });
+        
+        // Add filter label if not "All"
+        if (activeRegistrationsTab !== 'ALL') {
+          items.push({
+            label: getTabLabel(activeRegistrationsTab),
+            view: 'registrations',
+            onClick: () => {
+              setView('registrations');
+              setRegistrationsTabRequest({ tab: activeRegistrationsTab, requestId: Date.now() });
+            },
+            filter: {
+              tab: activeRegistrationsTab,
+              searchQuery: registrationsSearchQuery
+            }
+          });
+        }
+        break;
+
+      case 'detail':
+        // Always start with Dashboard
+        items.push({
+          label: 'Dashboard',
+          view: 'dashboard',
+          onClick: () => setView('dashboard')
+        });
+        
+        // Add Registrations breadcrumb
+        items.push({
+          label: 'Registrations',
+          view: 'registrations',
+          onClick: () => {
+            setView('registrations');
+            if (preservedFilterState) {
+              setRegistrationsTabRequest({ 
+                tab: preservedFilterState.tab, 
+                requestId: Date.now() 
+              });
+              setActiveRegistrationsTab(preservedFilterState.tab);
+              setRegistrationsSearchQuery(preservedFilterState.searchQuery);
+            }
+          },
+          filter: preservedFilterState ? {
+            tab: preservedFilterState.tab,
+            searchQuery: preservedFilterState.searchQuery
+          } : undefined
+        });
+
+        // Add filter label if preserved state exists and not "All"
+        if (preservedFilterState && preservedFilterState.tab !== 'ALL') {
+          items.push({
+            label: getTabLabel(preservedFilterState.tab),
+            view: 'registrations',
+            onClick: () => {
+              setView('registrations');
+              setRegistrationsTabRequest({ 
+                tab: preservedFilterState.tab, 
+                requestId: Date.now() 
+              });
+              setActiveRegistrationsTab(preservedFilterState.tab);
+              setRegistrationsSearchQuery(preservedFilterState.searchQuery);
+            },
+            filter: {
+              tab: preservedFilterState.tab,
+              searchQuery: preservedFilterState.searchQuery
+            }
+          });
+        }
+
+        // Add Account Detail
+        items.push({
+          label: 'Account Detail',
+          view: 'detail'
+        });
+        break;
+
+      case 'shareholders':
+        // Always start with Dashboard
+        items.push({
+          label: 'Dashboard',
+          view: 'dashboard',
+          onClick: () => setView('dashboard')
+        });
+        
+        items.push({
+          label: 'Shareholders',
+          view: 'shareholders',
+          onClick: () => setView('shareholders')
+        });
+        break;
+    }
+
+    return items;
+  }, [view, activeRegistrationsTab, registrationsSearchQuery, preservedFilterState]);
+
+  // Handle tab changes from DashboardHome
+  const handleTabChange = (tab: RegistrationsTabType) => {
+    setActiveRegistrationsTab(tab);
+  };
+
+  // Handle search query changes from DashboardHome
+  const handleSearchChange = (query: string) => {
+    setRegistrationsSearchQuery(query);
+  };
+
+  // Handle back navigation from detail view
+  const handleBackFromDetail = () => {
+    setView('registrations');
+    setSelectedApplicant(null);
+    
+    // Restore preserved filter state
+    if (preservedFilterState) {
+      setRegistrationsTabRequest({ 
+        tab: preservedFilterState.tab, 
+        requestId: Date.now() 
+      });
+      setActiveRegistrationsTab(preservedFilterState.tab);
+      setRegistrationsSearchQuery(preservedFilterState.searchQuery);
+      setPreservedFilterState(null);
+    }
+  };
+
 
   return (
     <div className="flex min-h-screen bg-neutral-50 text-neutral-900 overflow-hidden">
@@ -114,6 +289,7 @@ const App: React.FC = () => {
           viewTitle={getViewTitle()}
           pendingApplicants={pendingApplicants}
           onNotificationAction={handleNotificationAction}
+          breadcrumbItems={breadcrumbItems}
         />
         
         <main className="flex-1 overflow-y-auto p-8">
@@ -125,12 +301,16 @@ const App: React.FC = () => {
               applicants={filteredApplicants} 
               onSelect={handleSelectApplicant} 
               tabRequest={registrationsTabRequest ?? undefined}
+              onTabChange={handleTabChange}
+              onSearchChange={handleSearchChange}
+              initialTab={activeRegistrationsTab}
+              initialSearchQuery={registrationsSearchQuery}
             />
           )}
           {view === 'detail' && selectedApplicant && (
             <ApplicantDetail 
               applicant={selectedApplicant} 
-              onBack={() => setView('registrations')}
+              onBack={handleBackFromDetail}
               onUpdateStatus={handleUpdateStatus}
             />
           )}

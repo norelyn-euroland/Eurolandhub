@@ -8,6 +8,7 @@ import 'jspdf-autotable';
 import Tooltip from './Tooltip';
 import { getWorkflowStatusInternal, getGeneralAccountStatus, getWorkflowStatusFrontendLabel } from '../lib/shareholdingsVerification';
 import AddInvestorModal from './AddInvestorModal';
+import MetricCard from './MetricCard';
 
 // Helper function to get initials (first letter of first name and last name)
 const getInitials = (fullName: string): string => {
@@ -74,15 +75,27 @@ interface DashboardHomeProps {
   applicants: Applicant[];
   onSelect: (applicant: Applicant) => void;
   tabRequest?: { tab: TabType; requestId: number };
+  onTabChange?: (tab: TabType) => void;
+  onSearchChange?: (query: string) => void;
+  initialTab?: TabType;
+  initialSearchQuery?: string;
 }
 
 type TabType = 'PENDING' | 'VERIFIED' | 'NON_VERIFIED' | 'PRE_VERIFIED' | 'ALL';
 
-const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tabRequest }) => {
-  const [activeTab, setActiveTab] = useState<TabType>('ALL');
+const DashboardHome: React.FC<DashboardHomeProps> = ({ 
+  applicants, 
+  onSelect, 
+  tabRequest,
+  onTabChange,
+  onSearchChange,
+  initialTab,
+  initialSearchQuery
+}) => {
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'ALL');
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isAddInvestorModalOpen, setIsAddInvestorModalOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery || '');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   
   const exportRef = useRef<HTMLDivElement>(null);
@@ -107,6 +120,33 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
     if (!tabRequest) return;
     setActiveTab(tabRequest.tab);
   }, [tabRequest?.requestId]);
+
+  // Initialize from props if provided
+  useEffect(() => {
+    if (initialTab !== undefined) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
+  useEffect(() => {
+    if (initialSearchQuery !== undefined) {
+      setSearchQuery(initialSearchQuery);
+    }
+  }, [initialSearchQuery]);
+
+  // Notify parent of tab changes
+  useEffect(() => {
+    if (onTabChange) {
+      onTabChange(activeTab);
+    }
+  }, [activeTab, onTabChange]);
+
+  // Notify parent of search query changes
+  useEffect(() => {
+    if (onSearchChange) {
+      onSearchChange(searchQuery);
+    }
+  }, [searchQuery, onSearchChange]);
 
   const filteredData = applicants.filter((applicant) => {
     // Search Filter
@@ -460,129 +500,46 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({ applicants, onSelect, tab
     // Modal will close automatically after successful save
   };
 
+  // Generate chart data for each metric (7 days of data)
+  const generateChartData = (baseValue: number, trend: { percent: number; direction: 'up' | 'down' | 'neutral' }): number[] => {
+    const days = 7;
+    const data: number[] = [];
+    const safeBaseValue = baseValue || 1; // Prevent division by zero
+    const trendMultiplier = trend.direction === 'up' ? 1 + (trend.percent / 100) : trend.direction === 'down' ? 1 - (trend.percent / 100) : 1;
+    
+    // Generate data points that show the trend
+    for (let i = 0; i < days; i++) {
+      const progress = i / (days - 1);
+      const value = safeBaseValue * (1 + (trendMultiplier - 1) * progress);
+      // Add some variation
+      const variation = (Math.random() - 0.5) * 0.1;
+      data.push(Math.max(0, value * (1 + variation))); // Ensure non-negative
+    }
+    
+    return data;
+  };
+
+  // Chart colors for each metric type
+  const chartColors: Record<string, string> = {
+    'unverified': '#EC4899', // pink
+    'verified': '#10B981', // emerald
+    'pending': '#F59E0B', // amber
+    'overdue': '#EF4444', // red
+  };
+
   return (
     <div className="space-y-10 max-w-7xl mx-auto">
-      <div className="grid grid-cols-4 gap-8 items-stretch">
-        {metrics.map((metric, i) => {
-          const InfoIcon: React.FC = () => {
-            const [showTooltip, setShowTooltip] = useState(false);
-            return (
-              <div className="relative inline-block">
-                <svg
-                  className="w-4 h-4 text-neutral-400 hover:text-neutral-600 cursor-help transition-colors"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  onMouseEnter={() => setShowTooltip(true)}
-                  onMouseLeave={() => setShowTooltip(false)}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                {showTooltip && (
-                  <div className="absolute z-50 px-3 py-2 bg-neutral-800 text-white text-xs font-medium rounded-lg shadow-xl whitespace-nowrap pointer-events-none bottom-full left-1/2 transform -translate-x-1/2 mb-2">
-                    {getTrendTrackingInfo()}
-                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
-                      <div className="border-4 border-transparent border-t-neutral-800"></div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          };
-
-          return (
-            <div
-              key={i}
-              className="bg-white p-6 border border-neutral-200 rounded-lg hover:border-neutral-300 transition-all grid grid-rows-[auto_1fr_auto_auto] h-full"
-            >
-              {/* Title + info icon */}
-              <div className="flex items-center gap-2 mb-2">
-                <p className="text-sm font-medium text-neutral-700">{metric.label}</p>
-                <InfoIcon />
-              </div>
-            
-              {/* Value block */}
-              <div className="relative flex items-start">
-                <div
-                  className={`font-bold text-neutral-900 leading-none ${
-                    metric.type === 'pending' ? 'text-4xl' : 'text-5xl'
-                  }`}
-                >
-                  {metric.value}
-                </div>
-
-                {/* Trend indicator — anchored bottom-right */}
-                <div className="absolute bottom-0 right-0 flex items-center gap-1.5">
-                  {metric.trend.direction === 'up' && (
-                    <>
-                      <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                      </svg>
-                      <span className="text-sm font-medium text-green-600">
-                        {formatTrend(metric.trend)}
-                      </span>
-                    </>
-                  )}
-
-                  {metric.trend.direction === 'down' && (
-                    <>
-                      <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                      </svg>
-                      <span className="text-sm font-medium text-red-600">
-                        {formatTrend(metric.trend)}
-                      </span>
-                    </>
-                  )}
-
-                  {metric.trend.direction === 'neutral' && (
-                    <>
-                      <svg className="w-4 h-4 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14" />
-                      </svg>
-                      <span className="text-sm font-medium text-neutral-400">0%</span>
-                    </>
-                  )}
-                </div>
-            </div>
-
-              {/* Detail row */}
-              <div>
-            {metric.type === 'pending' && (
-                  <div className="mt-4 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
-                        Awaiting IRO
-                      </span>
-                      <span className="text-xs font-bold text-neutral-900">
-                        {metric.awaitingIRO}
-                      </span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
-                        Awaiting user
-                      </span>
-                      <span className="text-xs font-bold text-neutral-900">
-                        {metric.awaitingUser}
-                      </span>
-                </div>
-              </div>
-            )}
-              </div>
-
-              {/* Purpose text always sticks to the bottom */}
-              <p className="text-[11px] text-neutral-400 font-medium mt-auto">
-                {metric.purpose}
-              </p>
-          </div>
-          );
-        })}
+      <div className="grid grid-cols-4 gap-8">
+        {metrics.map((metric, i) => (
+          <MetricCard
+            key={i}
+            title={metric.label}
+            value={metric.value}
+            trend={metric.trend}
+            chartData={generateChartData(metric.value, metric.trend)}
+            chartColor={chartColors[metric.type] || '#7C3AED'}
+          />
+        ))}
       </div>
 
       <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden shadow-sm">

@@ -114,6 +114,34 @@ export interface ShareholdingsVerificationState {
 // @google/genai guidelines: Define a shared ViewType for navigation consistency
 export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders';
 
+/**
+ * Tab filter type for registrations page
+ */
+export type RegistrationsTabType = 'PENDING' | 'VERIFIED' | 'NON_VERIFIED' | 'PRE_VERIFIED' | 'ALL';
+
+/**
+ * Breadcrumb item for navigation display
+ */
+export interface BreadcrumbItem {
+  label: string;
+  view: ViewType;
+  onClick?: () => void;
+  filter?: {
+    tab?: RegistrationsTabType;
+    searchQuery?: string;
+  };
+}
+
+/**
+ * Navigation state for tracking current page and filters
+ */
+export interface NavigationState {
+  currentView: ViewType;
+  activeRegistrationsTab?: RegistrationsTabType;
+  registrationsSearchQuery?: string;
+  selectedApplicantId?: string;
+}
+
 export interface HoldingsDataPoint {
   timestamp: string; // ISO string
   share_price: number; // USD
