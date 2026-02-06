@@ -50,8 +50,28 @@ export async function sendEmail(options: SendEmailOptions): Promise<SendEmailRes
     const client = getResendClient();
     
     // Get sender email and name from options or environment
-    const fromEmail = options.from || process.env.RESEND_FROM_EMAIL || 'norelyn.golingan@eirl.ink';
+    let fromEmail = options.from || process.env.RESEND_FROM_EMAIL || 'norelyn.golingan@eirl.ink';
     const fromName = options.fromName || process.env.RESEND_FROM_NAME || 'EurolandHUB';
+    
+    // Validate and fix sender email domain
+    // Resend doesn't allow sending from unverified domains like gmail.com, yahoo.com, etc.
+    const unverifiedDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com', 'icloud.com'];
+    const emailDomain = fromEmail.split('@')[1]?.toLowerCase();
+    
+    if (emailDomain && unverifiedDomains.includes(emailDomain)) {
+      console.warn(`Invalid sender domain detected: ${emailDomain}. Using verified domain fallback.`);
+      // Use a verified domain or Resend's default domain
+      // Change this to your verified domain email
+      fromEmail = process.env.RESEND_VERIFIED_EMAIL || 'norelyn.golingan@eirl.ink';
+      
+      // If still using unverified domain, use Resend's default domain for testing
+      const fallbackDomain = fromEmail.split('@')[1]?.toLowerCase();
+      if (fallbackDomain && unverifiedDomains.includes(fallbackDomain)) {
+        fromEmail = 'onboarding@resend.dev'; // Resend's default domain for testing
+        console.warn('Using Resend default domain: onboarding@resend.dev');
+      }
+    }
+    
     const from = `${fromName} <${fromEmail}>`;
     const replyTo = options.replyTo || fromEmail;
     
