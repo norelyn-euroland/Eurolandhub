@@ -274,12 +274,36 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
   const wf = a.shareholdingsVerification!;
 
   if (isLocked(a)) return a;
-  if (!wf.step1.wantsVerification) return a;
-  if (!wf.step2) return a;
+  
+  // Allow IRO actions even if user declined shareholdings verification
+  // If wantsVerification is false, we can still manually approve/reject
+  const isShareholdingsDeclined = wf.step1.wantsVerification === false;
+  
+  // For shareholdings declined accounts, we can still approve/reject without step2
+  // For accounts that wanted verification, we need step2 to exist
+  if (!isShareholdingsDeclined && !wf.step2) return a;
 
   const reviewedAt = nowIso();
 
   if (match) {
+    // For shareholdings declined accounts, create minimal workflow state for approval
+    if (isShareholdingsDeclined) {
+      return {
+        ...a,
+        status: RegistrationStatus.APPROVED,
+        shareholdingsVerification: {
+          ...wf,
+          step4: {
+            ...wf.step4,
+            lastResult: 'MATCH',
+            failedAttempts: 0,
+            lastReviewedAt: reviewedAt,
+          },
+          step6: { verifiedAt: reviewedAt },
+        },
+      };
+    }
+    
     return {
       ...a,
       // Phase 3 / Step 6: Verified Account (no shareholding OTP step in new workflow)
@@ -332,8 +356,13 @@ export function recordRequestInfo(applicant: Applicant): Applicant {
   const wf = a.shareholdingsVerification!;
 
   if (isLocked(a)) return a;
-  if (!wf.step1.wantsVerification) return a;
-  if (!wf.step2) return a;
+  
+  // Allow IRO actions even if user declined shareholdings verification
+  const isShareholdingsDeclined = wf.step1.wantsVerification === false;
+  
+  // For shareholdings declined accounts, we can still request info without step2
+  // For accounts that wanted verification, we need step2 to exist
+  if (!isShareholdingsDeclined && !wf.step2) return a;
 
   const requestedAt = nowIso();
 

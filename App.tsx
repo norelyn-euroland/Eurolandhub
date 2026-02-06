@@ -17,16 +17,64 @@ import LoginPage from './components/LoginPage';
 const FADE_DURATION_MS = 300;
 
 const AuthedApp: React.FC = () => {
-  const [view, setView] = useState<ViewType>('dashboard');
+  // Restore view from localStorage on mount
+  // Note: We don't restore 'detail' view as it requires applicant data
+  const getInitialView = (): ViewType => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('eurolandhub_view');
+      if (saved && ['dashboard', 'registrations', 'shareholders'].includes(saved)) {
+        return saved as ViewType;
+      }
+    }
+    return 'dashboard';
+  };
+
+  const [view, setView] = useState<ViewType>(getInitialView);
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
   const { applicants, loading: applicantsLoading } = useApplicants({ realTime: true });
   const [searchQuery, setSearchQuery] = useState('');
   const [registrationsTabRequest, setRegistrationsTabRequest] = useState<{ tab: RegistrationsTabType; requestId: number } | null>(null);
   
   // Navigation state tracking
-  const [activeRegistrationsTab, setActiveRegistrationsTab] = useState<RegistrationsTabType>('ALL');
-  const [registrationsSearchQuery, setRegistrationsSearchQuery] = useState<string>('');
+  const getInitialTab = (): RegistrationsTabType => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('eurolandhub_registrations_tab');
+      if (saved && ['ALL', 'PENDING', 'VERIFIED', 'NON_VERIFIED', 'PRE_VERIFIED'].includes(saved)) {
+        return saved as RegistrationsTabType;
+      }
+    }
+    return 'ALL';
+  };
+
+  const [activeRegistrationsTab, setActiveRegistrationsTab] = useState<RegistrationsTabType>(getInitialTab);
+  const [registrationsSearchQuery, setRegistrationsSearchQuery] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('eurolandhub_registrations_search') || '';
+    }
+    return '';
+  });
   const [preservedFilterState, setPreservedFilterState] = useState<{ tab: RegistrationsTabType; searchQuery: string } | null>(null);
+
+  // Persist view changes to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('eurolandhub_view', view);
+    }
+  }, [view]);
+
+  // Persist registrations tab changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('eurolandhub_registrations_tab', activeRegistrationsTab);
+    }
+  }, [activeRegistrationsTab]);
+
+  // Persist registrations search query
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('eurolandhub_registrations_search', registrationsSearchQuery);
+    }
+  }, [registrationsSearchQuery]);
 
   const filteredApplicants = applicants.filter(a => 
     a.fullName.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -342,32 +390,40 @@ const App: React.FC = () => {
   const { loading: authLoading, isAuthenticated } = useAuth();
 
   // Crossfade login -> app so the dashboard doesn't appear "suddenly"
-  const [loginMounted, setLoginMounted] = useState(true);
-  const [loginVisible, setLoginVisible] = useState(true);
+  const [loginMounted, setLoginMounted] = useState(false);
+  const [loginVisible, setLoginVisible] = useState(false);
   const [appVisible, setAppVisible] = useState(false);
 
   useEffect(() => {
-    if (authLoading) return;
-
-    if (!isAuthenticated) {
-      // Ensure login is mounted and visible
-      setLoginMounted(true);
-      requestAnimationFrame(() => setLoginVisible(true));
-      setAppVisible(false);
+    // Don't do anything while auth is still loading
+    if (authLoading) {
       return;
     }
 
-    // Authenticated: fade out login overlay
-    setLoginVisible(false);
-    const t = window.setTimeout(() => setLoginMounted(false), FADE_DURATION_MS);
-    requestAnimationFrame(() => setAppVisible(true));
-    return () => window.clearTimeout(t);
+    // Auth state is now known
+    if (isAuthenticated) {
+      // User is authenticated - ensure login is not mounted, show app
+      setLoginMounted(false);
+      setLoginVisible(false);
+      // Use requestAnimationFrame to ensure smooth transition
+      requestAnimationFrame(() => {
+        setAppVisible(true);
+      });
+    } else {
+      // User is not authenticated - show login page
+      setLoginMounted(true);
+      setAppVisible(false);
+      requestAnimationFrame(() => {
+        setLoginVisible(true);
+      });
+    }
   }, [authLoading, isAuthenticated]);
 
-  // Show loading state while checking authentication
+  // Show loading state while checking authentication - use same background as app
+  // This prevents any flash of login page
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-neutral-50">
+      <div className="min-h-screen flex items-center justify-center bg-white">
         <div className="text-sm font-bold text-neutral-600">Loading...</div>
       </div>
     );
@@ -384,10 +440,10 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {loginMounted && (
+      {!isAuthenticated && loginMounted && (
         <div
-          className={`fixed inset-0 z-50 transition-opacity duration-300 ease-out ${
-            loginVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          className={`transition-opacity duration-300 ease-out ${
+            loginVisible ? 'opacity-100' : 'opacity-0'
           }`}
           style={{ transitionDuration: `${FADE_DURATION_MS}ms` }}
         >

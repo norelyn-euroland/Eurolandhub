@@ -4,23 +4,34 @@ import { authService } from '../lib/firebase-auth';
 
 /**
  * Custom hook for Firebase authentication state
+ * Waits for Firebase to restore auth state from persistence before resolving
  */
 export const useAuth = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Set initial user
-    setUser(authService.getCurrentUser());
-    setLoading(false);
+    let isMounted = true;
+    let hasReceivedInitialState = false;
 
     // Listen to auth state changes
+    // Firebase will fire this callback once auth state is restored from persistence
     const unsubscribe = authService.onAuthStateChanged((user) => {
-      setUser(user);
-      setLoading(false);
+      if (isMounted) {
+        setUser(user);
+        // Only set loading to false after we've received the initial auth state
+        // This ensures we wait for Firebase to restore from persistence
+        if (!hasReceivedInitialState) {
+          hasReceivedInitialState = true;
+          setLoading(false);
+        }
+      }
     });
 
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   return {

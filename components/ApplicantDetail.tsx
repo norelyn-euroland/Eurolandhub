@@ -178,15 +178,67 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
     return '';
   };
 
-  const [shareholderQuery, setShareholderQuery] = useState('');
-  const effectiveShareholderQuery = shareholderQuery.trim().toLowerCase();
-  const filteredShareholders = MOCK_SHAREHOLDERS.filter((s) => {
-    if (!effectiveShareholderQuery) return true;
-    return (
-      s.name.toLowerCase().includes(effectiveShareholderQuery) ||
-      s.id.toLowerCase().includes(effectiveShareholderQuery)
-    );
-  });
+  // Shareholder match finder state
+  const getRegistrationId = (): string => {
+    // Priority: shareholdingsId from step2 > registrationId > applicant.id
+    return applicant.shareholdingsVerification?.step2?.shareholdingsId || 
+           applicant.registrationId || 
+           applicant.id;
+  };
+
+  const [registrationId, setRegistrationId] = useState('');
+  const [hasAutoFilled, setHasAutoFilled] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [matchedShareholder, setMatchedShareholder] = useState<typeof MOCK_SHAREHOLDERS[0] | null>(null);
+  const [showMatchDetails, setShowMatchDetails] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+
+  const loadingMessages = [
+    'Searching for investor ID match...',
+    'Querying shareholders registry...',
+    'Verifying registration details...',
+    'Cross-referencing investor data...'
+  ];
+
+  // Rotate loading messages while searching
+  useEffect(() => {
+    if (!isSearching) return;
+
+    const interval = setInterval(() => {
+      setLoadingMessageIndex((prev) => (prev + 1) % loadingMessages.length);
+    }, 1500); // Change message every 1.5 seconds
+
+    return () => clearInterval(interval);
+  }, [isSearching, loadingMessages.length]);
+
+  const handleInputFocus = () => {
+    if (!hasAutoFilled) {
+      const autoFillId = getRegistrationId();
+      setRegistrationId(autoFillId);
+      setHasAutoFilled(true);
+    }
+  };
+
+  const handleFindMatch = () => {
+    if (!registrationId.trim()) return;
+    
+    // Mark that a search has been performed
+    setHasSearched(true);
+    
+    // Clear previous results
+    setMatchedShareholder(null);
+    setShowMatchDetails(false);
+    setIsSearching(true);
+    setLoadingMessageIndex(0);
+    
+    // Simulate search delay with rotating messages
+    setTimeout(() => {
+      const match = MOCK_SHAREHOLDERS.find(sh => sh.id === registrationId.trim());
+      setMatchedShareholder(match || null);
+      setIsSearching(false);
+    }, 2000); // 2 seconds to show loading messages
+  };
 
   // Invitation email state
   const [messageStyle, setMessageStyle] = useState<string>('default');
@@ -418,24 +470,36 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
         </button>
         {/* Action buttons - Only show for non-pre-verified accounts */}
         {!applicant.isPreVerified && (
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <button 
               onClick={() => onUpdateStatus(applicant.id, RegistrationStatus.FURTHER_INFO)}
-              className="px-6 py-3 text-[11px] font-black border-2 border-neutral-200 rounded-lg uppercase tracking-widest hover:bg-neutral-50 hover:border-black transition-all"
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-neutral-700 bg-white border border-neutral-300 rounded-md hover:bg-neutral-50 hover:border-neutral-400 transition-colors"
             >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
               Request Info
             </button>
             <button 
               onClick={() => onUpdateStatus(applicant.id, RegistrationStatus.REJECTED)}
-              className="px-6 py-3 text-[11px] font-black border-2 border-neutral-900 text-neutral-900 rounded-lg uppercase tracking-widest hover:bg-red-600 hover:text-white hover:border-red-600 transition-all"
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-red-700 bg-white border border-red-300 rounded-md hover:bg-red-50 hover:border-red-400 transition-colors"
             >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
               Reject
             </button>
             <button 
               onClick={() => onUpdateStatus(applicant.id, RegistrationStatus.APPROVED)}
-              className="px-8 py-3 text-[11px] font-black bg-black text-white rounded-lg uppercase tracking-widest hover:bg-neutral-800 transition-all shadow-xl shadow-black/20"
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white rounded-md transition-colors"
+              style={{ backgroundColor: '#082b4a' }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#061d33'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#082b4a'}
             >
-              Approve Registration
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              Approve
             </button>
           </div>
         )}
@@ -865,102 +929,164 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
             </section>
           )}
 
-          {/* Shareholder Registry Table (Snapshot) - Only show for non-pre-verified accounts */}
+          {/* Shareholder Match Finder - Only show for non-pre-verified accounts */}
           {!applicant.isPreVerified && (
-            <section className="bg-white rounded-xl border border-neutral-200 shadow-sm overflow-hidden">
-            <div className="px-8 py-6 border-b border-neutral-100 flex items-start justify-between gap-6">
-              <div>
-                <h2 className="text-sm font-black text-neutral-900 uppercase tracking-widest flex items-center gap-2">
+            <section className="bg-white rounded-xl border border-neutral-200 shadow-sm p-8">
+              <div className="mb-6">
+                <h2 className="text-sm font-black text-neutral-900 uppercase tracking-widest flex items-center gap-2 mb-2">
                   <span className="w-2.5 h-2.5 bg-black rounded-full"></span>
-                  Shareholders Registry
+                  Shareholder Match Finder
                 </h2>
-                <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-[0.2em] mt-2">
-                  Registry Snapshot • Table View
+                <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-[0.2em]">
+                  Verify Registration ID Against Shareholders Registry
                 </p>
               </div>
 
-              <div className="relative">
-                <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                <input
-                  type="text"
-                  placeholder="Search name or investor ID..."
-                  value={shareholderQuery}
-                  onChange={(e) => setShareholderQuery(e.target.value)}
-                  className="pl-10 pr-4 py-2 bg-neutral-50 border border-neutral-200 rounded-lg text-[11px] focus:ring-1 focus:ring-black focus:border-black outline-none w-64 transition-all placeholder:text-neutral-400 font-medium"
-                />
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex-1">
+                  <label className="block text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">
+                    Registration ID
+                  </label>
+                  <input
+                    type="text"
+                    value={registrationId}
+                    onChange={(e) => setRegistrationId(e.target.value)}
+                    onFocus={handleInputFocus}
+                    className="w-full px-4 py-2.5 bg-neutral-50 border border-neutral-300 rounded-md text-sm font-semibold text-neutral-900 focus:ring-2 focus:ring-[#082b4a] focus:border-[#082b4a] outline-none transition-all"
+                    placeholder="Click to auto-fill registration ID"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    onClick={handleFindMatch}
+                    disabled={isSearching || !registrationId.trim()}
+                    className="px-6 py-2.5 text-sm font-semibold text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ backgroundColor: '#082b4a' }}
+                    onMouseEnter={(e) => !isSearching && !e.currentTarget.disabled && (e.currentTarget.style.backgroundColor = '#061d33')}
+                    onMouseLeave={(e) => !isSearching && (e.currentTarget.style.backgroundColor = '#082b4a')}
+                  >
+                    Find Match
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-neutral-50/50 text-[10px] font-black text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200">
-                    <th className="px-6 py-5 text-center w-16">Rank</th>
-                    <th className="px-6 py-5">Holdings</th>
-                    <th className="px-6 py-5">Stake %</th>
-                    <th className="px-6 py-5">Investor ID</th>
-                    <th className="px-6 py-5">Name</th>
-                    <th className="px-6 py-5">CO address</th>
-                    <th className="px-6 py-5">Country (post)</th>
-                    <th className="px-6 py-5 text-right">Type of account</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-100">
-                  {filteredShareholders.map((sh) => (
-                    <tr key={sh.id} className="group hover:bg-neutral-50/80 transition-all cursor-default">
-                      <td className="px-6 py-5">
-                        <div className="flex items-center justify-center">
-                          <span className={`w-7 h-7 flex items-center justify-center rounded-full text-[11px] font-black transition-colors ${sh.rank === 1 ? 'bg-black text-white' : 'bg-neutral-100 text-neutral-500'}`}>
-                            {sh.rank}
-                          </span>
+              {/* Loading Indicator */}
+              {isSearching && (
+                <div className="mb-6 flex items-center gap-3 p-4 bg-neutral-50 border border-neutral-200 rounded-md">
+                  <div className="flex-shrink-0">
+                    <div className="w-5 h-5 border-2 border-[#082b4a] border-t-transparent rounded-full animate-spin"></div>
+                  </div>
+                  <p className="text-sm font-semibold text-neutral-700">
+                    {loadingMessages[loadingMessageIndex]}
+                  </p>
+                </div>
+              )}
+
+              {/* Match Results - Only show after search completes */}
+              {!isSearching && matchedShareholder && (
+                <div className="bg-green-50 border-2 border-green-200 rounded-lg p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center">
+                        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-black text-green-900 uppercase tracking-wide mb-1">Match Found</h3>
+                        <p className="text-xs text-green-700">Registration ID verified in shareholders registry</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-[9px] font-black text-green-700 uppercase tracking-widest mb-1">
+                        Company Name
+                      </label>
+                      <p className="text-sm font-bold text-green-900">{matchedShareholder.name}</p>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-black text-green-700 uppercase tracking-widest mb-1">
+                        Investor ID
+                      </label>
+                      <p className="text-sm font-bold text-green-900 font-mono">{matchedShareholder.id}</p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setShowMatchDetails(!showMatchDetails)}
+                    className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-green-700 bg-white border border-green-300 rounded-md hover:bg-green-50 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d={showMatchDetails ? "M5 15l7-7 7 7" : "M19 9l-7 7-7-7"} />
+                    </svg>
+                    {showMatchDetails ? 'Hide Details' : 'More Details'}
+                  </button>
+
+                  {/* Expanded Details */}
+                  {showMatchDetails && (
+                    <div className="mt-4 pt-4 border-t border-green-200">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[9px] font-black text-green-700 uppercase tracking-widest mb-1">
+                            Holdings
+                          </label>
+                          <p className="text-sm font-bold text-green-900">{matchedShareholder.holdings.toLocaleString()} shares</p>
                         </div>
-                      </td>
-                      <td className="px-6 py-5">
-                        <p className="text-sm font-black text-neutral-900 tracking-tight">
-                          {sh.holdings.toLocaleString()}
-                        </p>
-                        <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-tighter">Ordinary Shares</p>
-                      </td>
-                      <td className="px-6 py-5">
-                        <div className="flex flex-col gap-1.5">
-                          <span className="text-sm font-black text-neutral-900">{sh.stake.toFixed(5)}%</span>
-                          <div className="w-16 h-1 bg-neutral-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-neutral-900" style={{ width: `${Math.min(sh.stake * 2.5, 100)}%` }}></div>
-                          </div>
+                        <div>
+                          <label className="block text-[9px] font-black text-green-700 uppercase tracking-widest mb-1">
+                            Stake Percentage
+                          </label>
+                          <p className="text-sm font-bold text-green-900">{matchedShareholder.stake.toFixed(5)}%</p>
                         </div>
-                      </td>
-                      <td className="px-6 py-5">
-                        <span className="text-sm font-black text-neutral-900 font-mono tracking-tighter bg-neutral-100 px-2.5 py-1 rounded border border-neutral-200">
-                          {sh.id}
-                        </span>
-                      </td>
-                      <td className="px-6 py-5">
-                        <Tooltip content={sh.name}>
-                          <p className="text-sm font-bold text-neutral-900 uppercase truncate max-w-[200px]">{sh.name}</p>
-                        </Tooltip>
-                        <p className="text-[10px] text-neutral-400 font-medium italic">{sh.firstName || 'Primary Account Holder'}</p>
-                      </td>
-                      <td className="px-6 py-5">
-                        <Tooltip content={sh.coAddress || 'Registered Office'}>
-                          <span className="text-[10px] text-neutral-400 truncate max-w-[240px] block">
-                            {sh.coAddress || 'Registered Office'}
-                          </span>
-                        </Tooltip>
-                      </td>
-                      <td className="px-6 py-5">
-                        <span className="text-xs font-bold text-neutral-700">{sh.country}</span>
-                      </td>
-                      <td className="px-6 py-5 text-right">
-                        <span className="inline-block px-3 py-1 bg-neutral-100 text-[10px] font-black text-neutral-600 rounded-full uppercase tracking-widest border border-neutral-200 group-hover:bg-white transition-colors">
-                          {sh.accountType}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+                        <div>
+                          <label className="block text-[9px] font-black text-green-700 uppercase tracking-widest mb-1">
+                            Rank
+                          </label>
+                          <p className="text-sm font-bold text-green-900">#{matchedShareholder.rank}</p>
+                        </div>
+                        <div>
+                          <label className="block text-[9px] font-black text-green-700 uppercase tracking-widest mb-1">
+                            Account Type
+                          </label>
+                          <p className="text-sm font-bold text-green-900">{matchedShareholder.accountType}</p>
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-[9px] font-black text-green-700 uppercase tracking-widest mb-1">
+                            Corporate Address
+                          </label>
+                          <p className="text-sm font-bold text-green-900">{matchedShareholder.coAddress}</p>
+                        </div>
+                        <div>
+                          <label className="block text-[9px] font-black text-green-700 uppercase tracking-widest mb-1">
+                            Country
+                          </label>
+                          <p className="text-sm font-bold text-green-900">{matchedShareholder.country}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* No Match Found - Only show after search has been performed */}
+              {!isSearching && hasSearched && registrationId && !matchedShareholder && (
+                <div className="bg-red-50 border-2 border-red-200 rounded-lg p-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-red-900 uppercase tracking-wide mb-1">No Match Found</h3>
+                      <p className="text-xs text-red-700">Registration ID not found in shareholders registry</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
           )}
       </div>
     </div>
