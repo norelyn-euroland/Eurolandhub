@@ -1,3 +1,10 @@
+console.log("ENV CHECK:", {
+  GROQ: !!process.env.GROQ_API_KEY,
+  RESEND: !!process.env.RESEND_API_KEY,
+  FROM: process.env.RESEND_FROM_EMAIL,
+});
+
+
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { randomBytes } from 'crypto';
 import { invitationTemplate } from '../lib/email-templates';
