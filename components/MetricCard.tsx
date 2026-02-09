@@ -1,9 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Line } from 'react-chartjs-2';
-// Side-effect: registers Chart.js scales/elements once
-import '../lib/chartjs-setup';
+import { ResponsiveContainer, AreaChart, Area, Tooltip, TooltipProps, XAxis } from 'recharts';
 
 interface MetricCardProps {
   title: string;
@@ -14,7 +12,29 @@ interface MetricCardProps {
   };
   chartData?: number[];
   chartColor?: string;
+  subtitle?: string;
 }
+
+/**
+ * Custom Tooltip component for the Sparkline.
+ * Positions itself near the hover point on the chart.
+ */
+const CustomTooltip = ({ active, payload, themeColor }: TooltipProps<number, string> & { themeColor: string }) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className="bg-white dark:bg-[#262626] border border-neutral-200 dark:border-white/10 px-3 py-2 rounded-lg shadow-2xl backdrop-blur-md pointer-events-none">
+        <p className="text-[10px] uppercase tracking-widest text-neutral-500 dark:text-gray-400 font-bold mb-0.5">
+          {data.date}
+        </p>
+        <p className="text-sm font-bold" style={{ color: themeColor }}>
+          {payload[0].value?.toLocaleString()}
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
 
 const MetricCard: React.FC<MetricCardProps> = ({
   title,
@@ -22,178 +42,169 @@ const MetricCard: React.FC<MetricCardProps> = ({
   trend,
   chartData,
   chartColor = '#7C3AED',
+  subtitle = 'compared to last week',
 }) => {
-  // Track mount time - changes on every component mount (page visit)
-  const mountTimeRef = React.useRef(Date.now());
-  
-  // Track previous data to detect weekly changes
-  const prevDataHashRef = React.useRef<string>('');
-  const [animationTrigger, setAnimationTrigger] = React.useState(mountTimeRef.current);
-  
-  // Reset mount time on every mount (page visit) to trigger animation
-  React.useEffect(() => {
-    mountTimeRef.current = Date.now();
-    setAnimationTrigger(mountTimeRef.current);
-  }, []);
-  
-  /* ---------- chart data ---------- */
-  const defaultChartData = React.useMemo(() => {
-    if (chartData && chartData.length > 0) return chartData;
-    return Array.from({ length: 7 }, () => Math.random() * 100);
+  // Map chartColor to colorTheme
+  const getColorTheme = (color: string): 'pink' | 'blue' | 'emerald' | 'amber' => {
+    const colorMap: Record<string, 'pink' | 'blue' | 'emerald' | 'amber'> = {
+      '#EC4899': 'pink',
+      '#ec4899': 'pink',
+      '#3b82f6': 'blue',
+      '#10B981': 'emerald',
+      '#10b981': 'emerald',
+      '#F59E0B': 'amber',
+      '#f59e0b': 'amber',
+      '#EF4444': 'pink',
+      '#ef4444': 'pink',
+      '#7C3AED': 'pink',
+      '#7c3aed': 'pink',
+    };
+    return colorMap[color] || 'pink';
+  };
+
+  const colorTheme = getColorTheme(chartColor);
+
+  // Theme definition mapping
+  const themes = {
+    pink: {
+      stroke: '#ec4899',
+      fill: 'rgba(236, 72, 153, 0.2)',
+      trendDown: 'text-orange-500',
+      trendUp: 'text-emerald-500',
+      bgTrendDown: 'bg-orange-500/10',
+      bgTrendUp: 'bg-emerald-500/10',
+    },
+    blue: {
+      stroke: '#3b82f6',
+      fill: 'rgba(59, 130, 246, 0.2)',
+      trendDown: 'text-red-500',
+      trendUp: 'text-sky-400',
+      bgTrendDown: 'bg-red-500/10',
+      bgTrendUp: 'bg-sky-400/10',
+    },
+    emerald: {
+      stroke: '#10b981',
+      fill: 'rgba(16, 185, 129, 0.2)',
+      trendDown: 'text-orange-400',
+      trendUp: 'text-emerald-400',
+      bgTrendDown: 'bg-orange-400/10',
+      bgTrendUp: 'bg-emerald-400/10',
+    },
+    amber: {
+      stroke: '#f59e0b',
+      fill: 'rgba(245, 158, 11, 0.2)',
+      trendDown: 'text-red-400',
+      trendUp: 'text-amber-400',
+      bgTrendDown: 'bg-red-400/10',
+      bgTrendUp: 'bg-amber-400/10',
+    }
+  };
+
+  const theme = themes[colorTheme];
+
+  // Use a stable unique ID for gradient (avoid special chars)
+  const gradientId = React.useId();
+
+  // Deterministic seeded random — same seed always produces the same value.
+  // Charts only change when the week number changes (every 7 days).
+  const seededRandom = (seed: number): number => {
+    const x = Math.sin(seed * 9301 + 49297) * 233280;
+    return x - Math.floor(x);
+  };
+
+  // Convert 7-day chartData (array of numbers) to format expected by recharts
+  const convertChartData = React.useMemo(() => {
+    if (!chartData || chartData.length === 0) {
+      const now = new Date();
+      const weekSeed = Math.floor(now.getTime() / (7 * 24 * 60 * 60 * 1000));
+      return Array.from({ length: 7 }, (_, i) => {
+        const d = new Date();
+        d.setDate(now.getDate() - (6 - i));
+        const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        return {
+          value: Math.round(50 + seededRandom(weekSeed + i) * 50),
+          date: dateStr
+        };
+      });
+    }
+
+    const now = new Date();
+    return chartData.map((val, i) => {
+      const d = new Date();
+      d.setDate(now.getDate() - (chartData.length - 1 - i));
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return {
+        value: Math.round(val),
+        date: dateStr
+      };
+    });
   }, [chartData]);
 
-  const normalizedData = React.useMemo(() => {
-    if (defaultChartData.length === 0) return [50, 50, 50, 50, 50, 50, 50];
-    const min = Math.min(...defaultChartData);
-    const max = Math.max(...defaultChartData);
-    return max === min
-      ? defaultChartData.map(() => 50)
-      : defaultChartData.map((v) => ((v - min) / (max - min)) * 100);
-  }, [defaultChartData]);
+  // Trend display
+  const trendValue = trend.direction === 'neutral'
+    ? '0%'
+    : `${Math.abs(trend.percent).toFixed(trend.percent < 10 ? 1 : 0)}%`;
+  const isUp = trend.direction === 'up';
 
-  // Trigger animation when data changes (weekly update) - must be after normalizedData is defined
-  React.useEffect(() => {
-    const currentDataHash = normalizedData.join(',');
-    if (prevDataHashRef.current && prevDataHashRef.current !== currentDataHash) {
-      // Data changed - trigger new animation
-      setAnimationTrigger(Date.now());
-    }
-    prevDataHashRef.current = currentDataHash;
-  }, [normalizedData]);
-
-  // Create a unique key that changes on mount (page visit) and when data changes
-  // This ensures animation triggers on every page visit and weekly data updates
-  const chartKey = React.useMemo(() => {
-    const dataHash = normalizedData.join(',');
-    return `${dataHash}-${animationTrigger}`;
-  }, [normalizedData, animationTrigger]);
-
-  const chartConfig = React.useMemo(() => ({
-    labels: normalizedData.map((_, i) => String(i)),
-    datasets: [
-      {
-        data: normalizedData,
-        borderColor: chartColor,
-        backgroundColor: `${chartColor}20`,
-        borderWidth: 2,
-        fill: true,
-        tension: 0.4,
-        pointRadius: 0,
-        pointHoverRadius: 0,
-      },
-    ],
-  }), [normalizedData, chartColor]);
-
-  const chartOptions = React.useMemo(() => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: { 
-      legend: { display: false }, 
-      tooltip: { enabled: false },
-    },
-    scales: { 
-      x: { display: false }, 
-      y: { display: false },
-    },
-    animation: {
-      duration: 1200,
-      easing: 'easeInOutQuad' as const,
-    },
-    transitions: {
-      show: {
-        animation: {
-          duration: 1200,
-          easing: 'easeInOutQuad' as const,
-        },
-      },
-      hide: {
-        animation: {
-          duration: 0,
-        },
-      },
-    },
-    interaction: {
-      intersect: false,
-      mode: 'nearest' as const,
-    },
-    elements: {
-      point: {
-        hoverRadius: 0,
-        radius: 0,
-      },
-    },
-  }), []);
-
-  /* ---------- trend helpers ---------- */
-  const trendColor =
-    trend.direction === 'up'
-      ? 'text-green-500'
-      : trend.direction === 'down'
-      ? 'text-orange-500'
-      : 'text-neutral-400';
-
-  const trendIconBgColor =
-    trend.direction === 'up'
-      ? 'bg-green-100'
-      : trend.direction === 'down'
-      ? 'bg-orange-100'
-      : 'bg-neutral-100';
-
-  const trendIcon =
-    trend.direction === 'up' ? (
-      <div className={`${trendIconBgColor} rounded-full p-1 flex items-center justify-center`}>
-        <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-          <path
-            fillRule="evenodd"
-            d="M10 17a.75.75 0 01-.75-.75V5.612L5.29 9.77a.75.75 0 01-1.08-1.04l5.25-5.5a.75.75 0 011.08 0l5.25 5.5a.75.75 0 11-1.08 1.04l-3.96-4.158V16.25A.75.75 0 0110 17z"
-            clipRule="evenodd"
-          />
-        </svg>
-      </div>
-    ) : trend.direction === 'down' ? (
-      <div className={`${trendIconBgColor} rounded-full p-1 flex items-center justify-center`}>
-        <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-          <path
-            fillRule="evenodd"
-            d="M10 3a.75.75 0 01.75.75v10.638l3.96-4.158a.75.75 0 111.08 1.04l-5.25 5.5a.75.75 0 01-1.08 0l-5.25-5.5a.75.75 0 111.08-1.04l3.96 4.158V3.75A.75.75 0 0110 3z"
-            clipRule="evenodd"
-          />
-        </svg>
-      </div>
-    ) : null;
-
-  const trendText =
-    trend.direction === 'neutral'
-      ? '0%'
-      : `${trend.percent.toFixed(0)}%`;
-
-  /* ---------- render ---------- */
   return (
-    <div className="bg-white p-5 border border-neutral-200 rounded-xl relative overflow-hidden min-h-[140px]">
-      {/* Title */}
-      <p className="text-sm font-medium text-neutral-500 mb-3">{title}</p>
+    <div className="group relative rounded-2xl bg-white dark:bg-[#1a1a1a] p-6 shadow-xl border border-neutral-200 dark:border-white/5 flex flex-col justify-between transition-all duration-300 hover:border-neutral-300 dark:hover:border-white/10 hover:bg-neutral-50 dark:hover:bg-[#1e1e1e] hover:-translate-y-1 h-[200px]">
 
-      {/* Value + Trend row */}
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-2xl font-bold text-neutral-900 leading-none">
-          {typeof value === 'number' ? value.toLocaleString() : value}
-        </span>
-        <div className={`flex items-center gap-0.5 ${trendColor}`}>
-          {trendIcon}
-          <span className="text-sm font-semibold">{trendText}</span>
+      {/* Metric Header Section */}
+      <div className="z-10 relative pointer-events-none">
+        <h3 className="text-neutral-500 dark:text-gray-400 text-xs font-semibold mb-2 tracking-widest uppercase opacity-70">
+          {title}
+        </h3>
+        <div className="flex items-baseline gap-2 mb-1">
+          <span className="text-3xl font-black text-neutral-900 dark:text-white tracking-tight">
+            {typeof value === 'number' ? value.toLocaleString() : value}
+          </span>
+          <div className={`flex items-center px-2 py-0.5 rounded-full text-[11px] font-black ${isUp ? theme.trendUp + ' ' + theme.bgTrendUp : theme.trendDown + ' ' + theme.bgTrendDown}`}>
+            <span>{isUp ? '↑' : '↓'}</span>
+            <span className="ml-0.5">{trendValue}</span>
+          </div>
         </div>
+        <p className="text-neutral-600 dark:text-gray-500 text-xs font-medium italic opacity-80">
+          {subtitle}
+        </p>
       </div>
 
-      {/* Subtitle */}
-      <p className="text-xs text-neutral-400">compared to last week</p>
-
-      {/* Mini chart — bottom-right */}
-      <div className="absolute bottom-3 right-3 w-28 h-14 pointer-events-none">
-        <Line 
-          key={chartKey}
-          data={chartConfig} 
-          options={chartOptions}
-        />
+      {/* Animated Sparkline Section — full-width, bottom half */}
+      <div className="absolute bottom-0 left-0 right-0 h-[55%] transition-opacity duration-500 group-hover:opacity-100 opacity-60" style={{ zIndex: 1 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={convertChartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={theme.stroke} stopOpacity={0.4} />
+                <stop offset="95%" stopColor={theme.stroke} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <XAxis dataKey="date" hide />
+            <Tooltip
+              content={<CustomTooltip themeColor={theme.stroke} />}
+              cursor={{ stroke: theme.stroke, strokeWidth: 1.5, strokeDasharray: '4 4' }}
+              allowEscapeViewBox={{ x: true, y: true }}
+              offset={10}
+            />
+            <Area
+              type="monotone"
+              dataKey="value"
+              stroke={theme.stroke}
+              strokeWidth={3}
+              fillOpacity={1}
+              fill={`url(#${gradientId})`}
+              isAnimationActive={true}
+              animationDuration={1500}
+              animationEasing="cubic-bezier(0.16, 1, 0.3, 1)"
+              activeDot={{
+                r: 6,
+                fill: theme.stroke,
+                stroke: '#ffffff',
+                strokeWidth: 2,
+                className: "dark:stroke-[#1a1a1a] drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]"
+              }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );

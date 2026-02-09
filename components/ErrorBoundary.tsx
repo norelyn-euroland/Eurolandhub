@@ -33,10 +33,10 @@ class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="min-h-screen flex items-center justify-center bg-neutral-50 p-8">
-          <div className="max-w-md w-full bg-white border border-neutral-200 rounded-lg p-8 shadow-sm">
-            <h1 className="text-2xl font-bold text-neutral-900 mb-4">Something went wrong</h1>
-            <p className="text-neutral-600 mb-4">
+        <div className="min-h-screen flex items-center justify-center bg-white dark:bg-neutral-900 p-8">
+          <div className="max-w-md w-full bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-8 shadow-sm">
+            <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100 mb-4">Something went wrong</h1>
+            <p className="text-neutral-600 dark:text-neutral-300 mb-4">
               {this.state.error?.message || 'An unexpected error occurred'}
             </p>
             <button
@@ -44,14 +44,14 @@ class ErrorBoundary extends Component<Props, State> {
                 this.setState({ hasError: false, error: null });
                 window.location.reload();
               }}
-              className="px-4 py-2 bg-black text-white rounded-lg hover:bg-neutral-800 transition-colors"
+              className="px-4 py-2 bg-[#082b4a] dark:bg-[#00adf0] text-white rounded-lg hover:bg-[#061d33] dark:hover:bg-[#0099d6] transition-colors"
             >
               Reload Page
             </button>
             {this.state.error && (
               <details className="mt-4">
-                <summary className="text-sm text-neutral-500 cursor-pointer">Error Details</summary>
-                <pre className="mt-2 text-xs bg-neutral-100 p-4 rounded overflow-auto">
+                <summary className="text-sm text-neutral-400 cursor-pointer">Error Details</summary>
+                <pre className="mt-2 text-xs bg-neutral-50 dark:bg-neutral-900 text-neutral-700 dark:text-neutral-300 p-4 rounded overflow-auto border border-neutral-300 dark:border-neutral-700">
                   {this.state.error.stack}
                 </pre>
               </details>
@@ -66,4 +66,5 @@ class ErrorBoundary extends Component<Props, State> {
 }
 
 export default ErrorBoundary;
+
 

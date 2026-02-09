@@ -14,6 +14,10 @@ interface HoldingsChartProps {
 type Timeframe = '1d' | '1w' | '1M' | '3M' | '6M' | 'YTD' | 'ALL';
 
 const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
+  const isDark =
+    typeof window !== 'undefined' &&
+    window.document.documentElement.classList.contains('dark');
+
   const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<HoldingsDataPoint[]>([]);
@@ -106,11 +110,16 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
         legend: {
           display: true,
           position: 'top' as const,
-          labels: { usePointStyle: true, padding: 15, font: { size: 12, weight: 'bold' as const } },
+          labels: {
+            usePointStyle: true,
+            padding: 15,
+            font: { size: 12, weight: 'bold' as const },
+            color: isDark ? '#e5e5e5' : '#171717',
+          },
         },
         tooltip: {
           enabled: true,
-          backgroundColor: 'rgba(0,0,0,0.8)',
+          backgroundColor: isDark ? 'rgba(0,0,0,0.85)' : 'rgba(23,23,23,0.92)',
           padding: 12,
           titleFont: { size: 12, weight: 'bold' as const },
           bodyFont: { size: 11 },
@@ -126,28 +135,28 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
       },
       scales: {
         x: {
-          grid: { color: '#e5e7eb', drawBorder: false },
-          ticks: { font: { size: 11 }, color: '#6b7280' },
+          grid: { color: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0,0,0,0.08)', drawBorder: false },
+          ticks: { font: { size: 11 }, color: isDark ? '#9ca3af' : '#525252' },
         },
         y: {
           type: 'linear' as const,
           display: true,
           position: 'left' as const,
-          title: { display: true, text: 'Share Price ($)', color: '#3b82f6', font: { size: 12, weight: 'bold' as const } },
-          grid: { color: '#e5e7eb', drawBorder: false },
-          ticks: { font: { size: 11 }, color: '#3b82f6', callback: (v: any) => '$' + v.toFixed(2) },
+          title: { display: true, text: 'Share Price ($)', color: '#60a5fa', font: { size: 12, weight: 'bold' as const } },
+          grid: { color: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0,0,0,0.08)', drawBorder: false },
+          ticks: { font: { size: 11 }, color: '#60a5fa', callback: (v: any) => '$' + v.toFixed(2) },
         },
         y1: {
           type: 'linear' as const,
           display: true,
           position: 'right' as const,
-          title: { display: true, text: 'Shares Held (M)', color: '#10b981', font: { size: 12, weight: 'bold' as const } },
+          title: { display: true, text: 'Shares Held (M)', color: '#34d399', font: { size: 12, weight: 'bold' as const } },
           grid: { drawOnChartArea: false },
-          ticks: { font: { size: 11 }, color: '#10b981', callback: (v: any) => v.toFixed(2) + 'M' },
+          ticks: { font: { size: 11 }, color: '#34d399', callback: (v: any) => v.toFixed(2) + 'M' },
         },
       },
     }),
-    [],
+    [isDark],
   );
 
   const timeframes: Timeframe[] = ['1d', '1w', '1M', '3M', '6M', 'YTD', 'ALL'];
@@ -179,8 +188,8 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
             onClick={() => setTimeframe(tf)}
             className={`px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all rounded ${
               timeframe === tf
-                ? 'bg-black text-white border-2 border-black'
-                : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 border-2 border-transparent'
+                ? 'bg-neutral-900 text-white border-2 border-neutral-900 dark:bg-black dark:border-black'
+                : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200 border-2 border-transparent dark:bg-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-600'
             }`}
           >
             {tf}
@@ -192,7 +201,7 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
       {currentValues && (
         <div className="flex gap-8 mb-4">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Share Price:</span>
+            <span className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Share Price:</span>
             <span className="text-lg font-black" style={{ color: '#3b82f6' }}>
               ${currentValues.sharePrice.toFixed(3)}
             </span>
@@ -203,7 +212,7 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Holdings:</span>
+            <span className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Holdings:</span>
             <span className="text-lg font-black" style={{ color: '#10b981' }}>
               {currentValues.sharesHeld.toFixed(2)}M
             </span>
@@ -219,14 +228,14 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
       {/* Chart */}
       <div className="relative w-full" style={{ height: '400px' }}>
         {loading ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/80">
-            <div className="text-sm font-bold text-neutral-600">Loading chart data...</div>
+          <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-neutral-800/80">
+            <div className="text-sm font-bold text-neutral-600 dark:text-neutral-300">Loading chart data...</div>
           </div>
         ) : chartData ? (
           <Line data={chartData} options={chartOptions} />
         ) : (
           <div className="flex items-center justify-center h-full">
-            <div className="text-sm font-bold text-neutral-600">No data available</div>
+            <div className="text-sm font-bold text-neutral-600 dark:text-neutral-300">No data available</div>
           </div>
         )}
       </div>

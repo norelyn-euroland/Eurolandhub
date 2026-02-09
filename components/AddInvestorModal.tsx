@@ -524,26 +524,26 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ left: '256px' }}>
       {/* Blurred background - covers only content area, not sidebar */}
       <div 
-        className="fixed top-0 right-0 bottom-0 left-64 bg-black/40 backdrop-blur-sm z-40"
+        className="fixed top-0 right-0 bottom-0 left-64 bg-neutral-900/40 dark:bg-black/40 backdrop-blur-sm z-40"
       />
       
       {/* Modal container */}
-      <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col z-50">
+      <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col z-50">
         {/* Header */}
-        <div className="px-8 py-6 flex items-center justify-between">
-          <h2 className="text-2xl font-black text-neutral-900">Investor details</h2>
+        <div className="px-8 py-6 flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700">
+          <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100">Investor details</h2>
           <div className="flex items-center gap-4">
             <button
               onClick={onClose}
-              className="text-sm font-medium text-purple-600 hover:text-purple-700"
+              className="text-sm font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300"
             >
               Save as draft
             </button>
             <button
               onClick={handleExitClick}
-              className="p-2 hover:bg-neutral-100 rounded-full transition-colors"
+              className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded-full transition-colors"
             >
-              <svg className="w-5 h-5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -566,7 +566,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                           ? 'bg-purple-600 border-purple-600'
                           : status === 'completed'
                           ? 'bg-green-500 border-green-500'
-                          : 'bg-white border-neutral-300'
+                          : 'bg-white dark:bg-neutral-700 border-neutral-300 dark:border-neutral-600'
                       }`}
                     >
                       {status === 'completed' ? (
@@ -574,7 +574,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                         </svg>
                       ) : status === 'active' ? (
-                        <div className="w-2 h-2 rounded-full bg-white" />
+                        <div className="w-2 h-2 rounded-full bg-white dark:bg-neutral-100" />
                       ) : (
                         <svg className="w-5 h-5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -584,10 +584,10 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                     <span
                       className={`mt-2 text-[10px] font-bold uppercase tracking-wider ${
                         status === 'active'
-                          ? 'text-purple-600'
+                          ? 'text-purple-600 dark:text-purple-400'
                           : status === 'completed'
-                          ? 'text-neutral-600'
-                          : 'text-neutral-400'
+                          ? 'text-neutral-600 dark:text-neutral-400'
+                          : 'text-neutral-400 dark:text-neutral-500'
                       }`}
                     >
                       {step.label}
@@ -597,8 +597,8 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                     <div
                       className={`flex-1 h-0.5 mx-4 ${
                         status === 'completed' || getStepStatus(steps[index + 1].id) === 'active' || getStepStatus(steps[index + 1].id) === 'completed'
-                          ? 'bg-neutral-300'
-                          : 'bg-neutral-200'
+                          ? 'bg-neutral-300 dark:bg-neutral-600'
+                          : 'bg-neutral-200 dark:bg-neutral-700'
                       }`}
                     />
                   )}
@@ -613,11 +613,11 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
           {currentStep === 'UPLOAD' && (
             <div className="space-y-6">
               {/* Template Download Section */}
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h4 className="text-sm font-bold text-blue-900 mb-1">Using the Template</h4>
-                    <p className="text-xs text-blue-700">
+                    <h4 className="text-sm font-bold text-blue-900 dark:text-blue-300 mb-1">Using the Template</h4>
+                    <p className="text-xs text-blue-700 dark:text-blue-400">
                       Download the CSV template, fill in investor information, then upload the completed file.
                     </p>
                   </div>
@@ -633,13 +633,13 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                 </div>
               </div>
 
-              <div className="bg-white border border-neutral-200 rounded-lg p-6">
+              <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6">
                 <div className="mb-6">
-                  <h3 className="text-lg font-bold text-neutral-900">Shareholder Upload</h3>
+                  <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">Shareholder Upload</h3>
                 </div>
 
                 {/* File Upload Section */}
-                <div className="border-2 border-dashed border-neutral-300 rounded-lg p-8 text-center hover:border-purple-400 transition-colors">
+                <div className="border-2 border-dashed border-neutral-300 dark:border-neutral-600 rounded-lg p-8 text-center hover:border-purple-400 dark:hover:border-purple-500 transition-colors">
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -647,29 +647,29 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                     onChange={handleFileUpload}
                     className="hidden"
                   />
-                  <div className="space-y-4">
+                    <div className="space-y-4">
                     <div className="flex justify-center">
-                      <svg className="w-12 h-12 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-12 h-12 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                       </svg>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-neutral-700">
+                      <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
                         Drag and drop a file here, or{' '}
                         <button
                           onClick={() => fileInputRef.current?.click()}
-                          className="text-purple-600 hover:text-purple-700 font-bold"
+                          className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 font-bold"
                         >
                           browse
                         </button>
                       </p>
-                      <p className="text-xs text-neutral-500 mt-1">
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
                         Supported format: CSV only (Max 10MB per file)
                       </p>
                     </div>
                     {uploadedFile && (
-                      <div className="mt-4 p-3 bg-purple-50 rounded-lg">
-                        <p className="text-sm font-medium text-purple-700">
+                      <div className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                        <p className="text-sm font-medium text-purple-700 dark:text-purple-300">
                           {uploadedFile.name}
                         </p>
                       </div>
@@ -685,9 +685,9 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
               {isProcessing ? (
                 <div className="flex flex-col items-center justify-center py-12">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
-                  <p className="text-sm font-bold text-neutral-900">Processing CSV file...</p>
-                  <p className="text-xs text-neutral-500 mt-2">Extracting investor data from CSV</p>
-                  <div className="mt-4 w-64 bg-neutral-200 rounded-full h-1.5">
+                  <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Processing CSV file...</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">Extracting investor data from CSV</p>
+                  <div className="mt-4 w-64 bg-neutral-200 dark:bg-neutral-700 rounded-full h-1.5">
                     <div className="bg-purple-600 h-1.5 rounded-full animate-pulse" style={{ width: '60%' }}></div>
                   </div>
                 </div>
@@ -698,8 +698,8 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
-                  <p className="text-sm font-bold text-green-600">CSV processed successfully!</p>
-                  <p className="text-xs text-neutral-500 mt-2">
+                  <p className="text-sm font-bold text-green-600 dark:text-green-400">CSV processed successfully!</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
                     Found {extractedInvestors.length} investor{extractedInvestors.length !== 1 ? 's' : ''} in the file
                   </p>
                 </div>
@@ -710,8 +710,8 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </div>
-                  <p className="text-sm font-medium text-red-600">Parsing Failed</p>
-                  <div className="text-xs text-neutral-400 mt-2 max-w-md text-center">
+                  <p className="text-sm font-medium text-red-600 dark:text-red-400">Parsing Failed</p>
+                  <div className="text-xs text-neutral-400 dark:text-neutral-500 mt-2 max-w-md text-center">
                     {parseError.split('\n').map((line, idx) => (
                       <p key={idx} className={idx > 0 ? 'mt-1' : ''}>{line}</p>
                     ))}
@@ -734,8 +734,8 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                   </div>
-                  <p className="text-sm font-medium text-neutral-600">CSV Processing</p>
-                  <p className="text-xs text-neutral-400 mt-2">This step processes uploaded CSV files and extracts investor information</p>
+                  <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400">CSV Processing</p>
+                  <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-2">This step processes uploaded CSV files and extracts investor information</p>
                 </div>
               )}
             </div>
@@ -745,27 +745,27 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
             <div className="space-y-6">
               {/* Autofill Status Banner */}
               {isAutofilling && (
-                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 flex items-center gap-3">
+                <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4 flex items-center gap-3">
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-600"></div>
                   <div>
-                    <p className="text-sm font-bold text-purple-900">Extracting investors from document...</p>
-                    <p className="text-xs text-purple-700 mt-1">Analyzing document and mapping fields</p>
+                    <p className="text-sm font-bold text-purple-900 dark:text-purple-300">Extracting investors from document...</p>
+                    <p className="text-xs text-purple-700 dark:text-purple-400 mt-1">Analyzing document and mapping fields</p>
                   </div>
                 </div>
               )}
               
               {/* Extraction Error */}
               {extractionError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <p className="text-sm font-medium text-red-900">{extractionError}</p>
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                  <p className="text-sm font-medium text-red-900 dark:text-red-300">{extractionError}</p>
                 </div>
               )}
               
               {/* Multiple Investors List */}
               {extractedInvestors.length > 1 && !isAutofilling && (
-                <div className="bg-white border border-neutral-200 rounded-lg p-6">
+                <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-bold text-neutral-900">
+                    <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">
                       Found {extractedInvestors.length} Investors
                     </h3>
                     <button
@@ -783,20 +783,20 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                         onClick={() => handleSelectInvestor(index)}
                         className={`w-full text-left p-3 rounded-lg border transition-all ${
                           currentInvestorIndex === index
-                            ? 'bg-purple-50 border-purple-300'
-                            : 'bg-neutral-50 border-neutral-200 hover:bg-neutral-100'
+                            ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-300 dark:border-purple-700'
+                            : 'bg-neutral-50 dark:bg-neutral-700/50 border-neutral-200 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700'
                         }`}
                       >
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-sm font-bold text-neutral-900">
+                            <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
                               {investor.investorName || `Investor ${index + 1}`}
                             </p>
                             {investor.holdingId && (
-                              <p className="text-xs text-neutral-600 mt-1">ID: {investor.holdingId}</p>
+                              <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">ID: {investor.holdingId}</p>
                             )}
                           </div>
-                          <span className="text-xs font-medium text-purple-600">
+                          <span className="text-xs font-medium text-purple-600 dark:text-purple-400">
                             {index + 1} of {extractedInvestors.length}
                           </span>
                         </div>
@@ -820,10 +820,10 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                       </svg>
                     </button>
                     {/* Tooltip */}
-                    <div className="absolute right-0 top-full mt-2 px-3 py-2 bg-neutral-800 text-white text-xs font-medium rounded-lg shadow-xl whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
+                    <div className="absolute right-0 top-full mt-2 px-3 py-2 bg-neutral-900 dark:bg-neutral-700 text-white text-xs font-medium rounded-lg shadow-xl whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
                       Add investor
                       <div className="absolute bottom-full right-4">
-                        <div className="border-4 border-transparent border-b-neutral-800"></div>
+                        <div className="border-4 border-transparent border-b-neutral-900 dark:border-b-neutral-700"></div>
                       </div>
                     </div>
                   </div>
@@ -834,15 +834,15 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                   const displayName = form.investorName || `Investor ${index + 1}`;
                   
                   return (
-                    <div key={form.id} className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
+                    <div key={form.id} className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden">
                       {/* Collapsible Header */}
                       <div 
-                        className="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-neutral-50 transition-colors"
+                        className="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors"
                         onClick={() => handleToggleForm(form.id)}
                       >
                         <div className="flex items-center gap-3 flex-1">
                           <svg 
-                            className={`w-5 h-5 text-neutral-400 transition-transform ${isExpanded ? 'transform rotate-180' : ''}`}
+                            className={`w-5 h-5 text-neutral-400 dark:text-neutral-500 transition-transform ${isExpanded ? 'transform rotate-180' : ''}`}
                             fill="none" 
                             stroke="currentColor" 
                             viewBox="0 0 24 24"
@@ -850,9 +850,9 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                           </svg>
                           <div className="flex-1">
-                            <h3 className="text-sm font-bold text-neutral-900">{displayName}</h3>
+                            <h3 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{displayName}</h3>
                             {form.holdingId && (
-                              <p className="text-xs text-neutral-500 mt-0.5">ID: {form.holdingId}</p>
+                              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">ID: {form.holdingId}</p>
                             )}
                           </div>
                         </div>
@@ -879,11 +879,11 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
                       {/* Form Content */}
                       {isExpanded && (
-                        <div className="px-6 py-6 border-t border-neutral-100">
+                        <div className="px-6 py-6 border-t border-neutral-100 dark:border-neutral-700">
                           <div className="grid grid-cols-2 gap-6">
                             {/* Investor Name */}
                             <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-2">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
                                 INVESTOR NAME <span className="text-red-500">*</span>
                               </label>
                               <input
@@ -891,10 +891,10 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 value={form.investorName}
                                 onChange={(e) => handleFieldChange(form.id, 'investorName', e.target.value)}
                                 disabled={isAutofilling && !form.investorName && index === 0}
-                                className={`w-full px-4 py-3 bg-neutral-50 border rounded-lg text-sm font-medium text-neutral-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all ${
+                                className={`w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all ${
                                   isAutofilling && form.investorName && index === 0
-                                    ? 'border-purple-300 bg-purple-50 animate-pulse' 
-                                    : 'border-neutral-200'
+                                    ? 'border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20 animate-pulse' 
+                                    : 'border-neutral-200 dark:border-neutral-600'
                                 }`}
                                 placeholder="Enter investor name"
                               />
@@ -909,7 +909,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
                             {/* Registration ID */}
                             <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-2">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
                                 REGISTRATION ID <span className="text-red-500">*</span>
                               </label>
                               <input
@@ -920,10 +920,10 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 value={form.holdingId}
                                 onChange={(e) => handleHoldingIdChange(form.id, e.target.value)}
                                 disabled={isAutofilling && !form.holdingId && index === 0}
-                                className={`w-full px-4 py-3 bg-neutral-50 border rounded-lg text-sm font-medium text-neutral-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all ${
+                                className={`w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all ${
                                   isAutofilling && form.holdingId && index === 0
-                                    ? 'border-purple-300 bg-purple-50 animate-pulse' 
-                                    : 'border-neutral-200'
+                                    ? 'border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20 animate-pulse' 
+                                    : 'border-neutral-200 dark:border-neutral-600'
                                 }`}
                                 placeholder="Enter 9-digit registration ID"
                               />
@@ -974,7 +974,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
                             {/* Phone */}
                             <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-2">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
                                 PHONE
                               </label>
                               <input
@@ -982,10 +982,10 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 value={form.phone}
                                 onChange={(e) => handleFieldChange(form.id, 'phone', e.target.value)}
                                 disabled={isAutofilling && !form.phone && index === 0}
-                                className={`w-full px-4 py-3 bg-neutral-50 border rounded-lg text-sm font-medium text-neutral-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all ${
+                                className={`w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all ${
                                   isAutofilling && form.phone && index === 0
-                                    ? 'border-purple-300 bg-purple-50 animate-pulse' 
-                                    : 'border-neutral-200'
+                                    ? 'border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20 animate-pulse' 
+                                    : 'border-neutral-200 dark:border-neutral-600'
                                 }`}
                                 placeholder="Enter phone number"
                               />
@@ -1000,7 +1000,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
                             {/* Ownership %} */}
                             <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-2">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
                                 OWNERSHIP %
                               </label>
                               <input
@@ -1008,10 +1008,10 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 value={form.ownershipPercent}
                                 onChange={(e) => handleFieldChange(form.id, 'ownershipPercent', e.target.value)}
                                 disabled={isAutofilling && !form.ownershipPercent && index === 0}
-                                className={`w-full px-4 py-3 bg-neutral-50 border rounded-lg text-sm font-medium text-neutral-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all ${
+                                className={`w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all ${
                                   isAutofilling && form.ownershipPercent && index === 0
-                                    ? 'border-purple-300 bg-purple-50 animate-pulse' 
-                                    : 'border-neutral-200'
+                                    ? 'border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20 animate-pulse' 
+                                    : 'border-neutral-200 dark:border-neutral-600'
                                 }`}
                                 placeholder="Enter ownership percentage"
                               />
@@ -1026,41 +1026,41 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
                             {/* Country */}
                             <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-2">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
                                 COUNTRY
                               </label>
                               <input
                                 type="text"
                                 value={form.country}
                                 onChange={(e) => handleFieldChange(form.id, 'country', e.target.value)}
-                                className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-lg text-sm font-medium text-neutral-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                                className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
                                 placeholder="Enter country"
                               />
                             </div>
 
                             {/* CO Address */}
                             <div className="col-span-2 relative">
-                              <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-2">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
                                 CO ADDRESS
                               </label>
                               <input
                                 type="text"
                                 value={form.coAddress}
                                 onChange={(e) => handleFieldChange(form.id, 'coAddress', e.target.value)}
-                                className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-lg text-sm font-medium text-neutral-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                                className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
                                 placeholder="Enter company address"
                               />
                             </div>
 
                             {/* Account Type */}
                             <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-2">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
                                 TYPE OF ACCOUNT
                               </label>
                               <select
                                 value={form.accountType}
                                 onChange={(e) => handleFieldChange(form.id, 'accountType', e.target.value)}
-                                className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-lg text-sm font-medium text-neutral-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                                className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
                               >
                                 <option value="">Select account type</option>
                                 <option value="INDIVIDUAL">Individual</option>
@@ -1082,7 +1082,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
                             {/* Holdings */}
                             <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-2">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
                                 HOLDINGS
                               </label>
                               <input
@@ -1090,14 +1090,14 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 inputMode="numeric"
                                 value={form.holdings}
                                 onChange={(e) => handleFieldChange(form.id, 'holdings', e.target.value)}
-                                className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-lg text-sm font-medium text-neutral-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                                className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
                                 placeholder="Enter holdings"
                               />
                             </div>
 
                             {/* Stake */}
                             <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-2">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
                                 STAKE %
                               </label>
                               <input
@@ -1105,7 +1105,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 inputMode="numeric"
                                 value={form.stake}
                                 onChange={(e) => handleFieldChange(form.id, 'stake', e.target.value)}
-                                className="w-full px-4 py-3 bg-neutral-50 border border-neutral-200 rounded-lg text-sm font-medium text-neutral-900 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                                className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
                                 placeholder="Enter stake percentage"
                               />
                             </div>
@@ -1128,12 +1128,12 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
-                  <h3 className="text-xl font-bold text-neutral-900 mb-2">
+                  <h3 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
                     {saveSuccessCount > 1 
                       ? `${saveSuccessCount} Investors Saved Successfully`
                       : 'Investor Saved Successfully'}
                   </h3>
-                  <p className="text-sm text-neutral-600 text-center max-w-md mb-4">
+                  <p className="text-sm text-neutral-600 dark:text-neutral-400 text-center max-w-md mb-4">
                     {saveSuccessCount > 1
                       ? `${saveSuccessCount} investors have been saved to the system.`
                       : 'The investor information has been saved to the system.'}
@@ -1144,15 +1144,15 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
               
               {saveErrors.length > 0 && (
                 <div className="w-full max-w-md mt-4">
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                    <h4 className="text-sm font-bold text-red-900 mb-2">
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                    <h4 className="text-sm font-bold text-red-900 dark:text-red-300 mb-2">
                       {saveErrors.length} Error{saveErrors.length > 1 ? 's' : ''} Occurred
                     </h4>
                     <div className="space-y-2">
                       {saveErrors.map((error, index) => (
-                        <div key={index} className="text-xs text-red-700">
+                        <div key={index} className="text-xs text-red-700 dark:text-red-400">
                           <span className="font-medium">{error.investorName}</span>
-                          {error.holdingId && <span className="text-red-600"> ({error.holdingId})</span>}
+                          {error.holdingId && <span className="text-red-600 dark:text-red-500"> ({error.holdingId})</span>}
                           : {error.error}
                         </div>
                       ))}
@@ -1163,7 +1163,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
               
               {saveSuccessCount === 0 && saveErrors.length === 0 && (
                 <div className="text-center">
-                  <p className="text-sm text-neutral-600">No investors were saved.</p>
+                  <p className="text-sm text-neutral-600 dark:text-neutral-400">No investors were saved.</p>
                 </div>
               )}
             </div>
@@ -1179,8 +1179,8 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                 disabled={isProcessingStep || currentStep === 'UPLOAD'}
                 className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 ${
                   isProcessingStep || currentStep === 'UPLOAD'
-                    ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed'
-                    : 'bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50'
+                    ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-400 dark:text-neutral-500 cursor-not-allowed'
+                    : 'bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700'
                 }`}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1194,8 +1194,8 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                   disabled={isProcessingStep || isSaving}
                   className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 ${
                     isProcessingStep || isSaving
-                      ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed'
-                      : 'bg-white border border-neutral-300 text-neutral-700 hover:bg-neutral-50'
+                      ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-400 dark:text-neutral-500 cursor-not-allowed'
+                      : 'bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700'
                   }`}
                 >
                   {isSaving ? (
@@ -1248,7 +1248,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
         )}
 
         {currentStep === 'CONFIRMATION' && (
-          <div className="px-8 py-6 border-t border-neutral-200 flex items-center justify-end">
+          <div className="px-8 py-6 border-t border-neutral-200 dark:border-neutral-700 flex items-center justify-end">
             <button
               onClick={() => {
                 onClose();
@@ -1267,23 +1267,23 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       {/* Exit Confirmation Dialog */}
       {showExitConfirm && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/20" onClick={handleCancelExit} />
-          <div className="relative bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 z-50">
-            <div className="px-6 py-4">
-              <h3 className="text-lg font-bold text-neutral-900">Confirm Exit</h3>
+          <div className="absolute inset-0 bg-neutral-900/20 dark:bg-black/20" onClick={handleCancelExit} />
+          <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl max-w-md w-full mx-4 z-50">
+            <div className="px-6 py-4 border-b border-neutral-200 dark:border-neutral-700">
+              <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">Confirm Exit</h3>
             </div>
             <div className="px-6 py-4">
-              <p className="text-sm text-neutral-600 mb-1">
+              <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-1">
                 Are you sure you want to exit?
               </p>
-              <p className="text-sm text-neutral-500">
+              <p className="text-sm text-neutral-500 dark:text-neutral-500">
                 Exiting will cancel the entire process and all progress will be lost.
               </p>
             </div>
-            <div className="px-6 py-4 flex items-center justify-end gap-3">
+            <div className="px-6 py-4 flex items-center justify-end gap-3 border-t border-neutral-200 dark:border-neutral-700">
               <button
                 onClick={handleCancelExit}
-                className="px-4 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-900 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
               >
                 Cancel
               </button>

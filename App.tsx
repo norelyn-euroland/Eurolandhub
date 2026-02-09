@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState, startTransition } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useState, startTransition, useCallback } from 'react';
 // @google/genai guidelines: Import ViewType from shared types
-import { RegistrationStatus, Applicant, ViewType, RegistrationsTabType, BreadcrumbItem } from './lib/types';
+import { RegistrationStatus, Applicant, ViewType, RegistrationsTabType, BreadcrumbItem, Theme } from './lib/types';
 import { ensureWorkflow, recordManualReview, recordRequestInfo } from './lib/shareholdingsVerification';
 import { MOCK_SHAREHOLDERS } from './lib/mockShareholders';
 import { useApplicants } from './hooks/useApplicants';
@@ -16,7 +16,12 @@ import LoginPage from './components/LoginPage';
 
 const FADE_DURATION_MS = 300;
 
-const AuthedApp: React.FC = () => {
+interface AuthedAppProps {
+  theme: Theme;
+  toggleTheme: () => void;
+}
+
+const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
   // Restore view from localStorage on mount
   // Note: We don't restore 'detail' view as it requires applicant data
   const getInitialView = (): ViewType => {
@@ -340,10 +345,12 @@ const AuthedApp: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen bg-neutral-50 text-neutral-900 overflow-hidden">
+    <div className="flex min-h-screen bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 overflow-hidden">
       <Sidebar 
         currentView={view} 
-        onViewChange={(v) => setView(v)} 
+        onViewChange={(v) => setView(v)}
+        theme={theme}
+        toggleTheme={toggleTheme}
       />
       
       <div className="flex-1 flex flex-col min-w-0 ml-64">
@@ -354,7 +361,7 @@ const AuthedApp: React.FC = () => {
           breadcrumbItems={breadcrumbItems}
         />
         
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 overflow-y-auto p-8 bg-white dark:bg-neutral-900">
           {view === 'dashboard' && (
             <OverviewDashboard applicants={applicants} />
           )}
@@ -388,6 +395,35 @@ const AuthedApp: React.FC = () => {
 const App: React.FC = () => {
   // Check authentication first
   const { loading: authLoading, isAuthenticated } = useAuth();
+
+  // Theme state management - initialize with default or stored value
+  const getInitialTheme = (): Theme => {
+    if (typeof window === "undefined") return Theme.DARK;
+    const stored = window.localStorage.getItem("eurolandhub_theme");
+    if (stored === Theme.LIGHT || stored === Theme.DARK) {
+      return stored;
+    }
+    return Theme.DARK; // Default to dark mode
+  };
+
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+
+  // Apply theme to document root and save to localStorage (single source of truth)
+  // Use layout effect so Tailwind `dark:` variants flip reliably on click without timing issues.
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const root = window.document.documentElement;
+    const isDark = theme === Theme.DARK;
+    root.classList.toggle("dark", isDark);
+    window.localStorage.setItem("eurolandhub_theme", theme);
+  }, [theme]);
+
+  // Toggle theme function
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => {
+      return prev === Theme.LIGHT ? Theme.DARK : Theme.LIGHT;
+    });
+  }, []);
 
   // Crossfade login -> app so the dashboard doesn't appear "suddenly"
   const [loginMounted, setLoginMounted] = useState(false);
@@ -423,8 +459,8 @@ const App: React.FC = () => {
   // This prevents any flash of login page
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="text-sm font-bold text-neutral-600">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-white dark:bg-neutral-900">
+        <div className="text-sm font-bold text-neutral-600 dark:text-neutral-400">Loading...</div>
       </div>
     );
   }
@@ -436,7 +472,7 @@ const App: React.FC = () => {
           className={`transition-opacity duration-300 ease-out ${appVisible ? 'opacity-100' : 'opacity-0'}`}
           style={{ transitionDuration: `${FADE_DURATION_MS}ms` }}
         >
-          <AuthedApp />
+          <AuthedApp theme={theme} toggleTheme={toggleTheme} />
         </div>
       )}
 

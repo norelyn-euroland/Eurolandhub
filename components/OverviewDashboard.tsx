@@ -45,21 +45,21 @@ const CopyableField: React.FC<{ label: string; value: string; copyable: boolean 
 
   return (
     <div className="relative">
-      <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">{label}</p>
+      <p className="text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-2">{label}</p>
       {copyable && value && value !== 'Not provided' ? (
         <button
           onClick={handleCopy}
-          className="text-sm font-black text-neutral-900 hover:text-primary transition-colors cursor-pointer relative group"
+          className="text-sm font-black text-neutral-900 dark:text-neutral-100 hover:text-primary transition-colors cursor-pointer relative group"
         >
           {value}
           {showCopied && (
-            <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap z-10">
+            <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-neutral-800 dark:bg-black text-white text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap z-10">
               Copied!
             </span>
           )}
         </button>
       ) : (
-        <p className="text-sm font-black text-neutral-900">{value}</p>
+        <p className="text-sm font-black text-neutral-900 dark:text-neutral-100">{value}</p>
       )}
     </div>
   );
@@ -237,7 +237,7 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
     },
     tooltip: {
       enabled: true,
-      theme: 'light',
+      theme: 'dark',
       fillSeriesColor: false,
       style: {
         fontSize: '12px',
@@ -246,7 +246,7 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
       custom: function({ series, seriesIndex, dataPointIndex, w }: any) {
         const dataPoint = chartData[seriesIndex];
         return `
-          <div style="padding: 8px 12px; background: #ffffff; border: 1px solid #e5e5e5; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); color: #000000; font-size: 12px; font-family: Inter, sans-serif; white-space: nowrap;">
+          <div style="padding: 8px 12px; background: #262626; border: 1px solid #404040; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); color: #e5e5e5; font-size: 12px; font-family: Inter, sans-serif; white-space: nowrap;">
             ${dataPoint.name} : ${dataPoint.value.toLocaleString()} (${dataPoint.percentage}%)
           </div>
         `;
@@ -305,7 +305,7 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
               className="w-4 h-4 rounded-full shrink-0"
               style={{ backgroundColor: item.color }}
             />
-            <span className="text-xs font-black uppercase tracking-tight whitespace-nowrap text-neutral-900">
+            <span className="text-xs font-black uppercase tracking-tight whitespace-nowrap text-neutral-900 dark:text-neutral-100">
               {item.name}
             </span>
           </div>
@@ -365,8 +365,8 @@ const InteractiveChart: React.FC = () => {
         {CHART_DATA.map((d, i) => <circle key={`p-${i}`} cx={getX(i)} cy={getYPrice(d.price)} r={hoverIndex === i ? 5 : 0} fill="#4F46E5" />)}
       </svg>
       {hoverIndex !== null && (
-        <div className="absolute z-50 bg-white border border-neutral-200 shadow-xl p-4 pointer-events-none -translate-x-1/2 -translate-y-[110%] rounded-lg" style={{ left: `${(getX(hoverIndex) / width) * 100}%`, top: `${(getYPrice(CHART_DATA[hoverIndex].price) / height) * 100}%` }}>
-          <div className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-2 border-b border-neutral-100 pb-1">{CHART_DATA[hoverIndex].month}</div>
+        <div className="absolute z-50 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 shadow-xl p-4 pointer-events-none -translate-x-1/2 -translate-y-[110%] rounded-lg" style={{ left: `${(getX(hoverIndex) / width) * 100}%`, top: `${(getYPrice(CHART_DATA[hoverIndex].price) / height) * 100}%` }}>
+          <div className="text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-2 border-b border-neutral-200 dark:border-neutral-700 pb-1">{CHART_DATA[hoverIndex].month}</div>
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-8">
               <span className="text-[10px] font-bold text-neutral-500 uppercase">Share Value</span>
@@ -374,7 +374,7 @@ const InteractiveChart: React.FC = () => {
             </div>
             <div className="flex items-center justify-between gap-8">
               <span className="text-[10px] font-bold text-neutral-500 uppercase">Registry Sum</span>
-              <span className="text-xs font-black text-neutral-900">{(CHART_DATA[hoverIndex].shares / 1000000).toFixed(2)}M</span>
+              <span className="text-xs font-black text-neutral-900 dark:text-neutral-100">{(CHART_DATA[hoverIndex].shares / 1000000).toFixed(2)}M</span>
             </div>
           </div>
         </div>
@@ -524,27 +524,27 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
   if (selectedInvestor) {
     return (
       <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <button onClick={() => setSelectedInvestor(null)} className="flex items-center gap-2 text-[10px] font-black text-neutral-400 hover:text-primary transition-colors uppercase tracking-widest group">
+        <button onClick={() => setSelectedInvestor(null)} className="flex items-center gap-2 text-[10px] font-black text-neutral-500 dark:text-neutral-400 hover:text-primary transition-colors uppercase tracking-widest group">
           <svg className="w-3 h-3 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7"/></svg>
           Master Dashboard
         </button>
-        <div className="bg-white border border-neutral-200 p-10 shadow-sm rounded-xl flex items-center gap-8">
+        <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 p-10 shadow-sm rounded-xl flex items-center gap-8">
           <Avatar name={selectedInvestor.fullName} size={80} />
           <div>
-            <h2 className="text-3xl font-black text-neutral-900 uppercase tracking-tighter">{selectedInvestor.fullName}</h2>
-            <p className="text-neutral-400 text-xs font-bold uppercase tracking-widest mt-1">Verified Investor</p>
+            <h2 className="text-3xl font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-tighter">{selectedInvestor.fullName}</h2>
+            <p className="text-neutral-500 dark:text-neutral-400 text-xs font-bold uppercase tracking-widest mt-1">Verified Investor</p>
           </div>
         </div>
         
-        <div className="bg-white border border-neutral-200 shadow-sm rounded-xl overflow-hidden">
-          <div className="flex border-b border-neutral-100 bg-neutral-50/30">
-            <button onClick={() => setActiveDetailTab('profile')} className={`px-10 py-5 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeDetailTab === 'profile' ? 'text-primary' : 'text-neutral-400 hover:text-primary'}`}>
+        <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 shadow-sm rounded-xl overflow-hidden">
+          <div className="flex border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50/30 dark:bg-neutral-900/30">
+            <button onClick={() => setActiveDetailTab('profile')} className={`px-10 py-5 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeDetailTab === 'profile' ? 'text-blue-400' : 'text-neutral-400 hover:text-blue-400'}`}>
               Profile summary
-              {activeDetailTab === 'profile' && <div className="absolute bottom-0 left-0 w-full h-1 bg-primary"></div>}
+              {activeDetailTab === 'profile' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-400"></div>}
             </button>
-            <button onClick={() => setActiveDetailTab('holdings')} className={`px-10 py-5 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeDetailTab === 'holdings' ? 'text-primary' : 'text-neutral-400 hover:text-primary'}`}>
+            <button onClick={() => setActiveDetailTab('holdings')} className={`px-10 py-5 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeDetailTab === 'holdings' ? 'text-blue-400' : 'text-neutral-400 hover:text-blue-400'}`}>
               Holdings summary
-              {activeDetailTab === 'holdings' && <div className="absolute bottom-0 left-0 w-full h-1 bg-primary"></div>}
+              {activeDetailTab === 'holdings' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-400"></div>}
             </button>
           </div>
           <div className="p-10">
@@ -571,8 +571,8 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
   return (
     <div className="space-y-10 max-w-7xl mx-auto pb-12">
       {/* EXACT CODE FOR ANIMATED GREETINGS CARD */}
-      <div className={`bg-black p-12 rounded-xl text-white relative overflow-hidden group transition-all duration-700 cursor-default premium-ease
-        ${isPulsing ? 'shadow-black/60' : 'shadow-2xl hover:shadow-black/60'}
+      <div className={`bg-neutral-100 dark:bg-black p-12 rounded-xl text-neutral-900 dark:text-white relative overflow-hidden group transition-all duration-700 cursor-default premium-ease
+        ${isPulsing ? 'shadow-neutral-900/20 dark:shadow-black/60' : 'shadow-2xl hover:shadow-neutral-900/20 dark:hover:shadow-black/60'}
       `}
       onMouseEnter={() => setIsPulsing(true)}
       onMouseLeave={() => setIsPulsing(false)}
@@ -584,26 +584,26 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
             : 'left-0 top-1/2 -translate-y-1/2 rotate-0 scale-100 opacity-5 group-hover:left-[calc(100%-11.5rem)] group-hover:top-12 group-hover:translate-y-0 group-hover:rotate-12 group-hover:scale-[1.7] group-hover:opacity-20'
           }
         `}>
-          <svg className="w-96 h-96 text-white animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <svg className="w-96 h-96 text-neutral-900 dark:text-white animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
           </svg>
         </div>
 
         {/* Light Sweep Animation Layer */}
         <div className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${isPulsing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-sweep"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-neutral-900/5 dark:via-white/5 to-transparent animate-sweep"></div>
         </div>
 
         {/* Header and Static Icon Layer */}
         <div className="relative z-10 flex items-center justify-between">
           <div className="flex flex-col gap-1 pl-4">
-            <h1 className="text-4xl font-black tracking-tighter uppercase mb-1 transition-transform duration-500 premium-ease group-hover:translate-x-2">Welcome back, IR Team</h1>
-            <p className="text-neutral-400 font-medium text-sm transition-transform duration-500 premium-ease group-hover:translate-x-2 delay-75">Your investor dashboard is primed and ready.</p>
+            <h1 className="text-4xl font-black tracking-tighter uppercase mb-1 transition-transform duration-500 premium-ease group-hover:translate-x-2 text-neutral-900 dark:text-white">Welcome back, IR Team</h1>
+            <p className="text-neutral-600 dark:text-neutral-400 font-medium text-sm transition-transform duration-500 premium-ease group-hover:translate-x-2 delay-75">Your investor dashboard is primed and ready.</p>
           </div>
           
           {/* Static Anchor Calendar Icon - Prominent size matching shield icon scale */}
           <div className={`pr-4 opacity-10 transition-all duration-700 premium-ease ${isPulsing ? 'scale-110 opacity-40' : 'group-hover:opacity-40 group-hover:scale-110'}`}>
-            <svg className="w-24 h-28 text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <svg className="w-24 h-28 text-neutral-900 dark:text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <path d="M8 2v4"/>
               <path d="M16 2v4"/>
               <path d="M21 14V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8"/>
@@ -641,10 +641,15 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
             chartColor: '#EF4444'
           }
         ].map((stat, i) => {
-          // Generate chart data based on trend
+          // Deterministic seeded random — stable across re-renders, changes weekly.
+          const seededRandom = (seed: number): number => {
+            const x = Math.sin(seed * 9301 + 49297) * 233280;
+            return x - Math.floor(x);
+          };
           const baseValue = typeof stat.value === 'string' 
             ? parseFloat(stat.value.replace(/[^0-9.]/g, '')) || 100 
             : stat.value;
+          const weekSeed = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
           const chartData = Array.from({ length: 7 }, (_, idx) => {
             const progress = idx / 6;
             const trendMultiplier = stat.trend.direction === 'up' 
@@ -652,7 +657,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
               : stat.trend.direction === 'down'
               ? 1 - (stat.trend.percent / 100) * progress
               : 1;
-            return baseValue * trendMultiplier * (1 + (Math.random() - 0.5) * 0.1);
+            return baseValue * trendMultiplier * (1 + (seededRandom(weekSeed + i * 7 + idx) - 0.5) * 0.1);
           });
 
           return (
@@ -669,10 +674,10 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
       </div>
 
       {/* Shareholder Snapshot */}
-      <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-sm p-10">
+      <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl overflow-hidden shadow-sm p-10">
         <div className="flex items-center justify-between mb-8">
-          <h3 className="text-2xl font-black text-neutral-900 uppercase tracking-tighter">Shareholder Snapshot</h3>
-          <div className="flex items-center gap-2 text-neutral-600">
+          <h3 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-tighter">Shareholder Snapshot</h3>
+          <div className="flex items-center gap-2 text-neutral-500 dark:text-neutral-400">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
             </svg>
@@ -684,17 +689,17 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
       </div>
 
       {/* Ranking/Leaderboard - Top 5 */}
-      <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-sm">
-        <div className="px-10 py-8 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/30">
+      <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl overflow-hidden shadow-sm">
+        <div className="px-10 py-8 border-b border-neutral-200 dark:border-neutral-700 flex items-center justify-between bg-neutral-50/30 dark:bg-neutral-900/30">
           <div>
-            <h3 className="text-2xl font-black text-neutral-900 uppercase tracking-tighter">Top 5 Leaderboard</h3>
-            <p className="text-xs text-neutral-500 mt-1">Top 5 most active investors based on frontend interactions (pre-verified accounts excluded)</p>
+            <h3 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-tighter">Top 5 Leaderboard</h3>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Top 5 most active investors based on frontend interactions (pre-verified accounts excluded)</p>
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-neutral-900 text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em]">
+              <tr className="bg-neutral-50 dark:bg-neutral-900 text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.2em]">
                 <th className="px-10 py-5 w-16 text-center">Rank</th>
                 <th className="px-10 py-5">Investor</th>
                 <th className="px-10 py-5">Account Status</th>
@@ -702,43 +707,49 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                 <th className="px-10 py-5 text-right">Last Activity</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-100">
-              {rankedInvestors.map((investor) => {
+            <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
+              {rankedInvestors.map((investor, index) => {
                 const isTopThree = investor.rank <= 3;
+                const isEven = index % 2 === 1;
                 const rankColors = {
                   1: { 
-                    bg: 'bg-gradient-to-r from-yellow-50 to-amber-50', 
-                    border: 'border-yellow-300', 
-                    badge: 'bg-gradient-to-br from-yellow-400 to-amber-500', 
-                    text: 'text-yellow-900', 
+                    bg: 'bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-900/30 dark:to-amber-900/30', 
+                    border: 'border-yellow-400 dark:border-yellow-600', 
+                    badge: 'bg-gradient-to-br from-yellow-500 to-amber-500', 
+                    text: 'text-yellow-900 dark:text-yellow-300', 
                     icon: 'https://img.icons8.com/windows/32/medal2.png',
                     iconColor: 'brightness(0) saturate(100%) invert(70%) sepia(100%) saturate(2000%) hue-rotate(0deg) brightness(110%) contrast(120%)'
                   },
                   2: { 
-                    bg: 'bg-gradient-to-r from-gray-50 to-slate-50', 
-                    border: 'border-gray-300', 
+                    bg: 'bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-800/30 dark:to-slate-800/30', 
+                    border: 'border-gray-400 dark:border-gray-600', 
                     badge: 'bg-gradient-to-br from-gray-400 to-slate-500', 
-                    text: 'text-gray-900', 
+                    text: 'text-gray-900 dark:text-gray-200', 
                     icon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAACXBIWXMAAAsTAAALEwEAmpwYAAABRUlEQVR4nN2TQUoDQRBFH5idujWH8AyJOYUGAhG9gBDwAho3XkUSvIRbxZ3MbNStCpq4EMVECv5A0fTE6ZmVfiiY+V1d9et3N/w3DIElkAOtEm4NuBNna5RwUVTZPIyI2I9wv06RqXjIZYGAVoSjyRTLJurDKfJIoVrep0yRN1UfTpEBp8AN8KGw7xMVTlbvp7h3tpTFQx31hj3gW0UugA6wrugCE61Zzm5q8TbwpgJHK/JGynkFtlIajJ3yAn3gEXgOmk6Va2dSGbfa1HHcE3AADIC543eUawdfGTNt2oisnQNX7n9TuWZpZcxLGhwCL8B2pIGJSraoG5zBe2CboVfHojNtmjju0939L8dfirPHmHRNC5tGK/KOnT1J17SwZKECU1lRPLSeU77Qo6yFvpskFrMmxb1dY+BazSzs2zxPtuXv4Qc+TI21/xkT+wAAAABJRU5ErkJggg==',
                     iconColor: 'brightness(0) saturate(100%) invert(60%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(90%) contrast(100%)'
                   },
                   3: { 
-                    bg: 'bg-gradient-to-r from-orange-50 to-amber-50', 
-                    border: 'border-orange-300', 
-                    badge: 'bg-gradient-to-br from-orange-400 to-amber-500', 
-                    text: 'text-orange-900', 
+                    bg: 'bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/30 dark:to-amber-900/30', 
+                    border: 'border-orange-400 dark:border-orange-600', 
+                    badge: 'bg-gradient-to-br from-orange-500 to-amber-500', 
+                    text: 'text-orange-900 dark:text-orange-300', 
                     icon: 'https://img.icons8.com/ios-glyphs/30/medal2-third-place--v1.png',
                     iconColor: 'brightness(0) saturate(100%) invert(67%) sepia(93%) saturate(1352%) hue-rotate(348deg) brightness(101%) contrast(101%)'
                   },
                 };
                 const rankStyle = isTopThree ? rankColors[investor.rank as 1 | 2 | 3] : null;
+                const rowBg = isTopThree 
+                  ? rankStyle?.bg 
+                  : isEven 
+                    ? 'bg-yellow-50 dark:bg-neutral-800/50' 
+                    : 'bg-neutral-50 dark:bg-neutral-800/30';
                 
                 return (
                 <tr 
                   key={investor.id} 
                   onClick={() => setSelectedInvestor(investor)} 
-                  className={`hover:bg-neutral-50 transition-all cursor-pointer group relative ${
-                    isTopThree ? `${rankStyle?.bg} ${rankStyle?.border} border-l-4` : ''
+                  className={`hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-all cursor-pointer group relative ${rowBg} ${
+                    isTopThree ? `${rankStyle?.border} border-l-4` : ''
                   }`}
                 >
                   <td className="px-10 py-7 text-center">
@@ -754,7 +765,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                         />
                       </div>
                     ) : (
-                      <span className="text-xs font-black text-neutral-300 group-hover:text-primary transition-colors">#{investor.rank}</span>
+                      <span className="text-xs font-black text-neutral-600 dark:text-neutral-300 group-hover:text-primary transition-colors">#{investor.rank}</span>
                     )}
                   </td>
                   <td className="px-10 py-7">
@@ -766,7 +777,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                       <div className="min-w-0 flex-1">
                         <Tooltip content={investor.fullName}>
                           <p className={`text-sm font-black uppercase tracking-tight truncate max-w-[200px] ${
-                            isTopThree ? rankStyle?.text : 'text-neutral-900'
+                            isTopThree ? rankStyle?.text : 'text-neutral-900 dark:text-neutral-100'
                           }`}>{investor.fullName}</p>
                         </Tooltip>
                       </div>
@@ -779,17 +790,16 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                       
                       if (generalStatus === 'VERIFIED') {
                         return (
-                          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold border bg-[#E6F9F1] text-[#166534] border-[#D1F2E4]">
-                            <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                              <path d="m9 12 2 2 4-4"></path>
+                          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800">
+                            <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M20 6L9 17l-5-5"></path>
                             </svg>
                             Verified
                           </span>
                         );
                       } else if (generalStatus === 'PENDING') {
                         return (
-                          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold border bg-purple-50 text-purple-700 border-purple-200">
+                          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
                             <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                               <circle cx="12" cy="12" r="10"></circle>
                               <path d="M12 6v6l4 2"></path>
@@ -799,9 +809,11 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                         );
                       } else {
                         return (
-                          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold border bg-[#FEF3E7] text-[#9A3412] border-[#FDE0C3]">
+                          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-800">
                             <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                              <circle cx="12" cy="12" r="10"></circle>
+                              <path d="M12 8v4"></path>
+                              <path d="M12 16h.01"></path>
                             </svg>
                             Unverified
                           </span>
@@ -811,11 +823,11 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                   </td>
                   <td className="px-10 py-7">
                     <Tooltip content={investor.holdingsDisplay}>
-                      <p className="text-sm font-black text-neutral-900 truncate max-w-[150px]">{investor.holdingsDisplay}</p>
+                      <p className="text-sm font-black text-neutral-900 dark:text-neutral-100 truncate max-w-[150px]">{investor.holdingsDisplay}</p>
                     </Tooltip>
                   </td>
                   <td className="px-10 py-7 text-right">
-                    <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">{investor.lastActive}</span>
+                    <span className="text-[10px] font-black text-neutral-600 dark:text-neutral-400 uppercase tracking-widest">{investor.lastActive}</span>
                   </td>
                 </tr>
                 );
@@ -826,55 +838,55 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
       </div>
 
       {/* Verified Accounts Container - Below Top 5 Leaderboard */}
-      <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-sm">
-        <div className="px-10 py-8 border-b border-neutral-100 bg-neutral-50/30">
-          <h3 className="text-2xl font-black text-neutral-900 uppercase tracking-tighter">Verified Accounts</h3>
-          <p className="text-xs text-neutral-500 mt-1">{verifiedRanked.length} accounts (excluding leaderboard)</p>
+      <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl overflow-hidden shadow-sm">
+        <div className="px-10 py-8 border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50/30 dark:bg-neutral-900/30">
+          <h3 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-tighter">Verified Accounts</h3>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">{verifiedRanked.length} accounts (excluding leaderboard)</p>
         </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
-                <tr className="bg-neutral-50 text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em]">
+                <tr className="bg-neutral-50 dark:bg-neutral-900 text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.2em]">
                   <th className="px-10 py-5 w-16 text-center">Rank</th>
                   <th className="px-10 py-5">Investor</th>
                   <th className="px-10 py-5">Holdings</th>
                   <th className="px-10 py-5 text-right">Last Activity</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-100">
+              <tbody className="divide-y divide-neutral-200 dark:divide-neutral-700">
                 {verifiedRanked.length > 0 ? (
                   verifiedRanked.map((applicant) => (
                     <tr 
                       key={applicant.id} 
                       onClick={() => setSelectedInvestor(applicant)} 
-                      className="hover:bg-neutral-50 transition-all cursor-pointer"
+                      className="hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-all cursor-pointer"
                     >
                       <td className="px-10 py-7 text-center">
-                        <span className="text-xs font-black text-neutral-300">#{applicant.rank}</span>
+                        <span className="text-xs font-black text-neutral-600 dark:text-neutral-300">#{applicant.rank}</span>
                       </td>
                       <td className="px-10 py-7">
                         <div className="flex items-center gap-3">
                           <Avatar name={applicant.fullName} size={40} />
                           <div className="min-w-0 flex-1">
                             <Tooltip content={applicant.fullName}>
-                              <p className="text-sm font-black uppercase tracking-tight truncate max-w-[200px] text-neutral-900">{applicant.fullName}</p>
+                              <p className="text-sm font-black uppercase tracking-tight truncate max-w-[200px] text-neutral-900 dark:text-neutral-100">{applicant.fullName}</p>
                             </Tooltip>
                           </div>
                         </div>
                       </td>
                       <td className="px-10 py-7">
-                        <p className="text-sm font-black text-neutral-900">
+                        <p className="text-sm font-black text-neutral-900 dark:text-neutral-100">
                           {applicant.holdingsRecord?.sharesHeld.toLocaleString() || 'N/A'}
                         </p>
                       </td>
                       <td className="px-10 py-7 text-right">
-                        <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">{applicant.lastActive}</span>
+                        <span className="text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">{applicant.lastActive}</span>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={4} className="px-10 py-12 text-center text-xs font-bold text-neutral-400 uppercase tracking-widest">
+                    <td colSpan={4} className="px-10 py-12 text-center text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">
                       No verified accounts (excluding leaderboard)
                     </td>
                   </tr>
@@ -885,44 +897,44 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
       </div>
 
       {/* Unverified Accounts Container - Below Verified Accounts */}
-      <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-sm">
-        <div className="px-10 py-8 border-b border-neutral-100 bg-neutral-50/30">
-          <h3 className="text-2xl font-black text-neutral-900 uppercase tracking-tighter">Unverified Accounts</h3>
-          <p className="text-xs text-neutral-500 mt-1">{unverifiedRanked.length} accounts (excluding leaderboard)</p>
+      <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl overflow-hidden shadow-sm">
+        <div className="px-10 py-8 border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50/30 dark:bg-neutral-900/30">
+          <h3 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-tighter">Unverified Accounts</h3>
+          <p className="text-xs text-neutral-400 mt-1">{unverifiedRanked.length} accounts (excluding leaderboard)</p>
         </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
-                <tr className="bg-neutral-50 text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em]">
+                <tr className="bg-neutral-50 dark:bg-neutral-900 text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.2em]">
                   <th className="px-10 py-5 w-16 text-center">Rank</th>
                   <th className="px-10 py-5">Name</th>
                   <th className="px-10 py-5">Account Status</th>
                   <th className="px-10 py-5 text-right">Last Activity</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-100">
+              <tbody className="divide-y divide-neutral-200 dark:divide-neutral-700">
                 {unverifiedRanked.length > 0 ? (
                   unverifiedRanked.map((applicant) => (
                     <tr 
                       key={applicant.id} 
                       onClick={() => setSelectedInvestor(applicant)} 
-                      className="hover:bg-neutral-50 transition-all cursor-pointer"
+                      className="hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-all cursor-pointer"
                     >
                       <td className="px-10 py-7 text-center">
-                        <span className="text-xs font-black text-neutral-300">#{applicant.rank}</span>
+                        <span className="text-xs font-black text-neutral-600 dark:text-neutral-300">#{applicant.rank}</span>
                       </td>
                       <td className="px-10 py-7">
                         <div className="flex items-center gap-3">
                           <Avatar name={applicant.fullName} size={40} />
                           <div className="min-w-0 flex-1">
                             <Tooltip content={applicant.fullName}>
-                              <p className="text-sm font-black uppercase tracking-tight truncate max-w-[200px] text-neutral-900">{applicant.fullName}</p>
+                              <p className="text-sm font-black uppercase tracking-tight truncate max-w-[200px] text-neutral-900 dark:text-neutral-100">{applicant.fullName}</p>
                             </Tooltip>
                           </div>
                         </div>
                       </td>
                       <td className="px-10 py-7">
-                        <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold border bg-[#FEF3E7] text-[#9A3412] border-[#FDE0C3]">
+                        <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-800">
                           <svg className="w-3.5 h-3.5 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
                           </svg>
@@ -930,13 +942,13 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                         </span>
                       </td>
                       <td className="px-10 py-7 text-right">
-                        <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest">{applicant.lastActive}</span>
+                        <span className="text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">{applicant.lastActive}</span>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={4} className="px-10 py-12 text-center text-xs font-bold text-neutral-400 uppercase tracking-widest">
+                    <td colSpan={4} className="px-10 py-12 text-center text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">
                       No unverified accounts (excluding leaderboard)
                     </td>
                   </tr>
@@ -947,17 +959,17 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
         </div>
 
       {/* Pre-verified Accounts - Same style as Top 5 Leaderboard */}
-      <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-sm">
-        <div className="px-10 py-8 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/30">
+      <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl overflow-hidden shadow-sm">
+        <div className="px-10 py-8 border-b border-neutral-200 dark:border-neutral-700 flex items-center justify-between bg-neutral-50/30 dark:bg-neutral-900/30">
           <div>
-            <h3 className="text-2xl font-black text-neutral-900 uppercase tracking-tighter">Pre-verified Accounts</h3>
-            <p className="text-xs text-neutral-500 mt-1">{preVerifiedApplicants.length} accounts</p>
+            <h3 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-tighter">Pre-verified Accounts</h3>
+            <p className="text-xs text-neutral-500 dark:text-neutral-500 mt-1">{preVerifiedApplicants.length} accounts</p>
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-neutral-900 text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em]">
+              <tr className="bg-neutral-50 dark:bg-neutral-900 text-[9px] font-black text-neutral-500 dark:text-neutral-500 uppercase tracking-[0.2em]">
                 <th className="px-10 py-5">Name</th>
                 <th className="px-10 py-5">Registration ID</th>
                 <th className="px-10 py-5">Email</th>
@@ -965,41 +977,41 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                 <th className="px-10 py-5 text-right">System Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-100">
+            <tbody className="divide-y divide-neutral-700">
               {preVerifiedApplicants.length > 0 ? (
                 preVerifiedApplicants.map((applicant) => (
                   <tr 
                     key={applicant.id} 
                     onClick={() => setSelectedInvestor(applicant)} 
-                    className="hover:bg-neutral-50 transition-all cursor-pointer group"
+                    className="hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-all cursor-pointer group"
                   >
                     <td className="px-10 py-7">
                       <div className="flex items-center gap-3">
                         <Avatar name={applicant.fullName} size={40} />
                         <div className="min-w-0 flex-1">
                           <Tooltip content={applicant.fullName}>
-                            <p className="text-sm font-black uppercase tracking-tight truncate max-w-[200px] text-neutral-900">{applicant.fullName}</p>
+                            <p className="text-sm font-black uppercase tracking-tight truncate max-w-[200px] text-neutral-900 dark:text-neutral-100">{applicant.fullName}</p>
                           </Tooltip>
                         </div>
                       </div>
                     </td>
                     <td className="px-10 py-7">
-                      <p className="text-xs text-neutral-600 font-medium">
+                      <p className="text-xs text-neutral-600 dark:text-neutral-300 font-medium">
                         {applicant.registrationId && applicant.registrationId.length > 6 
                           ? applicant.registrationId.slice(-6) 
                           : applicant.registrationId || 'N/A'}
                       </p>
                     </td>
-                    <td className="px-10 py-7 text-xs text-neutral-600 font-medium">
+                    <td className="px-10 py-7 text-xs text-neutral-600 dark:text-neutral-300 font-medium">
                       {applicant.email || 'N/A'}
                     </td>
                     <td className="px-10 py-7">
-                      <p className="text-xs font-medium text-neutral-700">
+                      <p className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
                         {applicant.workflowStage || 'N/A'}
                       </p>
                     </td>
                     <td className="px-10 py-7 text-right">
-                      <p className="text-xs font-medium text-neutral-700">
+                      <p className="text-xs font-medium text-neutral-300">
                         {applicant.systemStatus || 'N/A'}
                       </p>
                     </td>

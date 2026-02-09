@@ -371,18 +371,18 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
     const internalStatus = getWorkflowStatusInternal(applicant);
     const frontendLabel = getWorkflowStatusFrontendLabel(internalStatus);
 
-    // Color mapping based on internal status
+    // Color mapping based on internal status (light/dark mode)
     const statusColors: Record<string, { color: string; bgColor: string }> = {
-      'EMAIL_VERIFICATION_PENDING': { color: 'text-blue-700', bgColor: 'bg-blue-50' },
-      'EMAIL_VERIFIED': { color: 'text-green-700', bgColor: 'bg-green-50' },
-      'SHAREHOLDINGS_DECLINED': { color: 'text-[#9A3412]', bgColor: 'bg-[#FEF3E7]' },
-      'REGISTRATION_PENDING': { color: 'text-indigo-700', bgColor: 'bg-indigo-50' },
-      'AWAITING_IRO_REVIEW': { color: 'text-purple-700', bgColor: 'bg-purple-50' },
-      'RESUBMISSION_REQUIRED': { color: 'text-orange-700', bgColor: 'bg-orange-50' },
-      'VERIFIED': { color: 'text-green-700', bgColor: 'bg-green-50' },
+      'EMAIL_VERIFICATION_PENDING': { color: 'text-blue-700 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-900/30' },
+      'EMAIL_VERIFIED': { color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-50 dark:bg-green-900/30' },
+      'SHAREHOLDINGS_DECLINED': { color: 'text-[#9A3412] dark:text-orange-400', bgColor: 'bg-[#FEF3E7] dark:bg-orange-900/30' },
+      'REGISTRATION_PENDING': { color: 'text-indigo-700 dark:text-indigo-400', bgColor: 'bg-indigo-50 dark:bg-indigo-900/30' },
+      'AWAITING_IRO_REVIEW': { color: 'text-purple-700 dark:text-purple-400', bgColor: 'bg-purple-50 dark:bg-purple-900/30' },
+      'RESUBMISSION_REQUIRED': { color: 'text-orange-700 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
+      'VERIFIED': { color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-50 dark:bg-green-900/30' },
     };
 
-    const colors = statusColors[internalStatus] || { color: 'text-neutral-600', bgColor: 'bg-neutral-100' };
+                          const colors = statusColors[internalStatus] || { color: 'text-neutral-500 dark:text-neutral-400', bgColor: 'bg-neutral-100 dark:bg-neutral-700' };
 
     return {
       label: frontendLabel,
@@ -500,20 +500,26 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
     // Modal will close automatically after successful save
   };
 
+  // Deterministic seeded random — same seed always produces the same value.
+  const seededRandom = (seed: number): number => {
+    const x = Math.sin(seed * 9301 + 49297) * 233280;
+    return x - Math.floor(x);
+  };
+
   // Generate chart data for each metric (7 days of data)
-  const generateChartData = (baseValue: number, trend: { percent: number; direction: 'up' | 'down' | 'neutral' }): number[] => {
+  // Uses a deterministic seed so charts stay stable across re-renders and only change weekly.
+  const generateChartData = (baseValue: number, trend: { percent: number; direction: 'up' | 'down' | 'neutral' }, metricIndex: number): number[] => {
     const days = 7;
     const data: number[] = [];
-    const safeBaseValue = baseValue || 1; // Prevent division by zero
+    const safeBaseValue = baseValue || 1;
     const trendMultiplier = trend.direction === 'up' ? 1 + (trend.percent / 100) : trend.direction === 'down' ? 1 - (trend.percent / 100) : 1;
+    const weekSeed = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
     
-    // Generate data points that show the trend
     for (let i = 0; i < days; i++) {
       const progress = i / (days - 1);
       const value = safeBaseValue * (1 + (trendMultiplier - 1) * progress);
-      // Add some variation
-      const variation = (Math.random() - 0.5) * 0.1;
-      data.push(Math.max(0, value * (1 + variation))); // Ensure non-negative
+      const variation = (seededRandom(weekSeed + metricIndex * 7 + i) - 0.5) * 0.1;
+      data.push(Math.max(0, value * (1 + variation)));
     }
     
     return data;
@@ -536,21 +542,21 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
             title={metric.label}
             value={metric.value}
             trend={metric.trend}
-            chartData={generateChartData(metric.value, metric.trend)}
+            chartData={generateChartData(metric.value, metric.trend, i)}
             chartColor={chartColors[metric.type] || '#7C3AED'}
           />
         ))}
       </div>
 
-      <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden shadow-sm">
-        <div className="px-8 py-5 border-b border-neutral-100 flex items-center justify-between">
+      <div className="bg-white dark:bg-neutral-800 rounded-xl border border-neutral-200 dark:border-neutral-700 overflow-hidden shadow-sm">
+        <div className="px-8 py-5 border-b border-neutral-200 dark:border-neutral-700 flex items-center justify-between">
           <div className="flex flex-col gap-4 w-full">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-black text-neutral-800 uppercase tracking-wider">Queue: Investor Audit</h2>
+              <h2 className="text-sm font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-wider">Queue: Investor Audit</h2>
               <div className="flex items-center gap-2">
                 {/* Search Container */}
                 <div className="relative">
-                  <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 dark:text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                   </svg>
                   <input 
@@ -558,7 +564,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                     placeholder="Search registration queue..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 pr-4 py-1.5 bg-neutral-50 border border-neutral-200 rounded-lg text-xs focus:ring-1 focus:ring-black focus:border-black outline-none w-64 transition-all placeholder:text-neutral-400 font-medium"
+                    className="pl-10 pr-4 py-1.5 bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg text-xs focus:ring-1 focus:ring-[#082b4a] dark:focus:ring-[#00adf0] focus:border-[#082b4a] dark:focus:border-[#00adf0] outline-none w-64 transition-all placeholder:text-neutral-400 dark:placeholder:text-neutral-500 font-medium text-neutral-900 dark:text-neutral-100"
                   />
                 </div>
 
@@ -567,18 +573,18 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsFilterOpen(v => !v)}
-                    className="h-[34px] w-[34px] inline-flex items-center justify-center bg-neutral-50 border border-neutral-200 rounded-lg hover:bg-neutral-100 transition-colors"
+                    className="h-[34px] w-[34px] inline-flex items-center justify-center bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors"
                     aria-label="Filter queue"
                     aria-expanded={isFilterOpen}
                   >
                     {/* Funnel icon */}
-                    <svg className="w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 text-neutral-600 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4h18l-7 8v6l-4 2v-8L3 4z" />
                     </svg>
                   </button>
 
                   {isFilterOpen && (
-                    <div className="absolute top-full right-0 mt-2 w-44 bg-white border border-neutral-200 rounded-lg shadow-xl z-50 overflow-hidden">
+                    <div className="absolute top-full right-0 mt-2 w-44 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-xl z-50 overflow-hidden">
                       {filterOptions.map((opt) => {
                         const isActive = activeTab === opt.id;
                         return (
@@ -590,7 +596,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                               setIsFilterOpen(false);
                             }}
                             className={`w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors ${
-                              isActive ? 'bg-neutral-50 text-neutral-900' : 'hover:bg-neutral-50 text-neutral-700'
+                              isActive ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100' : 'hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300'
                             }`}
                           >
                             {opt.label}
@@ -613,27 +619,27 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                  <div className="relative" ref={exportRef}>
                    <button 
                     onClick={() => setIsExportOpen(!isExportOpen)}
-                    className="px-3 py-1.5 text-[10px] font-bold border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors uppercase tracking-widest flex items-center gap-2"
+                    className="px-3 py-1.5 text-[10px] font-bold border border-neutral-300 dark:border-neutral-700 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors uppercase tracking-widest flex items-center gap-2 text-neutral-700 dark:text-neutral-300"
                    >
                      Export
                      <svg className={`w-3 h-3 transition-transform ${isExportOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7"/></svg>
                    </button>
 
                    {isExportOpen && (
-                     <div className="absolute top-full right-0 mt-2 w-44 bg-white border border-neutral-200 rounded-lg shadow-xl z-50 overflow-hidden">
+                     <div className="absolute top-full right-0 mt-2 w-44 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-xl z-50 overflow-hidden">
                        <button 
                          onClick={handleExportCSV}
-                         className="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] hover:bg-neutral-50 transition-colors flex items-center justify-between border-b border-neutral-100"
+                         className="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300"
                        >
                          CSV Spreadsheet
-                         <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                         <svg className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                        </button>
                        <button 
                          onClick={handleExportPDF}
-                         className="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] hover:bg-neutral-50 transition-colors flex items-center justify-between"
+                         className="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors flex items-center justify-between text-neutral-700 dark:text-neutral-300"
                        >
                          Audit PDF
-                         <svg className="w-3.5 h-3.5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                         <svg className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
                        </button>
                      </div>
                    )}
@@ -645,7 +651,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
         
         <table className="w-full text-left">
           <thead>
-            <tr className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest border-b border-neutral-100">
+            <tr className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-900/50">
               {activeTab === 'PRE_VERIFIED' ? (
                 <>
                   <th className="px-8 py-4">Name</th>
@@ -666,37 +672,37 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
               )}
             </tr>
           </thead>
-          <tbody className="divide-y divide-neutral-50">
+          <tbody className="divide-y divide-neutral-200 dark:divide-neutral-700">
             {filteredData.length > 0 ? (
               filteredData.map((applicant) => (
-                <tr key={applicant.id} className="group hover:bg-neutral-50/50 transition-colors">
+                <tr key={applicant.id} className="group hover:bg-neutral-50/50 dark:hover:bg-neutral-700/50 transition-colors">
                   {activeTab === 'PRE_VERIFIED' ? (
                     <>
                       <td className="px-8 py-5">
-                        <div className="text-sm font-bold text-neutral-900">{applicant.fullName}</div>
+                        <div className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{applicant.fullName}</div>
                       </td>
                       <td className="px-8 py-5">
-                        <div className="text-xs text-neutral-600 font-medium">
+                        <div className="text-xs text-neutral-600 dark:text-neutral-300 font-medium">
                           {applicant.registrationId || 'N/A'}
                         </div>
                       </td>
-                      <td className="px-8 py-5 text-xs text-neutral-600 font-medium">
+                      <td className="px-8 py-5 text-xs text-neutral-600 dark:text-neutral-300 font-medium">
                         {applicant.email || 'N/A'}
                       </td>
                       <td className="px-8 py-5">
-                        <div className="text-xs font-medium text-neutral-700">
+                        <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
                           {applicant.workflowStage || 'N/A'}
                         </div>
                       </td>
                       <td className="px-8 py-5">
-                        <div className="text-xs font-medium text-neutral-700">
+                        <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
                           {applicant.systemStatus || 'N/A'}
                         </div>
                       </td>
                       <td className="px-8 py-5 text-right">
                         <button 
                           onClick={() => onSelect(applicant)}
-                          className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-neutral-200 text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-neutral-900 hover:text-white hover:border-neutral-900 transition-all shadow-sm"
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-neutral-100 dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-[#082b4a] dark:hover:bg-[#00adf0] hover:text-white hover:border-[#082b4a] dark:hover:border-[#00adf0] transition-all shadow-sm text-neutral-700 dark:text-neutral-200"
                         >
                           Edit
                         </button>
@@ -709,32 +715,32 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                           <Avatar name={applicant.fullName} size={36} />
                           <div className="min-w-0 flex-1">
                             <Tooltip content={applicant.fullName}>
-                              <div className="text-sm font-bold text-neutral-900 leading-none mb-1 truncate">{applicant.fullName}</div>
+                              <div className="text-sm font-bold text-neutral-900 dark:text-neutral-100 leading-none mb-1 truncate">{applicant.fullName}</div>
                             </Tooltip>
-                            <div className="text-[10px] text-neutral-400 font-medium uppercase tracking-tight">{applicant.id}</div>
+                            <div className="text-[10px] text-neutral-500 dark:text-neutral-400 font-medium uppercase tracking-tight">{applicant.id}</div>
                           </div>
                         </div>
                       </td>
-                      <td className="px-8 py-5 text-xs text-neutral-500 font-medium">
+                      <td className="px-8 py-5 text-xs text-neutral-600 dark:text-neutral-300 font-medium">
                         {applicant.submissionDate}
                       </td>
-                      <td className="px-8 py-5 text-[10px] font-black text-neutral-400 uppercase tracking-widest">
+                      <td className="px-8 py-5 text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">
                         {applicant.lastActive}
                       </td>
                       <td className="px-8 py-5">
                         {(() => {
                           const internalStatus = getWorkflowStatusInternal(applicant);
-                          // Color mapping for internal status
+                          // Color mapping for internal status (light/dark mode)
                           const statusColors: Record<string, { color: string; bgColor: string }> = {
-                            'EMAIL_VERIFICATION_PENDING': { color: 'text-blue-700', bgColor: 'bg-blue-50' },
-                            'EMAIL_VERIFIED': { color: 'text-green-700', bgColor: 'bg-green-50' },
-                            'SHAREHOLDINGS_DECLINED': { color: 'text-[#9A3412]', bgColor: 'bg-[#FEF3E7]' },
-                            'REGISTRATION_PENDING': { color: 'text-indigo-700', bgColor: 'bg-indigo-50' },
-                            'AWAITING_IRO_REVIEW': { color: 'text-purple-700', bgColor: 'bg-purple-50' },
-                            'RESUBMISSION_REQUIRED': { color: 'text-orange-700', bgColor: 'bg-orange-50' },
-                            'VERIFIED': { color: 'text-green-700', bgColor: 'bg-green-50' },
+                            'EMAIL_VERIFICATION_PENDING': { color: 'text-blue-700 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-900/30' },
+                            'EMAIL_VERIFIED': { color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-50 dark:bg-green-900/30' },
+                            'SHAREHOLDINGS_DECLINED': { color: 'text-[#9A3412] dark:text-orange-400', bgColor: 'bg-[#FEF3E7] dark:bg-orange-900/30' },
+                            'REGISTRATION_PENDING': { color: 'text-indigo-700 dark:text-indigo-400', bgColor: 'bg-indigo-50 dark:bg-indigo-900/30' },
+                            'AWAITING_IRO_REVIEW': { color: 'text-purple-700 dark:text-purple-400', bgColor: 'bg-purple-50 dark:bg-purple-900/30' },
+                            'RESUBMISSION_REQUIRED': { color: 'text-orange-700 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
+                            'VERIFIED': { color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-50 dark:bg-green-900/30' },
                           };
-                          const colors = statusColors[internalStatus] || { color: 'text-neutral-600', bgColor: 'bg-neutral-100' };
+                          const colors = statusColors[internalStatus] || { color: 'text-neutral-500 dark:text-neutral-400', bgColor: 'bg-neutral-100 dark:bg-neutral-700' };
                           return (
                             <span className={`text-[10px] font-bold uppercase tracking-tighter px-2.5 py-1 rounded-full border ${colors.color} ${colors.bgColor} border-current/20`}>
                               {internalStatus}
@@ -745,7 +751,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                       <td className="px-8 py-5 text-right">
                         <button 
                           onClick={() => onSelect(applicant)}
-                          className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-neutral-200 text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-neutral-900 hover:text-white hover:border-neutral-900 transition-all shadow-sm"
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-neutral-100 dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-[#082b4a] dark:hover:bg-[#00adf0] hover:text-white hover:border-[#082b4a] dark:hover:border-[#00adf0] transition-all shadow-sm text-neutral-700 dark:text-neutral-200"
                         >
                           Audit
                         </button>
@@ -756,7 +762,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
               ))
             ) : (
               <tr>
-                <td colSpan={activeTab === 'PRE_VERIFIED' ? 6 : 5} className="px-8 py-12 text-center text-xs font-bold text-neutral-400 uppercase tracking-widest">
+                <td colSpan={activeTab === 'PRE_VERIFIED' ? 6 : 5} className="px-8 py-12 text-center text-xs font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest">
                   No records found in current queue
                 </td>
               </tr>

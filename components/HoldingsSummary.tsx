@@ -50,7 +50,7 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
     return (
       <div className="flex items-center justify-center h-[400px]">
         <div className="text-center max-w-md">
-          <p className="text-neutral-600 font-medium text-base leading-relaxed">
+          <p className="text-neutral-600 dark:text-neutral-300 font-medium text-base leading-relaxed">
             This investor has not yet verified their holdings. Holdings information will be available once verification is complete.
           </p>
         </div>
@@ -62,7 +62,7 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
   if (loading || !holdingsSummary) {
     return (
       <div className="flex items-center justify-center h-[400px]">
-        <div className="text-sm font-bold text-neutral-600">Loading holdings data...</div>
+        <div className="text-sm font-bold text-neutral-600 dark:text-neutral-300">Loading holdings data...</div>
       </div>
     );
   }
@@ -72,36 +72,36 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
     <div className="space-y-8">
       {/* Company Header */}
       <div>
-        <h2 className="text-2xl font-black text-neutral-900 uppercase tracking-tight">
+        <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-tight">
           {holdingsSummary.companyName}
         </h2>
       </div>
 
       {/* Metric Cards - Top Row */}
       <div className="grid grid-cols-3 gap-6">
-        <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-6">
-          <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">
+        <div className="bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6">
+          <p className="text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-2">
             Shares Held
           </p>
-          <p className="text-2xl font-black text-neutral-900">
+          <p className="text-2xl font-black text-neutral-900 dark:text-neutral-100">
             {holdingsSummary.sharesHeld.toLocaleString()}
           </p>
         </div>
 
-        <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-6">
-          <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">
+        <div className="bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6">
+          <p className="text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-2">
             Ownership Percentage
           </p>
-          <p className="text-2xl font-black text-neutral-900">
+          <p className="text-2xl font-black text-neutral-900 dark:text-neutral-100">
             {holdingsSummary.ownershipPercentage.toFixed(2)}%
           </p>
         </div>
 
-        <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-6">
-          <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">
+        <div className="bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6">
+          <p className="text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-2">
             Shares Class
           </p>
-          <p className="text-2xl font-black text-neutral-900">
+          <p className="text-2xl font-black text-neutral-900 dark:text-neutral-100">
             {holdingsSummary.sharesClass}
           </p>
         </div>
@@ -109,11 +109,11 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
 
       {/* Metric Cards - Bottom Row */}
       <div className="grid grid-cols-3 gap-6">
-        <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-6">
-          <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">
+        <div className="bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6">
+          <p className="text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-2">
             Registration Date
           </p>
-          <p className="text-2xl font-black text-neutral-900">
+          <p className="text-2xl font-black text-neutral-900 dark:text-neutral-100">
             {new Date(holdingsSummary.registrationDate).toLocaleDateString('en-US', {
               month: 'short',
               day: 'numeric',
@@ -122,20 +122,20 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
           </p>
         </div>
 
-        <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-6">
-          <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">
+        <div className="bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6">
+          <p className="text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-2">
             Current Share Price
           </p>
-          <p className="text-2xl font-black text-neutral-900">
+          <p className="text-2xl font-black text-neutral-900 dark:text-neutral-100">
             ${holdingsSummary.currentSharePrice.toFixed(2)}
           </p>
         </div>
 
-        <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-6">
-          <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-2">
+        <div className="bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6">
+          <p className="text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-2">
             Current Market Value
           </p>
-          <p className="text-2xl font-black text-neutral-900">
+          <p className="text-2xl font-black text-neutral-900 dark:text-neutral-100">
             ${holdingsSummary.currentMarketValue.toLocaleString(undefined, {
               minimumFractionDigits: 2,
               maximumFractionDigits: 2,
@@ -153,6 +153,7 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
 };
 
 export default HoldingsSummary;
+
 
 
 
