@@ -32,3 +32,4 @@ if (typeof window !== 'undefined') {
   (window as any).migrateShareholders = migrateShareholdersToFirebase;
 }
 
+

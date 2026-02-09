@@ -1095,13 +1095,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!existingApplicant) {
           console.warn(`Applicant document not found for registrationId: ${registrationId}, email: ${toEmail.trim()}. Skipping Firebase update.`);
         } else {
+          // Get current email sent count or default to 0
+          const currentEmailSentCount = existingApplicant.emailSentCount || 0;
+          
           await applicantService.update(existingApplicant.id, {
             emailSentAt: new Date().toISOString(),
+            emailSentCount: currentEmailSentCount + 1, // Increment send count
             workflowStage: 'SENT_EMAIL',
             systemStatus: 'ACTIVE',
             accountStatus: 'PENDING', // Account status remains PENDING until claimed
           });
-          console.log('Updated email sent timestamp in Firebase for applicant:', existingApplicant.id);
+          console.log('Updated email sent timestamp and status in Firebase for applicant:', existingApplicant.id);
         }
       } catch (firebaseError: any) {
         // Handle specific error codes

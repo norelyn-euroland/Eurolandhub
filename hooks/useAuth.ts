@@ -18,12 +18,12 @@ export const useAuth = () => {
     // Firebase will fire this callback once auth state is restored from persistence
     const unsubscribe = authService.onAuthStateChanged((user) => {
       if (isMounted) {
-        setUser(user);
+      setUser(user);
         // Only set loading to false after we've received the initial auth state
         // This ensures we wait for Firebase to restore from persistence
         if (!hasReceivedInitialState) {
           hasReceivedInitialState = true;
-          setLoading(false);
+      setLoading(false);
         }
       }
     });

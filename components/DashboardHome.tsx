@@ -92,7 +92,11 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
   initialTab,
   initialSearchQuery
 }) => {
-  const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'ALL');
+  // Always default to 'ALL' if no initialTab is provided
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    // If initialTab is provided, use it; otherwise default to 'ALL'
+    return initialTab || 'ALL';
+  });
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isAddInvestorModalOpen, setIsAddInvestorModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || '');
@@ -116,37 +120,28 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
   }, []);
 
   // Allow external navigation (e.g. notifications) to force a specific tab.
+  // Only set internal state here — do NOT call onTabChange to avoid loops
+  // (the parent already knows the tab since it created the tabRequest).
   useEffect(() => {
     if (!tabRequest) return;
     setActiveTab(tabRequest.tab);
   }, [tabRequest?.requestId]);
 
-  // Initialize from props if provided
-  useEffect(() => {
-    if (initialTab !== undefined) {
-      setActiveTab(initialTab);
-    }
-  }, [initialTab]);
-
-  useEffect(() => {
-    if (initialSearchQuery !== undefined) {
-      setSearchQuery(initialSearchQuery);
-    }
-  }, [initialSearchQuery]);
-
-  // Notify parent of tab changes
-  useEffect(() => {
+  // Notify parent of tab changes (only call onTabChange, never depend on it)
+  const handleInternalTabChange = (newTab: TabType) => {
+    setActiveTab(newTab);
     if (onTabChange) {
-      onTabChange(activeTab);
+      onTabChange(newTab);
     }
-  }, [activeTab, onTabChange]);
+  };
 
-  // Notify parent of search query changes
-  useEffect(() => {
+  // Notify parent of search changes (only call onSearchChange, never depend on it)
+  const handleInternalSearchChange = (newQuery: string) => {
+    setSearchQuery(newQuery);
     if (onSearchChange) {
-      onSearchChange(searchQuery);
+      onSearchChange(newQuery);
     }
-  }, [searchQuery, onSearchChange]);
+  };
 
   const filteredData = applicants.filter((applicant) => {
     // Search Filter
@@ -548,7 +543,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
         ))}
       </div>
 
-      <div className="bg-white dark:bg-neutral-800 rounded-xl border border-neutral-200 dark:border-neutral-700 overflow-hidden shadow-sm">
+      <div className="bg-white dark:bg-neutral-800 rounded-xl border border-neutral-200 dark:border-neutral-700 shadow-sm">
         <div className="px-8 py-5 border-b border-neutral-200 dark:border-neutral-700 flex items-center justify-between">
           <div className="flex flex-col gap-4 w-full">
             <div className="flex items-center justify-between">
@@ -563,7 +558,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                     type="text"
                     placeholder="Search registration queue..."
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => handleInternalSearchChange(e.target.value)}
                     className="pl-10 pr-4 py-1.5 bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg text-xs focus:ring-1 focus:ring-[#082b4a] dark:focus:ring-[#00adf0] focus:border-[#082b4a] dark:focus:border-[#00adf0] outline-none w-64 transition-all placeholder:text-neutral-400 dark:placeholder:text-neutral-500 font-medium text-neutral-900 dark:text-neutral-100"
                   />
                 </div>
@@ -584,7 +579,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                   </button>
 
                   {isFilterOpen && (
-                    <div className="absolute top-full right-0 mt-2 w-44 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-xl z-50 overflow-hidden">
+                    <div className="absolute top-full right-0 mt-2 w-44 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-xl z-[9999] overflow-hidden">
                       {filterOptions.map((opt) => {
                         const isActive = activeTab === opt.id;
                         return (
@@ -592,7 +587,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                             key={opt.id}
                             type="button"
                             onClick={() => {
-                              setActiveTab(opt.id);
+                              handleInternalTabChange(opt.id);
                               setIsFilterOpen(false);
                             }}
                             className={`w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors ${
@@ -626,7 +621,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                    </button>
 
                    {isExportOpen && (
-                     <div className="absolute top-full right-0 mt-2 w-44 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-xl z-50 overflow-hidden">
+                     <div className="absolute top-full right-0 mt-2 w-44 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-xl z-[9999] overflow-hidden">
                        <button 
                          onClick={handleExportCSV}
                          className="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300"
@@ -742,19 +737,33 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                           };
                           const colors = statusColors[internalStatus] || { color: 'text-neutral-500 dark:text-neutral-400', bgColor: 'bg-neutral-100 dark:bg-neutral-700' };
                           return (
-                            <span className={`text-[10px] font-bold uppercase tracking-tighter px-2.5 py-1 rounded-full border ${colors.color} ${colors.bgColor} border-current/20`}>
+                            <span className={`text-[10px] font-bold uppercase tracking-tighter px-2.5 py-1 rounded-full border ${colors.color} ${colors.bgColor} border-current/20 dark:border-transparent`}>
                               {internalStatus}
                             </span>
                           );
                         })()}
                       </td>
                       <td className="px-8 py-5 text-right">
-                        <button 
-                          onClick={() => onSelect(applicant)}
-                          className="inline-flex items-center gap-2 px-4 py-2 bg-neutral-100 dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-[#082b4a] dark:hover:bg-[#00adf0] hover:text-white hover:border-[#082b4a] dark:hover:border-[#00adf0] transition-all shadow-sm text-neutral-700 dark:text-neutral-200"
-                        >
-                          Audit
-                        </button>
+                        {(() => {
+                          // Check if user declined holdings verification - hide Audit button if declined
+                          const workflowStatus = getWorkflowStatusInternal(applicant);
+                          const isHoldingsDeclined = workflowStatus === 'SHAREHOLDINGS_DECLINED' || 
+                                                     applicant.shareholdingsVerification?.step1.wantsVerification === false;
+                          
+                          // Don't show Audit button if holdings verification was declined
+                          if (isHoldingsDeclined) {
+                            return null;
+                          }
+                          
+                          return (
+                            <button 
+                              onClick={() => onSelect(applicant)}
+                              className="inline-flex items-center gap-2 px-4 py-2 bg-neutral-100 dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-[#082b4a] dark:hover:bg-[#00adf0] hover:text-white hover:border-[#082b4a] dark:hover:border-[#00adf0] transition-all shadow-sm text-neutral-700 dark:text-neutral-200"
+                            >
+                              Audit
+                            </button>
+                          );
+                        })()}
                       </td>
                     </>
                   )}

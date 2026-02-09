@@ -153,7 +153,7 @@ const Header: React.FC<HeaderProps> = ({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
             </svg>
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1.5 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-neutral-800 bg-red-600">
+              <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1.5 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-neutral-800 bg-gradient-to-br from-violet-600 via-purple-600 to-fuchsia-600 shadow-lg shadow-purple-500/50">
                 {unreadCount}
               </span>
             )}
@@ -181,7 +181,7 @@ const Header: React.FC<HeaderProps> = ({
                     >
                       <div className="flex items-start gap-3">
                         <span className={`mt-1.5 w-2 h-2 rounded-full ${
-                          isUnread ? 'bg-blue-500' : 'bg-neutral-400 dark:bg-neutral-600'
+                          isUnread ? 'bg-gradient-to-br from-indigo-500 to-purple-500 shadow-sm shadow-purple-500/50' : 'bg-neutral-400 dark:bg-neutral-600'
                         }`} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-3">

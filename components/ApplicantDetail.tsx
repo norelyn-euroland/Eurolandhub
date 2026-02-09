@@ -2,9 +2,11 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Applicant, RegistrationStatus } from '../lib/types';
 import { MOCK_SHAREHOLDERS } from '../lib/mockShareholders';
 import { applicantService } from '../lib/firestore-service';
+import { getWorkflowStatusInternal } from '../lib/shareholdingsVerification';
 import Tooltip from './Tooltip';
 
 // CopyableField component with copy notification
@@ -249,6 +251,20 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
   const [invitationStatus, setInvitationStatus] = useState<{ type: 'success' | 'error' | 'warning' | 'critical'; message: string } | null>(null);
   const [hasGeneratedOnce, setHasGeneratedOnce] = useState(false);
   const [showToast, setShowToast] = useState(false);
+  const [toastProgress, setToastProgress] = useState(100);
+  const toastHideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const triggerToast = () => {
+    // Prevent old timeouts from immediately hiding a newly-triggered toast.
+    if (toastHideTimeoutRef.current) {
+      clearTimeout(toastHideTimeoutRef.current);
+    }
+    setToastProgress(100);
+    setShowToast(true);
+    toastHideTimeoutRef.current = setTimeout(() => {
+      setShowToast(false);
+    }, 5000);
+  };
 
   const handleGenerateMessage = async () => {
     if (!applicant.email) {
@@ -256,10 +272,7 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
         type: 'error',
         message: 'No email address available for this account.'
       });
-      setShowToast(true);
-      setTimeout(() => {
-        setShowToast(false);
-      }, 5000);
+      triggerToast();
       return;
     }
 
@@ -327,30 +340,20 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
           });
         }
         
-        setShowToast(true);
-        // Auto-dismiss after 2.5 seconds
-        setTimeout(() => {
-          setShowToast(false);
-        }, 5000);
+        triggerToast();
       } else {
         setInvitationStatus({
           type: 'error',
           message: `Failed to generate message: ${data?.error || response.status || 'Unknown error'}`
         });
-        setShowToast(true);
-        setTimeout(() => {
-          setShowToast(false);
-        }, 5000);
+        triggerToast();
       }
     } catch (error: any) {
       setInvitationStatus({
         type: 'error',
         message: `Error: ${error.message || 'Failed to generate message'}`
       });
-      setShowToast(true);
-      setTimeout(() => {
-        setShowToast(false);
-      }, 5000);
+      triggerToast();
     } finally {
       setIsGeneratingMessage(false);
     }
@@ -360,6 +363,28 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
   useEffect(() => {
     setHasGeneratedOnce(false);
   }, [messageStyle]);
+
+  // Handle toast progress bar
+  useEffect(() => {
+    if (showToast) {
+      setToastProgress(100);
+      const progressInterval = setInterval(() => {
+        setToastProgress((prev) => {
+          const newProgress = prev - (100 / (5000 / 50));
+          if (newProgress <= 0) {
+            return 0;
+          }
+          return newProgress;
+        });
+      }, 50);
+
+      return () => {
+        clearInterval(progressInterval);
+      };
+    } else {
+      setToastProgress(100);
+    }
+  }, [showToast]);
 
   const handleSendInvitation = async () => {
     if (!applicant.email) {
@@ -375,10 +400,7 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
         type: 'error',
         message: 'Please generate a message first before sending.'
       });
-      setShowToast(true);
-      setTimeout(() => {
-        setShowToast(false);
-      }, 5000);
+      triggerToast();
       return;
     }
 
@@ -415,42 +437,51 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
           type: 'success',
           message: `Invitation email sent successfully! Link expires in 30 days.`
         });
-        setShowToast(true);
-        // Auto-dismiss after 2.5 seconds
-        setTimeout(() => {
-          setShowToast(false);
-        }, 5000);
+        triggerToast();
       } else {
         setInvitationStatus({
           type: 'error',
           message: `Failed to send invitation: ${data?.error || response.status || 'Unknown error'}`
         });
-        setShowToast(true);
-        setTimeout(() => {
-          setShowToast(false);
-        }, 5000);
+        triggerToast();
       }
     } catch (error: any) {
       setInvitationStatus({
         type: 'error',
         message: `Error: ${error.message || 'Failed to send invitation'}`
       });
-      setShowToast(true);
-      setTimeout(() => {
-        setShowToast(false);
-      }, 5000);
+      triggerToast();
     } finally {
       setIsSendingInvitation(false);
     }
   };
 
-  return (
+  // Cleanup any pending toast timeout on unmount.
+  useEffect(() => {
+    return () => {
+      if (toastHideTimeoutRef.current) {
+        clearTimeout(toastHideTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const mainContent = (
     <>
       {/* Toast Animation Styles */}
       <style>{`
         @keyframes slideInRight {
           from {
             transform: translateX(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+        @keyframes slideInLeft {
+          from {
+            transform: translateX(-100%);
             opacity: 0;
           }
           to {
@@ -609,7 +640,7 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
                       !applicant.email || 
                       (messageStyle === 'default' && hasGeneratedOnce) // Lock for default style after first generation
                     }
-                    className="flex-1 px-6 py-4 bg-neutral-800 dark:bg-black text-white text-sm font-black uppercase tracking-widest rounded-lg hover:bg-neutral-700 dark:hover:bg-neutral-800 transition-all disabled:bg-neutral-400 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+                    className="flex-1 px-6 py-4 bg-neutral-800 dark:bg-black text-white text-sm font-black uppercase tracking-widest rounded-lg hover:bg-neutral-900 dark:hover:bg-black/80 active:translate-y-[1px] active:scale-[0.99] dark:active:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400/30 dark:focus-visible:ring-white/20 transition-all disabled:bg-neutral-400 disabled:cursor-not-allowed flex items-center justify-center gap-3"
                   >
                     {isGeneratingMessage ? (
                       <>
@@ -632,7 +663,7 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
                   <button
                     onClick={handleSendInvitation}
                     disabled={isSendingInvitation || !applicant.email || !generatedSubject.trim() || !generatedMessage.trim()}
-                    className="flex-1 px-6 py-4 bg-neutral-800 dark:bg-black text-white text-sm font-black uppercase tracking-widest rounded-lg hover:bg-neutral-700 dark:hover:bg-neutral-800 transition-all disabled:bg-neutral-400 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+                    className="flex-1 px-6 py-4 bg-neutral-800 dark:bg-black text-white text-sm font-black uppercase tracking-widest rounded-lg hover:bg-neutral-900 dark:hover:bg-black/80 active:translate-y-[1px] active:scale-[0.99] dark:active:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400/30 dark:focus-visible:ring-white/20 transition-all disabled:bg-neutral-400 disabled:cursor-not-allowed flex items-center justify-center gap-3"
                   >
                     {isSendingInvitation ? (
                       <>
@@ -653,32 +684,70 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
                 </div>
 
                 {/* Toast Notification */}
-                {showToast && invitationStatus && (
+                {false && showToast && invitationStatus && (
                   <div 
-                    className={`fixed bottom-4 right-4 z-50 flex items-center gap-3 px-6 py-4 rounded-lg shadow-xl min-w-[320px] max-w-[500px] transform transition-all duration-300 ${
+                    className={`fixed bottom-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg min-w-[320px] max-w-[500px] transform transition-all duration-300 text-white overflow-hidden relative ${
                       invitationStatus.type === 'success' 
-                        ? 'bg-green-500 text-white' 
+                        ? 'bg-green-500 border border-green-600' 
                         : invitationStatus.type === 'warning'
-                        ? 'bg-yellow-500 text-white'
+                        ? 'bg-yellow-500 border border-yellow-600'
                         : invitationStatus.type === 'critical'
-                        ? 'bg-orange-500 text-white'
-                        : 'bg-red-500 text-white'
+                        ? 'bg-orange-500 border border-orange-600'
+                        : 'bg-red-500 border border-red-600'
                     }`}
                     style={{ 
-                      animation: 'slideInRight 0.3s ease-out',
-                      boxShadow: invitationStatus.type === 'critical' 
-                        ? '0 10px 25px -5px rgba(255, 140, 0, 0.5), 0 0 20px rgba(255, 140, 0, 0.3)'
-                        : '0 10px 25px -5px rgba(0, 0, 0, 0.3)'
+                      animation: 'slideInRight 0.3s ease-out'
                     }}
                   >
-                    <p className="text-sm font-medium flex-1">{invitationStatus.message}</p>
+                    {/* Progress bar */}
+                    <div className={`absolute bottom-0 left-0 right-0 h-1 ${
+                      invitationStatus.type === 'success' 
+                        ? 'bg-green-600' 
+                        : invitationStatus.type === 'warning'
+                        ? 'bg-yellow-600'
+                        : invitationStatus.type === 'critical'
+                        ? 'bg-orange-600'
+                        : 'bg-red-600'
+                    }`}>
+                      <div 
+                        className="h-full bg-white/80 transition-all duration-50 ease-linear"
+                        style={{ width: `${toastProgress}%` }}
+                      />
+                    </div>
+                    
+                    {/* Icon based on type */}
+                    <div className="relative z-10 flex-shrink-0">
+                      {invitationStatus.type === 'success' ? (
+                        <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                      ) : invitationStatus.type === 'warning' ? (
+                        <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                      ) : invitationStatus.type === 'critical' ? (
+                        <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </div>
+                    
+                    <p className="text-sm font-medium flex-1 relative z-10">{invitationStatus.message}</p>
+                    
                     <button
-                      onClick={() => setShowToast(false)}
-                      className="ml-2 text-white hover:text-white/80 transition-colors flex-shrink-0"
+                      onClick={() => {
+                        setShowToast(false);
+                        setToastProgress(100);
+                      }}
+                      className="ml-2 text-white/80 hover:text-white transition-colors flex-shrink-0 relative z-10"
                       aria-label="Close"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                       </svg>
                     </button>
                   </div>
@@ -775,7 +844,9 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <span className="text-xs text-neutral-500 dark:text-neutral-400">—</span>
+                          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                            {applicant.emailSentCount && applicant.emailSentCount > 1 ? `${applicant.emailSentCount}x` : '1x'}
+                          </span>
                         </td>
                       </tr>
                     )}
@@ -1084,6 +1155,83 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
           )}
       </div>
     </div>
+
+    </>
+  );
+
+  // Render toast via portal so it's always relative to the viewport (not any transformed parent)
+  const toastElement = showToast && invitationStatus ? createPortal(
+    <div 
+      className={`fixed bottom-4 right-4 z-[9999] flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg min-w-[320px] max-w-[500px] transition-all duration-300 text-white overflow-hidden ${
+        invitationStatus.type === 'success' 
+          ? 'bg-green-500 border border-green-600' 
+          : invitationStatus.type === 'warning'
+          ? 'bg-yellow-500 border border-yellow-600'
+          : invitationStatus.type === 'critical'
+          ? 'bg-orange-500 border border-orange-600'
+          : 'bg-red-500 border border-red-600'
+      }`}
+      style={{ animation: 'slideInRight 0.3s ease-out' }}
+    >
+      {/* Progress bar */}
+      <div className={`absolute bottom-0 left-0 right-0 h-1 ${
+        invitationStatus.type === 'success' 
+          ? 'bg-green-600' 
+          : invitationStatus.type === 'warning'
+          ? 'bg-yellow-600'
+          : invitationStatus.type === 'critical'
+          ? 'bg-orange-600'
+          : 'bg-red-600'
+      }`}>
+        <div 
+          className="h-full bg-white/80 transition-all duration-50 ease-linear"
+          style={{ width: `${toastProgress}%` }}
+        />
+      </div>
+      
+      {/* Icon based on type */}
+      <div className="flex-shrink-0">
+        {invitationStatus.type === 'success' ? (
+          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+          </svg>
+        ) : invitationStatus.type === 'warning' ? (
+          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
+        ) : invitationStatus.type === 'critical' ? (
+          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
+        ) : (
+          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+          </svg>
+        )}
+      </div>
+      
+      <p className="text-sm font-medium flex-1">{invitationStatus.message}</p>
+      
+      <button
+        onClick={() => {
+          setShowToast(false);
+          setToastProgress(100);
+        }}
+        className="ml-2 text-white/80 hover:text-white transition-colors flex-shrink-0"
+        aria-label="Close"
+      >
+        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+        </svg>
+      </button>
+    </div>,
+    document.body
+  ) : null;
+
+  return (
+    <>
+      {mainContent}
+      {toastElement}
     </>
   );
 };

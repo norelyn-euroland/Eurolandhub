@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useState, startTransition, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useState, startTransition, useCallback, useRef } from 'react';
 // @google/genai guidelines: Import ViewType from shared types
 import { RegistrationStatus, Applicant, ViewType, RegistrationsTabType, BreadcrumbItem, Theme } from './lib/types';
 import { ensureWorkflow, recordManualReview, recordRequestInfo } from './lib/shareholdingsVerification';
@@ -35,12 +35,77 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
   };
 
   const [view, setView] = useState<ViewType>(getInitialView);
-  const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
+  
+  // Restore selected applicant from localStorage on mount
+  const getInitialSelectedApplicantId = (): string | null => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('eurolandhub_selected_applicant_id');
+    }
+    return null;
+  };
+  
+  const [selectedApplicantId, setSelectedApplicantId] = useState<string | null>(getInitialSelectedApplicantId);
   const { applicants, loading: applicantsLoading } = useApplicants({ realTime: true });
+  
+  // Find selected applicant from applicants list
+  const selectedApplicant = selectedApplicantId 
+    ? applicants.find(a => a.id === selectedApplicantId) || null
+    : null;
+  
+  // Track if we've restored the detail view on initial mount
+  const hasRestoredDetailView = useRef(false);
+  const isInitialMount = useRef(true);
+  
+  // Only restore detail view on initial mount if we have a saved applicant ID
+  useEffect(() => {
+    // Only run once on initial mount when applicants are loaded
+    if (!isInitialMount.current || applicantsLoading) return;
+    
+    // Get the saved applicant ID directly from localStorage to avoid dependency issues
+    const savedApplicantId = typeof window !== 'undefined' 
+      ? localStorage.getItem('eurolandhub_selected_applicant_id')
+      : null;
+    
+    if (savedApplicantId) {
+      const foundApplicant = applicants.find(a => a.id === savedApplicantId);
+      if (foundApplicant) {
+        // Restore detail view only on initial mount
+        setView('detail');
+        hasRestoredDetailView.current = true;
+        isInitialMount.current = false;
+      } else {
+        // Applicant not found, clear the saved ID
+        setSelectedApplicantId(null);
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('eurolandhub_selected_applicant_id');
+        }
+        hasRestoredDetailView.current = true;
+        isInitialMount.current = false;
+      }
+    } else {
+      hasRestoredDetailView.current = true;
+      isInitialMount.current = false;
+    }
+  }, [applicantsLoading, applicants]); // Only depend on loading state and applicants array
+  
+  // Clear selected applicant ID when explicitly navigating away from detail view
+  // But only if we've already restored (to avoid clearing during initial restore)
+  useEffect(() => {
+    if (!hasRestoredDetailView.current) return; // Don't clear during initial restore
+    
+    if (view !== 'detail' && selectedApplicantId) {
+      // User navigated away from detail view, clear the saved ID
+      // This is safe because breadcrumb handlers also clear it, but this is a backup
+      setSelectedApplicantId(null);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('eurolandhub_selected_applicant_id');
+      }
+    }
+  }, [view]); // Only depend on view, not selectedApplicantId to avoid loops
   const [searchQuery, setSearchQuery] = useState('');
   const [registrationsTabRequest, setRegistrationsTabRequest] = useState<{ tab: RegistrationsTabType; requestId: number } | null>(null);
   
-  // Navigation state tracking
+  // Navigation state tracking - Default to 'ALL' if no saved state exists
   const getInitialTab = (): RegistrationsTabType => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('eurolandhub_registrations_tab');
@@ -48,6 +113,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
         return saved as RegistrationsTabType;
       }
     }
+    // Default to 'ALL' when first visiting (no saved state)
     return 'ALL';
   };
 
@@ -94,7 +160,10 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
         searchQuery: registrationsSearchQuery
       });
     }
-    setSelectedApplicant(applicant);
+    setSelectedApplicantId(applicant.id);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('eurolandhub_selected_applicant_id', applicant.id);
+    }
     setView('detail');
   };
 
@@ -131,7 +200,10 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
     }
 
     setView('registrations');
-    setSelectedApplicant(null);
+    setSelectedApplicantId(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('eurolandhub_selected_applicant_id');
+    }
   };
 
   const pendingApplicants = applicants.filter(a => a.status === RegistrationStatus.PENDING);
@@ -151,7 +223,10 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
     // review_applicant
     const applicant = applicants.find(a => a.id === action.applicantId);
     if (applicant) {
-      setSelectedApplicant(applicant);
+      setSelectedApplicantId(applicant.id);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('eurolandhub_selected_applicant_id', applicant.id);
+      }
       setView('detail');
     } else {
       // Fallback: open the unverified queue if the applicant is not found
@@ -207,15 +282,11 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
           label: 'Registrations',
           view: 'registrations',
           onClick: () => {
-            // Only update if not already in the desired state to prevent lag
+            // Reset to ALL filter (default view) — only if needed
             if (activeRegistrationsTab !== 'ALL' || registrationsSearchQuery !== '') {
-              // Batch state updates to prevent rapid re-renders
-              startTransition(() => {
-                setView('registrations');
-                setActiveRegistrationsTab('ALL');
-                setRegistrationsSearchQuery('');
-                setRegistrationsTabRequest({ tab: 'ALL', requestId: Date.now() });
-              });
+              setActiveRegistrationsTab('ALL');
+              setRegistrationsSearchQuery('');
+              setRegistrationsTabRequest({ tab: 'ALL', requestId: Date.now() });
             }
           },
           filter: {
@@ -249,20 +320,20 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
           onClick: () => setView('dashboard')
         });
         
-        // Add Registrations breadcrumb
+        // Add Registrations breadcrumb — clicking goes back to ALL (default) view
         items.push({
           label: 'Registrations',
           view: 'registrations',
           onClick: () => {
-            setView('registrations');
-            if (preservedFilterState) {
-              setRegistrationsTabRequest({ 
-                tab: preservedFilterState.tab, 
-                requestId: Date.now() 
-              });
-              setActiveRegistrationsTab(preservedFilterState.tab);
-              setRegistrationsSearchQuery(preservedFilterState.searchQuery);
+            // Clear selected applicant + navigate to registrations (default ALL)
+            setSelectedApplicantId(null);
+            if (typeof window !== 'undefined') {
+              localStorage.removeItem('eurolandhub_selected_applicant_id');
             }
+            setActiveRegistrationsTab('ALL');
+            setRegistrationsSearchQuery('');
+            setPreservedFilterState(null);
+            setView('registrations');
           },
           filter: preservedFilterState ? {
             tab: preservedFilterState.tab,
@@ -276,13 +347,15 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
             label: getTabLabel(preservedFilterState.tab),
             view: 'registrations',
             onClick: () => {
-              setView('registrations');
-              setRegistrationsTabRequest({ 
-                tab: preservedFilterState.tab, 
-                requestId: Date.now() 
-              });
+              // Navigate back to registrations with the preserved filter
+              setSelectedApplicantId(null);
+              if (typeof window !== 'undefined') {
+                localStorage.removeItem('eurolandhub_selected_applicant_id');
+              }
               setActiveRegistrationsTab(preservedFilterState.tab);
               setRegistrationsSearchQuery(preservedFilterState.searchQuery);
+              setPreservedFilterState(null);
+              setView('registrations');
             },
             filter: {
               tab: preservedFilterState.tab,
@@ -317,20 +390,23 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
     return items;
   }, [view, activeRegistrationsTab, registrationsSearchQuery, preservedFilterState]);
 
-  // Handle tab changes from DashboardHome
-  const handleTabChange = (tab: RegistrationsTabType) => {
+  // Handle tab changes from DashboardHome (stable reference to prevent loops)
+  const handleTabChange = useCallback((tab: RegistrationsTabType) => {
     setActiveRegistrationsTab(tab);
-  };
+  }, []);
 
-  // Handle search query changes from DashboardHome
-  const handleSearchChange = (query: string) => {
+  // Handle search query changes from DashboardHome (stable reference to prevent loops)
+  const handleSearchChange = useCallback((query: string) => {
     setRegistrationsSearchQuery(query);
-  };
+  }, []);
 
   // Handle back navigation from detail view
   const handleBackFromDetail = () => {
     setView('registrations');
-    setSelectedApplicant(null);
+    setSelectedApplicantId(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('eurolandhub_selected_applicant_id');
+    }
     
     // Restore preserved filter state
     if (preservedFilterState) {

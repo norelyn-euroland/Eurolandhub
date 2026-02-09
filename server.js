@@ -448,7 +448,7 @@ Write naturally and creatively. Make it clearly FRIENDLY but feel free to expres
       };
 
       // Model configuration: Primary and Fallback
-      const primaryModel = 'qwen2.5-32b-instruct';
+      const primaryModel = 'qwen/qwen3-32b';
       const fallbackModel = 'llama-3.3-70b-versatile';
 
       const stylePrompt = stylePrompts[normalizedStyle] || stylePrompts.professional;
@@ -1071,14 +1071,36 @@ Euroland Team`;
     // SENT_EMAIL -> PENDING (accountStatus), ACTIVE (systemStatus)
     if (registrationId) {
       try {
-        const { applicantService } = require('./lib/firestore-service');
-        await applicantService.update(registrationId, {
-          emailSentAt: new Date().toISOString(),
-          workflowStage: 'SENT_EMAIL',
-          systemStatus: 'ACTIVE',
-          accountStatus: 'PENDING', // Account status remains PENDING until claimed
-        });
-        console.log('Updated email sent timestamp in Firebase for applicant:', registrationId);
+        // Dynamic import for TypeScript module (tsx can handle .ts extensions)
+        const { applicantService } = await import('./lib/firestore-service.ts');
+        
+        // First, try to find applicant by ID (in case registrationId is the applicant.id)
+        let existingApplicant = await applicantService.getById(registrationId);
+        
+        // If not found, search by registrationId field (holdingId) or email
+        if (!existingApplicant) {
+          const allApplicants = await applicantService.getAll();
+          existingApplicant = allApplicants.find(a => 
+            a.registrationId === registrationId || 
+            (a.email && a.email.toLowerCase() === String(toEmail).trim().toLowerCase())
+          ) || null;
+        }
+        
+        if (!existingApplicant) {
+          console.warn(`Applicant document not found for registrationId: ${registrationId}, email: ${String(toEmail).trim()}. Skipping Firebase update.`);
+        } else {
+          // Get current email sent count or default to 0
+          const currentEmailSentCount = existingApplicant.emailSentCount || 0;
+          
+          await applicantService.update(existingApplicant.id, {
+            emailSentAt: new Date().toISOString(),
+            emailSentCount: currentEmailSentCount + 1, // Increment send count
+            workflowStage: 'SENT_EMAIL',
+            systemStatus: 'ACTIVE',
+            accountStatus: 'PENDING', // Account status remains PENDING until claimed
+          });
+          console.log('Updated email sent timestamp and status in Firebase for applicant:', existingApplicant.id);
+        }
       } catch (firebaseError) {
         console.error('Failed to update email sent timestamp in Firebase:', firebaseError);
         // Don't fail the request if Firebase update fails
@@ -1111,8 +1133,9 @@ app.get('/api/track-email-open', async (req, res) => {
       return;
     }
 
-    const { applicantService } = require('./lib/firestore-service');
-    const applicant = await applicantService.getById(String(applicantId));
+        // Dynamic import for TypeScript module (tsx can handle .ts extensions)
+        const { applicantService } = await import('./lib/firestore-service.ts');
+        const applicant = await applicantService.getById(String(applicantId));
     if (applicant) {
       const now = new Date().toISOString();
       const updates = {
@@ -1150,8 +1173,9 @@ app.get('/api/track-link-click', async (req, res) => {
       return;
     }
 
-    const { applicantService } = require('./lib/firestore-service');
-    const applicant = await applicantService.getById(String(applicantId));
+        // Dynamic import for TypeScript module (tsx can handle .ts extensions)
+        const { applicantService } = await import('./lib/firestore-service.ts');
+        const applicant = await applicantService.getById(String(applicantId));
     if (applicant) {
       const now = new Date().toISOString();
       const updates = {

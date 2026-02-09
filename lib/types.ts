@@ -120,6 +120,14 @@ export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders'
 export type RegistrationsTabType = 'PENDING' | 'VERIFIED' | 'NON_VERIFIED' | 'PRE_VERIFIED' | 'ALL';
 
 /**
+ * Theme enum for dark/light mode
+ */
+export enum Theme {
+  LIGHT = "light",
+  DARK = "dark",
+}
+
+/**
  * Breadcrumb item for navigation display
  */
 export interface BreadcrumbItem {
@@ -194,6 +202,7 @@ export interface Applicant {
   // Email tracking fields
   emailGeneratedAt?: string; // ISO timestamp when message was generated
   emailSentAt?: string; // ISO timestamp when email was sent
+  emailSentCount?: number; // Number of times email was sent
   emailOpenedAt?: string; // ISO timestamp when email was first opened
   emailOpenedCount?: number; // Number of times email was opened
   linkClickedAt?: string; // ISO timestamp when link was first clicked
