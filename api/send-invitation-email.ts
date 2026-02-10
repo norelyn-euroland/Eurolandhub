@@ -849,14 +849,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Use custom subject and body, but replace variables if they exist
       finalSubject = String(customSubject)
         .replace(/\{\{ first_name \}\}/gi, actualFirstName)
-        .replace(/\{\{firstName\}\}/gi, actualFirstName);
+        .replace(/\{\{firstName\}\}/gi, actualFirstName)
+        .replace(/\{\{ last_name \}\}/gi, actualLastName)
+        .replace(/\{\{lastName\}\}/gi, actualLastName);
       
       finalBody = String(customBody)
         .replace(/\{\{ first_name \}\}/gi, actualFirstName)
+        .replace(/\{\{ last_name \}\}/gi, actualLastName)
         .replace(/\{\{ registration_link \}\}/gi, registrationLink)
         .replace(/\{\{ registration_id \}\}/gi, actualRegistrationId)
         // Also handle variations without spaces
         .replace(/\{\{firstName\}\}/gi, actualFirstName)
+        .replace(/\{\{lastName\}\}/gi, actualLastName)
         .replace(/\{\{registrationLink\}\}/gi, registrationLink)
         .replace(/\{\{registrationId\}\}/gi, actualRegistrationId);
       
@@ -1093,7 +1097,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
         
         if (!existingApplicant) {
-          console.warn(`Applicant document not found for registrationId: ${registrationId}, email: ${toEmail.trim()}. Skipping Firebase update.`);
+          // If applicant doesn't exist yet (e.g., IRO hasn't clicked Save & Exit),
+          // create a pre-verified applicant now so the Pre-verified table/status mapping is accurate.
+          const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+          const fullName = `${actualFirstName || ''} ${actualLastName || ''}`.trim() || 'Unknown';
+
+          await applicantService.create({
+            id: newId,
+            fullName,
+            email: trimmedEmail.toLowerCase(),
+            phoneNumber: undefined,
+            location: undefined,
+            submissionDate: new Date().toISOString().split('T')[0],
+            lastActive: 'Just now',
+            status: 'PENDING' as any,
+            idDocumentUrl: '',
+            taxDocumentUrl: '',
+            // Pre-verified workflow fields
+            workflowStage: 'SENT_EMAIL' as any,
+            accountStatus: 'PENDING' as any,
+            systemStatus: 'ACTIVE' as any,
+            statusInFrontend: '',
+            isPreVerified: true,
+            registrationId: actualRegistrationId || registrationId || undefined,
+            // Email tracking fields
+            emailSentAt: new Date().toISOString(),
+            emailSentCount: 1,
+          } as any);
+
+          console.log('Created pre-verified applicant on email send:', newId);
         } else {
           // Get current email sent count or default to 0
           const currentEmailSentCount = existingApplicant.emailSentCount || 0;

@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import Busboy from 'busboy';
 import { Resend } from 'resend';
+import { invitationTemplate } from './lib/email-templates.ts';
 
 // Load env vars from both .env.local (preferred) and .env (fallback)
 dotenv.config({ path: '.env.local' });
@@ -10,6 +11,269 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Lightweight helpers for template-to-text (used by /api/generate-invitation-message)
+function htmlToText(html) {
+  if (!html) return '';
+  let text = String(html).replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+  text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+  text = text.replace(/<!--[\s\S]*?-->/g, '');
+  text = text.replace(/\s*style\s*=\s*["'][^"']*["']/gi, '');
+  text = text.replace(/\s*class\s*=\s*["'][^"']*["']/gi, '');
+
+  text = text.replace(/<\/p>/gi, '\n\n');
+  text = text.replace(/<\/div>/gi, '\n\n');
+  text = text.replace(/<\/h[1-6]>/gi, '\n\n');
+  text = text.replace(/<\/li>/gi, '\n');
+  text = text.replace(/<\/ul>/gi, '\n\n');
+  text = text.replace(/<\/ol>/gi, '\n\n');
+  text = text.replace(/<br\s*\/?>/gi, '\n');
+
+  text = text.replace(/<[^>]*>/g, '');
+
+  text = text
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#96;/g, '`')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#160;/g, ' ');
+
+  return text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function cleanBodyText(body, subject) {
+  if (!body || !subject) return body;
+  const escapedSubject = String(subject).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const subjectPattern = new RegExp(`^\\s*${escapedSubject}\\s*[\\n\\r\\s]*`, 'i');
+  return String(body).replace(subjectPattern, '').replace(/^Subject:\s*[^\n\r]*[\n\r\s]*/i, '').trim();
+}
+
+function structureMessageBody(body) {
+  return String(body).replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * Adapt invitation message style using Groq while preserving protected placeholders.
+ * This is used by /api/generate-invitation-message (template generation),
+ * so it MUST NOT inject any real names/links and MUST keep protected placeholders intact.
+ */
+async function adaptMessageStyle(baseSubject, baseBody, style, groqKey) {
+  const normalizedStyle = String(style || '').toLowerCase().trim();
+
+  const globalSystemPrompt = `You are composing an investor invitation email from structured facts.
+You are NOT rewriting or paraphrasing any existing email.
+
+Your task is to WRITE A NEW EMAIL from scratch in the requested MESSAGE STYLE.
+Each regeneration may vary phrasing, structure, tone, and greeting naturally.
+
+Do NOT reuse wording, sentence structure, or paragraph flow from any prior output.
+
+Focus on clarity, trust, and a clear call-to-action.
+This is an invitation email, not a brochure or announcement.
+
+────────────────────────────────────────
+PROTECTED PLACEHOLDERS (CRITICAL)
+────────────────────────────────────────
+You MUST include these EXACT placeholders:
+- [PROTECTED_FIRST_NAME]
+- [PROTECTED_LAST_NAME]
+- [PROTECTED_REGISTRATION_LINK]
+
+Rules:
+- Do NOT modify, rename, merge, or remove placeholders
+- Do NOT replace placeholders with real values
+- You may place them naturally anywhere in the message
+
+────────────────────────────────────────
+FACTS YOU MUST COMMUNICATE
+────────────────────────────────────────
+Your email must clearly communicate ALL of the following facts:
+
+1. The recipient appears in official shareholder records
+2. A pre-verified investor account already exists for them
+3. They are invited to complete a short registration
+4. Registration is completed by visiting [PROTECTED_REGISTRATION_LINK]
+5. The invitation link is valid for 30 days
+6. After registration, they gain access to verified investor features
+7. If the email was received in error, it can be ignored
+8. The sender is Euroland Team
+
+────────────────────────────────────────
+OUTPUT FORMAT (STRICT)
+────────────────────────────────────────
+Return EXACTLY this format:
+
+Subject:
+<write subject line>
+
+Body:
+<write full email body>
+
+Do not add explanations, headings, or extra text.`;
+
+  const stylePrompts = {
+    formal: `STYLE: FORMAL
+
+Apply a FORMAL tone:
+- Very polite and structured language
+- NO contractions (use "do not", "you are", etc.)
+- Suitable for regulated financial communication
+
+REQUIRED: The wording MUST be different from the input. Rewrite actively.`,
+    professional: `STYLE: PROFESSIONAL
+
+Apply a PROFESSIONAL tone:
+- Polished investor-relations voice
+- Clear, confident, reassuring
+- Slightly warmer than Formal
+
+REQUIRED: The wording MUST be different from the input. Rewrite actively.`,
+    casual: `STYLE: CASUAL
+
+Apply a CASUAL tone:
+- Conversational and relaxed
+- Contractions are OK
+- Approachable but still respectful
+
+REQUIRED: The wording MUST be different from the input. Rewrite actively.`,
+    friendly: `STYLE: FRIENDLY
+
+Apply a FRIENDLY tone:
+- Warm, welcoming, encouraging
+- Human and personable
+- Positive and inviting language
+
+REQUIRED: The wording MUST be different from the input. Rewrite actively.`,
+  };
+
+  const chosenStylePrompt = stylePrompts[normalizedStyle] || stylePrompts.professional;
+
+  const parseLLMResponse = (responseText) => {
+    const text = String(responseText || '');
+    const subjectMatch = text.match(/Subject:\s*(.+?)(?:\r?\n|$)/i);
+    const subject = subjectMatch ? subjectMatch[1].trim() : '';
+    const bodyMatch = text.match(/Body:\s*([\s\S]+)$/i);
+    const body = bodyMatch ? bodyMatch[1].trim() : text.trim();
+    return { subject, body };
+  };
+
+  const callGroq = async (model) => {
+    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${groqKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.7,
+        max_tokens: 900,
+        messages: [
+          { role: 'system', content: globalSystemPrompt },
+          {
+            role: 'user',
+            content: `${chosenStylePrompt}
+
+INPUT SUBJECT:
+${baseSubject}
+
+INPUT BODY:
+${baseBody}`,
+          },
+        ],
+      }),
+    });
+
+    const json = await r.json().catch(() => ({}));
+
+    // Normalize errors
+    if (!r.ok) {
+      const status = r.status;
+      const msg =
+        json?.error?.message ||
+        json?.message ||
+        `Groq request failed with status ${status}`;
+      const err = new Error(msg);
+      err.status = status;
+      throw err;
+    }
+
+    const content = json?.choices?.[0]?.message?.content;
+    return String(content || '');
+  };
+
+  const primaryModel = 'qwen/qwen3-32b';
+  const fallbackModel = 'llama-3.3-70b-versatile';
+
+  let rateLimitWarning;
+  let usedText;
+
+  try {
+    usedText = await callGroq(primaryModel);
+  } catch (e) {
+    const status = e?.status;
+    if (status === 429) {
+      // Try fallback model on rate-limit
+      try {
+        usedText = await callGroq(fallbackModel);
+        rateLimitWarning = 'primary';
+      } catch (e2) {
+        if (e2?.status === 429) {
+          rateLimitWarning = 'both';
+          return { subject: baseSubject, body: baseBody, rateLimitWarning };
+        }
+        throw e2;
+      }
+    } else {
+      throw e;
+    }
+  }
+
+  const parsed = parseLLMResponse(usedText);
+  const subjectOut = parsed.subject || baseSubject;
+  let bodyOut = parsed.body || baseBody;
+
+  // Guardrails: ensure placeholders still exist; if missing, restore them without discarding the styled output
+  const required = ['[PROTECTED_FIRST_NAME]', '[PROTECTED_LAST_NAME]', '[PROTECTED_REGISTRATION_LINK]'];
+  const missing = required.filter((p) => !String(bodyOut).includes(p));
+  if (missing.length > 0) {
+    // Restore greeting placeholders if missing
+    const hasGreeting = /^(hello|hi|dear|greetings)\b/i.test(String(bodyOut).trim());
+    if (!hasGreeting && missing.includes('[PROTECTED_FIRST_NAME]')) {
+      bodyOut = `Hello [PROTECTED_FIRST_NAME],\n\n${String(bodyOut).trim()}`;
+    }
+
+    // If last name is missing, try to append it to the greeting line (or add a polite opener)
+    if (missing.includes('[PROTECTED_LAST_NAME]')) {
+      const lines = String(bodyOut).split(/\r?\n/);
+      if (lines.length > 0 && /^(hello|hi|dear|greetings)\b/i.test(lines[0])) {
+        // Add last name after first name if present; otherwise append at end of greeting
+        lines[0] = lines[0]
+          .replace(/\[PROTECTED_FIRST_NAME\](?!\s+\[PROTECTED_LAST_NAME\])/g, '[PROTECTED_FIRST_NAME] [PROTECTED_LAST_NAME]')
+          .replace(/\s+\[PROTECTED_LAST_NAME\]\s+\[PROTECTED_LAST_NAME\]/g, ' [PROTECTED_LAST_NAME]');
+        bodyOut = lines.join('\n');
+      } else {
+        bodyOut = `Dear [PROTECTED_FIRST_NAME] [PROTECTED_LAST_NAME],\n\n${String(bodyOut).trim()}`;
+      }
+    }
+
+    // Restore registration link call-to-action if missing
+    if (missing.includes('[PROTECTED_REGISTRATION_LINK]')) {
+      const cta = `\n\nComplete your registration here: [PROTECTED_REGISTRATION_LINK]`;
+      bodyOut = `${String(bodyOut).trim()}${cta}`;
+    }
+
+    // Mark that we had to restore placeholders
+    rateLimitWarning = rateLimitWarning || 'placeholders';
+  }
+
+  return { subject: subjectOut, body: bodyOut, rateLimitWarning };
+}
 
 // CORS configuration - allow requests from Vite dev server
 app.use(cors({
@@ -23,6 +287,87 @@ app.use(express.json());
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'API server is running' });
+});
+
+/**
+ * POST /api/generate-invitation-message
+ * Returns an invitation SUBJECT/BODY **template** with raw placeholders preserved:
+ * - {{ first_name }}
+ * - {{ last_name }}
+ * - {{ registration_link }}
+ *
+ * This is used by the UI to generate a message before selecting recipients,
+ * so we must NOT inject any real names or links here.
+ */
+app.post('/api/generate-invitation-message', async (req, res) => {
+  try {
+    const { messageStyle = 'default' } = req.body || {};
+
+    // Convert template HTML to plain text body
+    const templateSubject = invitationTemplate.subject;
+    let templateBodyText = htmlToText(invitationTemplate.html);
+    templateBodyText = cleanBodyText(templateBodyText, templateSubject);
+
+    // Default style: return template as-is (placeholders intact)
+    if (String(messageStyle).toLowerCase().trim() === 'default') {
+      res.status(200).json({
+        ok: true,
+        subject: templateSubject,
+        body: structureMessageBody(templateBodyText),
+      });
+      return;
+    }
+
+    // Other styles: use LLM but keep placeholders protected, then map them back to {{ ... }}
+    const groqKey = process.env.GROQ_API_KEY;
+    if (!groqKey) {
+      // Fallback to default template if no key
+      res.status(200).json({
+        ok: true,
+        subject: templateSubject,
+        body: structureMessageBody(templateBodyText),
+        warning: 'Missing GROQ_API_KEY; using default template.',
+      });
+      return;
+    }
+
+    const protectedSubject = String(templateSubject)
+      .replace(/\{\{ first_name \}\}/gi, '[PROTECTED_FIRST_NAME]')
+      .replace(/\{\{firstName\}\}/gi, '[PROTECTED_FIRST_NAME]')
+      .replace(/\{\{ last_name \}\}/gi, '[PROTECTED_LAST_NAME]')
+      .replace(/\{\{lastName\}\}/gi, '[PROTECTED_LAST_NAME]');
+
+    const protectedBody = String(templateBodyText)
+      .replace(/\{\{ first_name \}\}/gi, '[PROTECTED_FIRST_NAME]')
+      .replace(/\{\{firstName\}\}/gi, '[PROTECTED_FIRST_NAME]')
+      .replace(/\{\{ last_name \}\}/gi, '[PROTECTED_LAST_NAME]')
+      .replace(/\{\{lastName\}\}/gi, '[PROTECTED_LAST_NAME]')
+      .replace(/\{\{ registration_link \}\}/gi, '[PROTECTED_REGISTRATION_LINK]')
+      .replace(/\{\{registrationLink\}\}/gi, '[PROTECTED_REGISTRATION_LINK]')
+      .replace(/\{\{ registration_id \}\}/gi, '[PROTECTED_REGISTRATION_ID]')
+      .replace(/\{\{registrationId\}\}/gi, '[PROTECTED_REGISTRATION_ID]');
+
+    const adapted = await adaptMessageStyle(protectedSubject, protectedBody, messageStyle, groqKey);
+    const outSubject = String(adapted.subject || protectedSubject)
+      .replace(/\[PROTECTED_FIRST_NAME\]/g, '{{ first_name }}')
+      .replace(/\[PROTECTED_LAST_NAME\]/g, '{{ last_name }}');
+
+    const outBody = String(adapted.body || protectedBody)
+      .replace(/\[PROTECTED_FIRST_NAME\]/g, '{{ first_name }}')
+      .replace(/\[PROTECTED_LAST_NAME\]/g, '{{ last_name }}')
+      .replace(/\[PROTECTED_REGISTRATION_LINK\]/g, '{{ registration_link }}')
+      .replace(/\[PROTECTED_REGISTRATION_ID\]/g, '{{ registration_id }}');
+
+    res.status(200).json({
+      ok: true,
+      subject: outSubject,
+      body: structureMessageBody(outBody),
+      rateLimitWarning: adapted.rateLimitWarning,
+    });
+  } catch (e) {
+    console.error('Error in generate-invitation-message:', e);
+    res.status(500).json({ error: 'Failed to generate invitation template' });
+  }
 });
 
 /**
@@ -795,13 +1140,17 @@ Euroland Team`;
       // Use custom subject and body, but replace variables if they exist
       finalSubject = String(customSubject)
         .replace(/\{\{ first_name \}\}/gi, actualFirstName)
-        .replace(/\{\{firstName\}\}/gi, actualFirstName);
+        .replace(/\{\{firstName\}\}/gi, actualFirstName)
+        .replace(/\{\{ last_name \}\}/gi, actualLastName)
+        .replace(/\{\{lastName\}\}/gi, actualLastName);
       
       finalBody = String(customBody)
         .replace(/\{\{ first_name \}\}/gi, actualFirstName)
+        .replace(/\{\{ last_name \}\}/gi, actualLastName)
         .replace(/\{\{ registration_link \}\}/gi, registrationLink)
         .replace(/\{\{ registration_id \}\}/gi, actualRegistrationId)
         .replace(/\{\{firstName\}\}/gi, actualFirstName)
+        .replace(/\{\{lastName\}\}/gi, actualLastName)
         .replace(/\{\{registrationLink\}\}/gi, registrationLink)
         .replace(/\{\{registrationId\}\}/gi, actualRegistrationId);
       
@@ -1087,7 +1436,35 @@ Euroland Team`;
         }
         
         if (!existingApplicant) {
-          console.warn(`Applicant document not found for registrationId: ${registrationId}, email: ${String(toEmail).trim()}. Skipping Firebase update.`);
+          // If applicant doesn't exist yet (e.g., IRO hasn't clicked Save & Exit),
+          // create a pre-verified applicant now so the Pre-verified table/status mapping is accurate.
+          const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+          const fullName = `${actualFirstName || ''} ${actualLastName || ''}`.trim() || 'Unknown';
+
+          await applicantService.create({
+            id: newId,
+            fullName,
+            email: String(toEmail).trim().toLowerCase(),
+            phoneNumber: undefined,
+            location: undefined,
+            submissionDate: new Date().toISOString().split('T')[0],
+            lastActive: 'Just now',
+            status: 'PENDING',
+            idDocumentUrl: '',
+            taxDocumentUrl: '',
+            // Pre-verified workflow fields
+            workflowStage: 'SENT_EMAIL',
+            accountStatus: 'PENDING',
+            systemStatus: 'ACTIVE',
+            statusInFrontend: '',
+            isPreVerified: true,
+            registrationId: actualRegistrationId || registrationId || undefined,
+            // Email tracking fields
+            emailSentAt: new Date().toISOString(),
+            emailSentCount: 1,
+          });
+
+          console.log('Created pre-verified applicant on email send:', newId);
         } else {
           // Get current email sent count or default to 0
           const currentEmailSentCount = existingApplicant.emailSentCount || 0;

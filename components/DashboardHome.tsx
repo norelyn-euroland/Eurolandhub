@@ -47,9 +47,26 @@ const getAvatarColor = (name: string): string => {
 };
 
 // Avatar component
-const Avatar: React.FC<{ name: string; size?: number }> = ({ name, size = 40 }) => {
+const Avatar: React.FC<{ name: string; size?: number; profilePictureUrl?: string }> = ({ name, size = 40, profilePictureUrl }) => {
+  const [imageError, setImageError] = React.useState(false);
   const initials = getInitials(name);
   const color = getAvatarColor(name);
+  
+  // If profile picture is available and no error, use it
+  if (profilePictureUrl && !imageError) {
+    return (
+      <img
+        src={profilePictureUrl}
+        alt={name}
+        className="rounded-full shrink-0 object-cover"
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+        }}
+        onError={() => setImageError(true)}
+      />
+    );
+  }
   
   return (
     <div
@@ -79,6 +96,7 @@ interface DashboardHomeProps {
   onSearchChange?: (query: string) => void;
   initialTab?: TabType;
   initialSearchQuery?: string;
+  sidebarCollapsed?: boolean;
 }
 
 type TabType = 'PENDING' | 'VERIFIED' | 'NON_VERIFIED' | 'PRE_VERIFIED' | 'ALL';
@@ -90,7 +108,8 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
   onTabChange,
   onSearchChange,
   initialTab,
-  initialSearchQuery
+  initialSearchQuery,
+  sidebarCollapsed = false
 }) => {
   // Always default to 'ALL' if no initialTab is provided
   const [activeTab, setActiveTab] = useState<TabType>(() => {
@@ -709,7 +728,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                     <>
                       <td className="px-8 py-5">
                         <div className="flex items-center gap-4">
-                          <Avatar name={applicant.fullName} size={36} />
+                          <Avatar name={applicant.fullName} size={36} profilePictureUrl={applicant.profilePictureUrl} />
                           <div className="min-w-0 flex-1">
                             <Tooltip content={applicant.fullName}>
                               <div className="text-sm font-bold text-neutral-900 dark:text-neutral-100 leading-none mb-1 truncate">{applicant.fullName}</div>
@@ -787,6 +806,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
         isOpen={isAddInvestorModalOpen}
         onClose={() => setIsAddInvestorModalOpen(false)}
         onSave={handleInvestorSave}
+        sidebarCollapsed={sidebarCollapsed}
       />
     </div>
   );

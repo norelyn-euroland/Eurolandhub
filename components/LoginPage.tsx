@@ -191,36 +191,13 @@ const LoginPage: React.FC = () => {
                 )}
               </button>
             </div>
-            {/* Remember Me - positioned below password field */}
-            <div className="mt-2 flex items-center gap-2">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <div
-                  className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
-                    rememberMe ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600'
-                  }`}
-                  onClick={() => setRememberMe(!rememberMe)}
-                >
-                  {rememberMe && (
-                    <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </div>
-                <span
-                  className="text-sm text-neutral-600 dark:text-neutral-300"
-                  onClick={() => setRememberMe(!rememberMe)}
-                >
-                  Remember me for 31 days
-                </span>
-              </label>
-            </div>
             {passwordError && (
               <p className="mt-1 text-sm text-red-400">{passwordError}</p>
             )}
           </div>
 
-          {/* Log In Button */}
-          <div className="pt-2">
+          {/* Log In Button and Remember Me on same row */}
+          <div className="pt-2 flex items-center justify-between">
             <button
               type="submit"
               disabled={loading}
@@ -228,6 +205,27 @@ const LoginPage: React.FC = () => {
             >
               {loading ? 'Logging in...' : 'Log In'}
             </button>
+            {/* Remember Me - aligned to the right */}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <span
+                className="text-sm text-neutral-600 dark:text-neutral-300"
+                onClick={() => setRememberMe(!rememberMe)}
+              >
+                Remember me
+              </span>
+              <div
+                className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
+                  rememberMe ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600'
+                }`}
+                onClick={() => setRememberMe(!rememberMe)}
+              >
+                {rememberMe && (
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </div>
+            </label>
           </div>
         </form>
       </div>

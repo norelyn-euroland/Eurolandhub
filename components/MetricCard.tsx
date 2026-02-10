@@ -27,12 +27,12 @@ const CustomTooltip = ({ active, payload, themeColor, coordinate }: TooltipProps
       <div 
         className="bg-white dark:bg-[#262626] border border-neutral-200 dark:border-white/10 px-3 py-2 rounded-lg shadow-2xl backdrop-blur-md pointer-events-none" 
         style={{ 
-          position: 'absolute',
-          zIndex: 99999,
+          position: 'fixed', // Use fixed to escape parent overflow and z-index constraints
+          zIndex: 999999, // Very high z-index to ensure it's above everything including text
           left: `${coordinate.x}px`,
-          top: `${coordinate.y - 70}px`,
-          transform: 'translate(-50%, 0)',
-          whiteSpace: 'nowrap'
+          top: `${coordinate.y - 70}px`, // Position above the point
+          transform: 'translate(-50%, 0)', // Center horizontally
+          whiteSpace: 'nowrap' // Prevent text wrapping
         }}
       >
         <p className="text-[10px] uppercase tracking-widest text-neutral-500 dark:text-gray-400 font-bold mb-0.5">
@@ -115,6 +115,8 @@ const MetricCard: React.FC<MetricCardProps> = ({
 
   // Use a stable unique ID for gradient (avoid special chars)
   const gradientId = React.useId();
+  const borderGradientId = `border-${gradientId}`;
+  const flareId = `flare-${gradientId}`;
 
   // Deterministic seeded random — same seed always produces the same value.
   // Charts only change when the week number changes (every 7 days).
@@ -158,10 +160,26 @@ const MetricCard: React.FC<MetricCardProps> = ({
   const isUp = trend.direction === 'up';
 
   return (
-    <div className="group relative rounded-2xl bg-white dark:bg-[#1a1a1a] p-6 shadow-xl border border-neutral-200 dark:border-white/5 flex flex-col justify-between transition-all duration-300 hover:border-neutral-300 dark:hover:border-white/10 hover:bg-neutral-50 dark:hover:bg-[#1e1e1e] hover:-translate-y-1 h-[200px] overflow-visible">
+    <div className="group relative rounded-2xl bg-white dark:bg-[#1a1a1a] p-6 shadow-xl border border-neutral-200 dark:border-white/5 flex flex-col justify-between transition-all duration-300 hover:border-neutral-300 dark:hover:border-white/10 hover:bg-neutral-50 dark:hover:bg-[#1e1e1e] hover:-translate-y-1 h-[260px] overflow-visible">
+
+      {/* Micro-texture overlay for dark mode */}
+      <div className="absolute inset-0 rounded-2xl pointer-events-none overflow-hidden">
+        <svg className="absolute inset-0 w-full h-full opacity-[0.03] dark:opacity-[0.08]">
+          <filter id={`noise-${gradientId}`}>
+            <feTurbulence 
+              type="fractalNoise" 
+              baseFrequency="0.9" 
+              numOctaves="4" 
+              stitchTiles="stitch"
+            />
+            <feColorMatrix type="saturate" values="0" />
+          </filter>
+          <rect width="100%" height="100%" filter={`url(#noise-${gradientId})`} />
+        </svg>
+      </div>
 
       {/* Metric Header Section */}
-      <div className="z-10 relative pointer-events-none">
+      <div className="z-10 relative pointer-events-none" style={{ zIndex: 10 }}>
         <h3 className="text-neutral-500 dark:text-gray-400 text-xs font-semibold mb-2 tracking-widest uppercase opacity-70">
           {title}
         </h3>
@@ -179,10 +197,10 @@ const MetricCard: React.FC<MetricCardProps> = ({
         </p>
       </div>
 
-      {/* Animated Sparkline Section — full-width, bottom half */}
-      <div className="absolute bottom-0 left-0 right-0 h-[55%] transition-opacity duration-500 group-hover:opacity-100 opacity-60 overflow-visible" style={{ zIndex: 1 }}>
+      {/* Animated Sparkline Section — full-width, bottom section */}
+      <div className="absolute bottom-0 left-0 right-0 h-[42%] transition-opacity duration-500 group-hover:opacity-100 opacity-60 overflow-visible" style={{ zIndex: 5 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={convertChartData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+          <AreaChart data={convertChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor={theme.stroke} stopOpacity={0.4} />
@@ -195,7 +213,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
               cursor={{ stroke: theme.stroke, strokeWidth: 1.5, strokeDasharray: '4 4' }}
               allowEscapeViewBox={{ x: true, y: true }}
               offset={20}
-              wrapperStyle={{ zIndex: 99999, pointerEvents: 'none', outline: 'none', overflow: 'visible' }}
+              wrapperStyle={{ zIndex: 999999, pointerEvents: 'none', outline: 'none', overflow: 'visible', position: 'relative' }}
               animationDuration={0}
               position={{ x: 'auto', y: 'auto' }}
             />

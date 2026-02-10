@@ -420,9 +420,26 @@ const getAvatarColor = (name: string): string => {
 };
 
 // Avatar component
-const Avatar: React.FC<{ name: string; size?: number }> = ({ name, size = 40 }) => {
+const Avatar: React.FC<{ name: string; size?: number; profilePictureUrl?: string }> = ({ name, size = 40, profilePictureUrl }) => {
+  const [imageError, setImageError] = React.useState(false);
   const initials = getInitials(name);
   const color = getAvatarColor(name);
+  
+  // If profile picture is available and no error, use it
+  if (profilePictureUrl && !imageError) {
+    return (
+      <img
+        src={profilePictureUrl}
+        alt={name}
+        className="rounded-full shrink-0 object-cover"
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+        }}
+        onError={() => setImageError(true)}
+      />
+    );
+  }
   
   return (
     <div
@@ -529,7 +546,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
           Master Dashboard
         </button>
         <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 p-10 shadow-sm rounded-xl flex items-center gap-8">
-          <Avatar name={selectedInvestor.fullName} size={80} />
+          <Avatar name={selectedInvestor.fullName} size={80} profilePictureUrl={selectedInvestor.profilePictureUrl} />
           <div>
             <h2 className="text-3xl font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-tighter">{selectedInvestor.fullName}</h2>
             <p className="text-neutral-500 dark:text-neutral-400 text-xs font-bold uppercase tracking-widest mt-1">Verified Investor</p>
@@ -577,6 +594,22 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
       onMouseEnter={() => setIsPulsing(true)}
       onMouseLeave={() => setIsPulsing(false)}
       >
+        {/* Micro-texture overlay for dark mode */}
+        <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden">
+          <svg className="absolute inset-0 w-full h-full opacity-[0.03] dark:opacity-[0.08]">
+            <filter id="greetings-noise-filter">
+              <feTurbulence 
+                type="fractalNoise" 
+                baseFrequency="0.9" 
+                numOctaves="4" 
+                stitchTiles="stitch"
+              />
+              <feColorMatrix type="saturate" values="0" />
+            </filter>
+            <rect width="100%" height="100%" filter="url(#greetings-noise-filter)" />
+          </svg>
+        </div>
+
         {/* Animated Background Calendar Icon */}
         <div className={`absolute left-0 top-1/2 -translate-y-1/2 pointer-events-none transition-all duration-[1800ms] premium-ease
           ${isPulsing 
@@ -773,7 +806,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                       {isTopThree && (
                         <div className={`absolute left-0 top-0 bottom-0 w-1 ${rankStyle?.badge}`}></div>
                       )}
-                      <Avatar name={investor.fullName} size={40} />
+                      <Avatar name={investor.fullName} size={40} profilePictureUrl={investor.profilePictureUrl} />
                       <div className="min-w-0 flex-1">
                         <Tooltip content={investor.fullName}>
                           <p className={`text-sm font-black uppercase tracking-tight truncate max-w-[200px] ${
@@ -866,7 +899,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                       </td>
                       <td className="px-10 py-7">
                         <div className="flex items-center gap-3">
-                          <Avatar name={applicant.fullName} size={40} />
+                          <Avatar name={applicant.fullName} size={40} profilePictureUrl={applicant.profilePictureUrl} />
                           <div className="min-w-0 flex-1">
                             <Tooltip content={applicant.fullName}>
                               <p className="text-sm font-black uppercase tracking-tight truncate max-w-[200px] text-neutral-900 dark:text-neutral-100">{applicant.fullName}</p>
@@ -925,7 +958,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                       </td>
                       <td className="px-10 py-7">
                         <div className="flex items-center gap-3">
-                          <Avatar name={applicant.fullName} size={40} />
+                          <Avatar name={applicant.fullName} size={40} profilePictureUrl={applicant.profilePictureUrl} />
                           <div className="min-w-0 flex-1">
                             <Tooltip content={applicant.fullName}>
                               <p className="text-sm font-black uppercase tracking-tight truncate max-w-[200px] text-neutral-900 dark:text-neutral-100">{applicant.fullName}</p>
@@ -987,7 +1020,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                   >
                     <td className="px-10 py-7">
                       <div className="flex items-center gap-3">
-                        <Avatar name={applicant.fullName} size={40} />
+                        <Avatar name={applicant.fullName} size={40} profilePictureUrl={applicant.profilePictureUrl} />
                         <div className="min-w-0 flex-1">
                           <Tooltip content={applicant.fullName}>
                             <p className="text-sm font-black uppercase tracking-tight truncate max-w-[200px] text-neutral-900 dark:text-neutral-100">{applicant.fullName}</p>

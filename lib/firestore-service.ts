@@ -156,6 +156,7 @@ const firestoreToApplicant = (doc: QueryDocumentSnapshot<DocumentData>): Applica
     linkClickedAt: data.linkClickedAt || undefined,
     linkClickedCount: data.linkClickedCount || undefined,
     accountClaimedAt: data.accountClaimedAt || undefined,
+    profilePictureUrl: data.profilePictureUrl || undefined,
     // Include any additional fields the frontend might send
     ...Object.fromEntries(
       Object.entries(data).filter(([key]) => 

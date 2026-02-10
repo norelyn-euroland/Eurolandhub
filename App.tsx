@@ -22,6 +22,8 @@ interface AuthedAppProps {
 }
 
 const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  
   // Restore view from localStorage on mount
   // Note: We don't restore 'detail' view as it requires applicant data
   const getInitialView = (): ViewType => {
@@ -427,9 +429,11 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
         onViewChange={(v) => setView(v)}
         theme={theme}
         toggleTheme={toggleTheme}
+        isCollapsed={isSidebarCollapsed}
+        onCollapseChange={setIsSidebarCollapsed}
       />
       
-      <div className="flex-1 flex flex-col min-w-0 ml-64">
+      <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${isSidebarCollapsed ? 'ml-20' : 'ml-64'}`}>
         <Header 
           viewTitle={getViewTitle()}
           pendingApplicants={pendingApplicants}
@@ -450,6 +454,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
               onSearchChange={handleSearchChange}
               initialTab={activeRegistrationsTab}
               initialSearchQuery={registrationsSearchQuery}
+              sidebarCollapsed={isSidebarCollapsed}
             />
           )}
           {view === 'detail' && selectedApplicant && (

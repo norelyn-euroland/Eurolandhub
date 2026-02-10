@@ -208,6 +208,7 @@ export interface Applicant {
   linkClickedAt?: string; // ISO timestamp when link was first clicked
   linkClickedCount?: number; // Number of times link was clicked
   accountClaimedAt?: string; // ISO timestamp when account was verified/claimed
+  profilePictureUrl?: string; // Profile picture URL from email provider (e.g., Gravatar)
 }
 
 export interface Shareholder {

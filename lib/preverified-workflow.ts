@@ -16,6 +16,7 @@ import { Applicant, WorkflowStage, SystemStatus, AccountStatus } from './types.j
 import { applicantService } from './firestore-service.js';
 import { accountVerifiedTemplate, replaceTemplateVariables } from './email-templates.js';
 import { sendEmail } from './resend-service.js';
+import { fetchGravatarProfile } from './profile-utils.js';
 
 /**
  * Check if an invitation has expired (30 days since emailSentAt)
@@ -47,13 +48,29 @@ export async function markAccountAsClaimed(applicantId: string): Promise<void> {
       throw new Error(`Applicant not found: ${applicantId}`);
     }
 
-    // Update status first
+    // Fetch profile picture from Gravatar if email is available
+    let profilePictureUrl: string | undefined = undefined;
+    if (applicant.email) {
+      try {
+        const gravatarUrl = await fetchGravatarProfile(applicant.email);
+        if (gravatarUrl) {
+          profilePictureUrl = gravatarUrl;
+          console.log('Found Gravatar profile for:', applicant.email);
+        }
+      } catch (error) {
+        console.warn('Failed to fetch Gravatar profile:', error);
+        // Continue without profile picture - non-critical
+      }
+    }
+
+    // Update status and profile picture
     await applicantService.update(applicantId, {
       accountClaimedAt: new Date().toISOString(),
       workflowStage: 'ACCOUNT_CLAIMED' as WorkflowStage,
       systemStatus: 'CLAIMED' as SystemStatus,
       accountStatus: 'VERIFIED' as AccountStatus,
       status: 'APPROVED' as any, // RegistrationStatus.APPROVED
+      ...(profilePictureUrl && { profilePictureUrl }), // Only include if we have a profile picture
     });
     console.log('Marked pre-verified account as claimed:', applicantId);
 

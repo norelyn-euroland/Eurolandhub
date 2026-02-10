@@ -7,10 +7,61 @@ interface ToastProps {
   isVisible: boolean;
   onClose: () => void;
   duration?: number;
+  variant?: 'success' | 'warning' | 'error' | 'info';
 }
 
-const Toast: React.FC<ToastProps> = ({ message, isVisible, onClose, duration = 5000 }) => {
+const Toast: React.FC<ToastProps> = ({ message, isVisible, onClose, duration = 5000, variant = 'success' }) => {
   const [progress, setProgress] = useState(100);
+
+  const theme = (() => {
+    switch (variant) {
+      case 'warning':
+        return {
+          container: 'bg-amber-500 border-amber-600 text-white',
+          barBg: 'bg-amber-600',
+          barFill: 'bg-white/80',
+          icon: (
+            <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.72-1.36 3.485 0l6.518 11.59C19.01 16.03 18.06 17.5 16.518 17.5H3.482c-1.542 0-2.492-1.47-1.742-2.811L8.257 3.1zM11 14a1 1 0 10-2 0 1 1 0 002 0zm-1-2a1 1 0 01-1-1V8a1 1 0 112 0v3a1 1 0 01-1 1z" clipRule="evenodd" />
+            </svg>
+          ),
+        };
+      case 'error':
+        return {
+          container: 'bg-red-600 border-red-700 text-white',
+          barBg: 'bg-red-700',
+          barFill: 'bg-white/80',
+          icon: (
+            <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm2.707-10.707a1 1 0 00-1.414-1.414L10 7.586 8.707 6.293a1 1 0 00-1.414 1.414L8.586 9l-1.293 1.293a1 1 0 101.414 1.414L10 10.414l1.293 1.293a1 1 0 001.414-1.414L11.414 9l1.293-1.293z" clipRule="evenodd" />
+            </svg>
+          ),
+        };
+      case 'info':
+        return {
+          container: 'bg-blue-600 border-blue-700 text-white',
+          barBg: 'bg-blue-700',
+          barFill: 'bg-white/80',
+          icon: (
+            <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10A8 8 0 11 2 10a8 8 0 0116 0zM9 9a1 1 0 112 0v5a1 1 0 11-2 0V9zm1-4a1.25 1.25 0 100 2.5A1.25 1.25 0 0010 5z" clipRule="evenodd" />
+            </svg>
+          ),
+        };
+      case 'success':
+      default:
+        return {
+          container: 'bg-green-600 border-green-700 text-white',
+          barBg: 'bg-green-700',
+          barFill: 'bg-white/80',
+          icon: (
+            <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+          ),
+        };
+    }
+  })();
 
   useEffect(() => {
     if (isVisible) {
@@ -44,20 +95,18 @@ const Toast: React.FC<ToastProps> = ({ message, isVisible, onClose, duration = 5
 
   return (
     <div className="fixed bottom-4 right-4 z-50 animate-in fade-in slide-in-from-bottom-4 duration-300">
-      <div className="relative bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg border border-green-600 flex items-center gap-3 min-w-[320px] max-w-[500px] overflow-hidden">
+      <div className={`relative px-4 py-3 rounded-lg shadow-lg border flex items-center gap-3 min-w-[320px] max-w-[500px] overflow-hidden ${theme.container}`}>
         {/* Progress bar */}
-        <div className="absolute bottom-0 left-0 right-0 h-1 bg-green-600">
+        <div className={`absolute bottom-0 left-0 right-0 h-1 ${theme.barBg}`}>
           <div 
-            className="h-full bg-white/80 transition-all duration-50 ease-linear"
+            className={`h-full transition-all duration-50 ease-linear ${theme.barFill}`}
             style={{ width: `${progress}%` }}
           />
         </div>
         
-        {/* Success Icon */}
+        {/* Icon */}
         <div className="relative z-10 flex-shrink-0">
-          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-          </svg>
+          {theme.icon}
         </div>
         
         <p className="text-sm font-medium flex-1 relative z-10">{message}</p>
