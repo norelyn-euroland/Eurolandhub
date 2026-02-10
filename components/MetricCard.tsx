@@ -17,13 +17,24 @@ interface MetricCardProps {
 
 /**
  * Custom Tooltip component for the Sparkline.
- * Positions itself near the hover point on the chart.
+ * Positions itself near the hover point on the chart, outside the card boundaries.
  */
-const CustomTooltip = ({ active, payload, themeColor }: TooltipProps<number, string> & { themeColor: string }) => {
-  if (active && payload && payload.length) {
+const CustomTooltip = ({ active, payload, themeColor, coordinate }: TooltipProps<number, string> & { themeColor: string }) => {
+  if (active && payload && payload.length && coordinate) {
     const data = payload[0].payload;
+    
     return (
-      <div className="bg-white dark:bg-[#262626] border border-neutral-200 dark:border-white/10 px-3 py-2 rounded-lg shadow-2xl backdrop-blur-md pointer-events-none">
+      <div 
+        className="bg-white dark:bg-[#262626] border border-neutral-200 dark:border-white/10 px-3 py-2 rounded-lg shadow-2xl backdrop-blur-md pointer-events-none" 
+        style={{ 
+          position: 'absolute',
+          zIndex: 99999,
+          left: `${coordinate.x}px`,
+          top: `${coordinate.y - 70}px`,
+          transform: 'translate(-50%, 0)',
+          whiteSpace: 'nowrap'
+        }}
+      >
         <p className="text-[10px] uppercase tracking-widest text-neutral-500 dark:text-gray-400 font-bold mb-0.5">
           {data.date}
         </p>
@@ -147,16 +158,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
   const isUp = trend.direction === 'up';
 
   return (
-    <div className="group relative rounded-2xl bg-white dark:bg-[#1a1a1a] p-6 shadow-xl border border-neutral-200 dark:border-white/5 flex flex-col justify-between transition-all duration-300 hover:border-neutral-300 dark:hover:border-white/10 hover:bg-neutral-50 dark:hover:bg-[#1e1e1e] hover:-translate-y-1 h-[260px] overflow-hidden">
-
-      {/* Micro-Texture Noise Overlay — premium tactile grain on dark backgrounds */}
-      <svg className="pointer-events-none absolute inset-0 w-full h-full z-[2] opacity-0 dark:opacity-100 mix-blend-soft-light" aria-hidden="true">
-        <filter id={`noise-${gradientId}`}>
-          <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch" />
-          <feColorMatrix type="saturate" values="0" />
-        </filter>
-        <rect width="100%" height="100%" filter={`url(#noise-${gradientId})`} opacity="0.35" />
-      </svg>
+    <div className="group relative rounded-2xl bg-white dark:bg-[#1a1a1a] p-6 shadow-xl border border-neutral-200 dark:border-white/5 flex flex-col justify-between transition-all duration-300 hover:border-neutral-300 dark:hover:border-white/10 hover:bg-neutral-50 dark:hover:bg-[#1e1e1e] hover:-translate-y-1 h-[200px] overflow-visible">
 
       {/* Metric Header Section */}
       <div className="z-10 relative pointer-events-none">
@@ -177,10 +179,10 @@ const MetricCard: React.FC<MetricCardProps> = ({
         </p>
       </div>
 
-      {/* Animated Sparkline Section — full-width, bottom section with proper spacing */}
-      <div className="absolute bottom-0 left-0 right-0 h-[42%] transition-opacity duration-500 group-hover:opacity-100 opacity-60" style={{ zIndex: 1 }}>
+      {/* Animated Sparkline Section — full-width, bottom half */}
+      <div className="absolute bottom-0 left-0 right-0 h-[55%] transition-opacity duration-500 group-hover:opacity-100 opacity-60 overflow-visible" style={{ zIndex: 1 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={convertChartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+          <AreaChart data={convertChartData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor={theme.stroke} stopOpacity={0.4} />
@@ -192,7 +194,10 @@ const MetricCard: React.FC<MetricCardProps> = ({
               content={<CustomTooltip themeColor={theme.stroke} />}
               cursor={{ stroke: theme.stroke, strokeWidth: 1.5, strokeDasharray: '4 4' }}
               allowEscapeViewBox={{ x: true, y: true }}
-              offset={10}
+              offset={20}
+              wrapperStyle={{ zIndex: 99999, pointerEvents: 'none', outline: 'none', overflow: 'visible' }}
+              animationDuration={0}
+              position={{ x: 'auto', y: 'auto' }}
             />
             <Area
               type="monotone"

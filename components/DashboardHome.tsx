@@ -530,7 +530,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
 
   return (
     <div className="space-y-10 max-w-7xl mx-auto">
-      <div className="grid grid-cols-4 gap-8">
+      <div className="grid grid-cols-4 gap-8 overflow-visible">
         {metrics.map((metric, i) => (
           <MetricCard
             key={i}
@@ -678,7 +678,9 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                       </td>
                       <td className="px-8 py-5">
                         <div className="text-xs text-neutral-600 dark:text-neutral-300 font-medium">
-                          {applicant.registrationId || 'N/A'}
+                          {applicant.registrationId 
+                            ? (applicant.registrationId.length > 6 ? applicant.registrationId.slice(-6) : applicant.registrationId)
+                            : 'N/A'}
                         </div>
                       </td>
                       <td className="px-8 py-5 text-xs text-neutral-600 dark:text-neutral-300 font-medium">
@@ -712,7 +714,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                             <Tooltip content={applicant.fullName}>
                               <div className="text-sm font-bold text-neutral-900 dark:text-neutral-100 leading-none mb-1 truncate">{applicant.fullName}</div>
                             </Tooltip>
-                            <div className="text-[10px] text-neutral-500 dark:text-neutral-400 font-medium uppercase tracking-tight">{applicant.id}</div>
+                            <div className="text-[10px] text-neutral-500 dark:text-neutral-400 font-medium uppercase tracking-tight">{applicant.id.length > 6 ? applicant.id.slice(-6) : applicant.id}</div>
                           </div>
                         </div>
                       </td>

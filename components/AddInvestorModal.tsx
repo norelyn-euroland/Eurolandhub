@@ -19,7 +19,8 @@ interface InvestorFormData {
   stake: string;
 }
 
-type Step = 'UPLOAD' | 'PARSING' | 'REVIEW' | 'CONFIRMATION';
+type Step = 'SELECTION' | 'UPLOAD' | 'PROCESSING' | 'REVIEW' | 'SEND_INVITATION' | 'CONFIRMATION';
+type UploadType = 'batch' | 'individual' | null;
 
 interface AddInvestorModalProps {
   isOpen: boolean;
@@ -28,7 +29,8 @@ interface AddInvestorModalProps {
 }
 
 const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, onSave }) => {
-  const [currentStep, setCurrentStep] = useState<Step>('UPLOAD');
+  const [currentStep, setCurrentStep] = useState<Step>('SELECTION');
+  const [uploadType, setUploadType] = useState<UploadType>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAutofilling, setIsAutofilling] = useState(false);
@@ -44,12 +46,24 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
   const [isSaving, setIsSaving] = useState(false);
   const [saveErrors, setSaveErrors] = useState<SaveInvestorError[]>([]);
   const [saveSuccessCount, setSaveSuccessCount] = useState<number>(0);
+  const [selectedInvestorsForEmail, setSelectedInvestorsForEmail] = useState<Set<string>>(new Set());
+  const [sentEmailsTo, setSentEmailsTo] = useState<Set<string>>(new Set());
+  const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
+  const [isSendingEmails, setIsSendingEmails] = useState(false);
+  const [generatedSubject, setGeneratedSubject] = useState<string>('');
+  const [generatedMessage, setGeneratedMessage] = useState<string>('');
+  const [messageStyle, setMessageStyle] = useState<string>('default');
+  const [privacyNoticeAccepted, setPrivacyNoticeAccepted] = useState<boolean>(false);
+  const [privacyCheckboxChecked, setPrivacyCheckboxChecked] = useState<boolean>(false);
+  const [showPrivacyDetails, setShowPrivacyDetails] = useState<boolean>(false);
+  const [isMessageExpanded, setIsMessageExpanded] = useState<boolean>(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Reset modal when closed
   useEffect(() => {
     if (!isOpen) {
-      setCurrentStep('UPLOAD');
+      setCurrentStep('SELECTION');
+      setUploadType(null);
       setUploadedFile(null);
       setIsProcessing(false);
       setIsAutofilling(false);
@@ -65,20 +79,91 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       setExtractedInvestors([]);
       setCurrentInvestorIndex(0);
       setExtractionError('');
+      setSelectedInvestorsForEmail(new Set());
+      setSentEmailsTo(new Set());
+      setIsGeneratingMessage(false);
+      setIsSendingEmails(false);
+      setGeneratedSubject('');
+      setGeneratedMessage('');
+      setMessageStyle('default');
+      setPrivacyNoticeAccepted(false);
+      setPrivacyCheckboxChecked(false);
+      setShowPrivacyDetails(false);
+      setIsMessageExpanded(true);
     }
   }, [isOpen]);
 
   // Check if current step is a processing step
   const isProcessingStep = isProcessing || isAutofilling;
 
+  // Handle privacy notice acceptance
+  const handlePrivacyNoticeAccept = () => {
+    setPrivacyNoticeAccepted(true);
+    // Optional: Log privacy notice acceptance (operational logging)
+    try {
+      const timestamp = new Date().toISOString();
+      const userId = typeof window !== 'undefined' && window.localStorage 
+        ? localStorage.getItem('eurolandhub_user_id') || 'unknown'
+        : 'unknown';
+      console.log('Privacy notice accepted:', {
+        timestamp,
+        userId,
+        action: 'add_investor_attempt'
+      });
+    } catch (error) {
+      // Silently fail if logging fails
+    }
+  };
+
+  // Toggle privacy details visibility
+  const togglePrivacyDetails = () => {
+    setShowPrivacyDetails(prev => !prev);
+  };
+
+  // Handle upload type selection
+  const handleSelectUploadType = (type: 'batch' | 'individual') => {
+    setUploadType(type);
+    if (type === 'individual') {
+      // For individual, create a single empty form and go straight to REVIEW
+      const newForm = createNewInvestorForm();
+      setInvestorForms([newForm]);
+      setExpandedForms(new Set([newForm.id]));
+      setCurrentStep('REVIEW');
+    } else {
+      // For batch, go to UPLOAD step
+      setCurrentStep('UPLOAD');
+    }
+  };
+
   // Handle step navigation
   const handlePrevious = () => {
     if (isProcessingStep) return;
     
-    const stepOrder: Step[] = ['UPLOAD', 'PARSING', 'REVIEW', 'CONFIRMATION'];
+    if (currentStep === 'REVIEW' && uploadType === 'individual') {
+      // Go back to selection if individual
+      setCurrentStep('SELECTION');
+      setUploadType(null);
+      setInvestorForms([]);
+      setExpandedForms(new Set());
+      return;
+    }
+    
+    if (currentStep === 'UPLOAD') {
+      // Go back to selection from upload
+      setCurrentStep('SELECTION');
+      setUploadType(null);
+      setUploadedFile(null);
+      setParseError('');
+      setParseSuccess(false);
+      setExtractedInvestors([]);
+      return;
+    }
+    
+    const stepOrder: Step[] = uploadType === 'batch' 
+      ? ['SELECTION', 'UPLOAD', 'PROCESSING', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION']
+      : ['SELECTION', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION'];
     const currentIndex = stepOrder.indexOf(currentStep);
     if (currentIndex > 0) {
-      // Allow navigation to PARSING step for preview
       setCurrentStep(stepOrder[currentIndex - 1]);
     }
   };
@@ -86,21 +171,37 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
   const handleNext = async () => {
     if (isProcessingStep || isSaving) return;
     
-    const stepOrder: Step[] = ['UPLOAD', 'PARSING', 'REVIEW', 'CONFIRMATION'];
+    if (currentStep === 'SELECTION') {
+      // Should not happen - selection is handled by handleSelectUploadType
+      return;
+    }
+    
+    const stepOrder: Step[] = uploadType === 'batch'
+      ? ['SELECTION', 'UPLOAD', 'PROCESSING', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION']
+      : ['SELECTION', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION'];
     const currentIndex = stepOrder.indexOf(currentStep);
     if (currentIndex < stepOrder.length - 1) {
       // If on UPLOAD and file is uploaded, allow manual navigation
       if (currentStep === 'UPLOAD' && uploadedFile) {
-        // Allow manual navigation to PARSING for preview
-        setCurrentStep('PARSING');
+        // Allow manual navigation to PROCESSING for preview
+        setCurrentStep('PROCESSING');
         return;
       }
-      // If on PARSING and parsing is complete, move to REVIEW
-      if (currentStep === 'PARSING' && parseSuccess && extractedInvestors.length > 0) {
+      // If on PROCESSING and processing is complete, move to REVIEW
+      if (currentStep === 'PROCESSING' && parseSuccess && extractedInvestors.length > 0) {
         setCurrentStep('REVIEW');
         return;
       }
       if (currentStep === 'REVIEW') {
+        // Move to SEND_INVITATION step
+        // Auto-select all investors with emails
+        const investorsWithEmails = investorForms.filter(f => f.email && f.email.trim());
+        setSelectedInvestorsForEmail(new Set(investorsWithEmails.map(f => f.id)));
+        setCurrentStep('SEND_INVITATION');
+        return;
+      }
+      if (currentStep === 'SEND_INVITATION') {
+        // After sending invitations, save the investors
         await handleSubmit();
         return;
       }
@@ -159,7 +260,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
     setUploadedFile(file);
     setIsProcessing(true);
-    setCurrentStep('PARSING');
+    setCurrentStep('PROCESSING');
     setParseError('');
     setParseSuccess(false);
 
@@ -168,7 +269,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       const result = await parseDocument(file, false);
       
       if (!result.success || !result.csvText) {
-        setParseError(result.error || 'Failed to parse CSV file');
+        setParseError(result.error || 'Failed to process CSV file');
         setIsProcessing(false);
         setParseSuccess(false);
         return;
@@ -218,7 +319,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     const newForms: InvestorFormData[] = investors.map(investor => {
       const form = createNewInvestorForm();
       // Filter holding ID to numbers only, max 9 characters
-      const filteredHoldingId = (investor.holdingId || '').replace(/\D/g, '').slice(0, 9);
+      const filteredHoldingId = (investor.holdingId || '').replace(/\D/g, '').slice(0, 6);
       
       return {
         ...form,
@@ -345,7 +446,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       
       // Field 2: Holding ID (filter to numbers only, max 9 characters)
       await new Promise(resolve => setTimeout(resolve, 300));
-      const filteredHoldingId = (investor.holdingId || '').replace(/\D/g, '').slice(0, 9);
+      const filteredHoldingId = (investor.holdingId || '').replace(/\D/g, '').slice(0, 6);
       setInvestorForms(prev => prev.map(f => f.id === targetFormId ? { ...f, holdingId: filteredHoldingId } : f));
       
       // Field 3: Email (leave blank if not detected)
@@ -417,11 +518,137 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     ));
   };
 
-  // Handle Holding ID field change (only numbers, max 9 characters)
+  // Handle Holding ID field change (only numbers, max 6 characters)
   const handleHoldingIdChange = (formId: string, value: string) => {
-    // Remove any non-numeric characters and limit to 9 characters
-    const numericValue = value.replace(/\D/g, '').slice(0, 9);
+    // Remove any non-numeric characters and limit to 6 characters
+    const numericValue = value.replace(/\D/g, '').slice(0, 6);
     handleFieldChange(formId, 'holdingId', numericValue);
+  };
+
+  // Handle generating invitation message
+  const handleGenerateMessage = async () => {
+    setIsGeneratingMessage(true);
+    try {
+      // Use first selected investor for generation (or first investor with email)
+      const investorsWithEmails = investorForms.filter(f => f.email && f.email.trim());
+      if (investorsWithEmails.length === 0) {
+        alert('No investors with email addresses found.');
+        setIsGeneratingMessage(false);
+        return;
+      }
+
+      const firstInvestor = investorsWithEmails[0];
+      const nameParts = (firstInvestor.investorName || '').trim().split(/\s+/);
+      const firstName = nameParts[0] || firstInvestor.investorName || '';
+      const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+
+      const response = await fetch('/api/send-invitation-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          toEmail: firstInvestor.email,
+          firstName,
+          lastName,
+          registrationId: firstInvestor.holdingId || '',
+          messageStyle,
+          preview: true, // Preview mode - generate but don't send
+        }),
+      });
+
+      const rawText = await response.text();
+      const data = rawText ? (() => { try { return JSON.parse(rawText); } catch { return null; } })() : null;
+
+      if (response.ok && data?.subject && data?.body) {
+        setGeneratedSubject(data.subject);
+        setGeneratedMessage(data.body);
+      } else {
+        alert(`Failed to generate message: ${data?.error || response.status || 'Unknown error'}`);
+      }
+    } catch (error: any) {
+      alert(`Error: ${error.message || 'Failed to generate message'}`);
+    } finally {
+      setIsGeneratingMessage(false);
+    }
+  };
+
+  // Handle sending invitations to selected investors
+  const handleSendInvitations = async (sendToAll: boolean = false) => {
+    const investorsToSend = sendToAll
+      ? investorForms.filter(f => f.email && f.email.trim() && !sentEmailsTo.has(f.id))
+      : investorForms.filter(f => f.email && f.email.trim() && selectedInvestorsForEmail.has(f.id) && !sentEmailsTo.has(f.id));
+
+    if (investorsToSend.length === 0) {
+      alert('No investors selected or all selected investors have already been sent emails.');
+      return;
+    }
+
+    if (!generatedSubject.trim() || !generatedMessage.trim()) {
+      alert('Please generate a message first before sending invitations.');
+      return;
+    }
+
+    setIsSendingEmails(true);
+
+    try {
+      const sendPromises = investorsToSend.map(async (investor) => {
+        const nameParts = (investor.investorName || '').trim().split(/\s+/);
+        const firstName = nameParts[0] || investor.investorName || '';
+        const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+
+        const response = await fetch('/api/send-invitation-email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            toEmail: investor.email,
+            firstName,
+            lastName,
+            registrationId: investor.holdingId || '',
+            messageStyle,
+            customSubject: generatedSubject,
+            customBody: generatedMessage,
+          }),
+        });
+
+        const rawText = await response.text();
+        const data = rawText ? (() => { try { return JSON.parse(rawText); } catch { return null; } })() : null;
+
+        if (response.ok && data?.ok) {
+          return { success: true, investorId: investor.id };
+        } else {
+          return { success: false, investorId: investor.id, error: data?.error || 'Unknown error' };
+        }
+      });
+
+      const results = await Promise.all(sendPromises);
+      const successful = results.filter(r => r.success);
+      
+      // Mark successfully sent investors
+      const sentIds = new Set(successful.map(r => r.investorId));
+      setSentEmailsTo(prev => new Set([...prev, ...sentIds]));
+      
+      // Remove sent investors from selection
+      setSelectedInvestorsForEmail(prev => {
+        const newSet = new Set(prev);
+        sentIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
+
+      if (successful.length > 0) {
+        alert(`Successfully sent ${successful.length} invitation email(s).`);
+      }
+      
+      if (results.length > successful.length) {
+        alert(`Failed to send ${results.length - successful.length} email(s).`);
+      }
+    } catch (error: any) {
+      alert(`Error sending invitations: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsSendingEmails(false);
+    }
   };
 
   // Handle form submission
@@ -497,13 +724,30 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     }
   };
 
-  // Steps configuration
-  const steps: { id: Step; label: string }[] = [
-    { id: 'UPLOAD', label: 'UPLOAD' },
-    { id: 'PARSING', label: 'PARSING' },
-    { id: 'REVIEW', label: 'REVIEW' },
-    { id: 'CONFIRMATION', label: 'CONFIRMATION' },
-  ];
+  // Steps configuration - dynamic based on upload type
+  // Show full batch process by default so users can see the whole workflow
+  const getSteps = (): { id: Step; label: string }[] => {
+    if (uploadType === 'individual') {
+      return [
+        { id: 'SELECTION', label: 'SELECTION' },
+        { id: 'REVIEW', label: 'REVIEW' },
+        { id: 'SEND_INVITATION', label: 'SEND INVITATION' },
+        { id: 'CONFIRMATION', label: 'CONFIRMATION' },
+      ];
+    } else {
+      // Show full batch process (default) so users can see all steps
+      return [
+        { id: 'SELECTION', label: 'SELECTION' },
+        { id: 'UPLOAD', label: 'UPLOAD' },
+        { id: 'PROCESSING', label: 'PROCESSING' },
+        { id: 'REVIEW', label: 'REVIEW' },
+        { id: 'SEND_INVITATION', label: 'SEND INVITATION' },
+        { id: 'CONFIRMATION', label: 'CONFIRMATION' },
+      ];
+    }
+  };
+
+  const steps = getSteps();
 
   const getStepIndex = (step: Step): number => {
     return steps.findIndex(s => s.id === step);
@@ -527,11 +771,212 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
         className="fixed top-0 right-0 bottom-0 left-64 bg-neutral-900/40 dark:bg-black/40 backdrop-blur-sm z-40"
       />
       
-      {/* Modal container */}
-      <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col z-50">
-        {/* Header */}
-        <div className="px-8 py-6 flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700">
-          <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100">Investor details</h2>
+      {/* Privacy Notice Overlay - shown before modal content if not accepted */}
+      {!privacyNoticeAccepted && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ left: '256px' }}>
+          <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Privacy Notice Header */}
+            <div className="px-8 py-6 border-b border-neutral-200 dark:border-neutral-700">
+              <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100">
+                Investor Privacy & Data Use Notice
+              </h2>
+            </div>
+
+            {/* Privacy Notice Content */}
+            <div className="flex-1 overflow-y-auto px-8 py-6">
+              {/* One-line summary */}
+              <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-6">
+                We take investor data seriously. This information is used only for verification and official investor communications.
+              </p>
+
+              {/* View details link */}
+              <div className="mb-4">
+                <button
+                  onClick={togglePrivacyDetails}
+                  className="text-sm font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors flex items-center gap-2"
+                >
+                  {showPrivacyDetails ? 'Hide details' : 'View details'}
+                  <svg 
+                    className={`w-4 h-4 transition-transform ${showPrivacyDetails ? 'rotate-180' : ''}`}
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Expandable details section */}
+              {showPrivacyDetails && (
+                <div className="mt-4 p-6 bg-neutral-50 dark:bg-neutral-900/50 rounded-lg border border-neutral-200 dark:border-neutral-700 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="prose prose-sm dark:prose-invert max-w-none">
+                    <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-4">
+                      Investor Data Use & Consent
+                    </h3>
+                    
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-4">
+                      When adding an investor to the platform, you confirm that you are authorized to provide the investor's information for investor-relations purposes.
+                    </p>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      What Data Is Collected
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
+                      The information collected may include (depending on what is provided):
+                    </p>
+                    <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
+                      <li>Investor's name</li>
+                      <li>Email address</li>
+                      <li>Shareholder or registration identifiers</li>
+                      <li>Investment-related metadata required for verification and investor access</li>
+                    </ul>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      Why It Is Collected
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-4">
+                      This data is collected to support investor-relations operations and facilitate secure investor onboarding and communication.
+                    </p>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      How It Is Used
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
+                      The investor's information is used <strong>solely</strong> for the following purposes:
+                    </p>
+                    <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
+                      <li>Verifying investor identity and shareholder status</li>
+                      <li>Sending account invitations and onboarding communications</li>
+                      <li>Delivering important investor-related notifications, disclosures, and updates</li>
+                      <li>Supporting investor access to verified features within the platform</li>
+                      <li>Managing investor account status and workflow progression</li>
+                      <li>Operational tracking necessary to support investor onboarding, account access, and communication delivery</li>
+                    </ul>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      What It Is NOT Used For
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
+                      The investor's information will <strong>not</strong> be used for:
+                    </p>
+                    <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
+                      <li>Marketing or promotional communications unrelated to investor relations</li>
+                      <li>Advertising or third-party solicitations</li>
+                      <li>Sharing with third parties outside of authorized investor-relations operations</li>
+                      <li>Any purpose other than those explicitly stated above</li>
+                    </ul>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      Who Can Access It
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
+                      Investor data is stored securely and accessed only by:
+                    </p>
+                    <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-2 space-y-1 ml-2">
+                      <li>Authorized Investor Relations Officers (IROs) who are authenticated users of the platform</li>
+                      <li>Authorized personnel with proper authentication credentials</li>
+                      <li>System administrators for technical support and maintenance purposes</li>
+                    </ul>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-4">
+                      All access is logged and monitored to ensure data security and compliance.
+                    </p>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      How Long It Is Stored
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
+                      Investor data is stored for as long as necessary to fulfill investor-relations purposes and maintain accurate shareholder records. Data may be retained:
+                    </p>
+                    <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
+                      <li>For the duration of the investor's relationship with the company</li>
+                      <li>As required by applicable regulations and compliance standards</li>
+                      <li>Until the investor requests deletion (subject to legal and regulatory requirements)</li>
+                    </ul>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      Security & Confidentiality
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
+                      All investor data is:
+                    </p>
+                    <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
+                      <li>Stored securely in encrypted cloud infrastructure using industry-standard security controls</li>
+                      <li>Protected by authentication and authorization controls</li>
+                      <li>Transmitted over secure, encrypted connections</li>
+                      <li>Subject to regular security audits and monitoring</li>
+                      <li>Handled in accordance with applicable data protection and confidentiality standards</li>
+                    </ul>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      Right to Ignore / Opt Out
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-4">
+                      If an investor receives an invitation or communication in error, they may safely disregard the message and no further action will be required. Investors who do not wish to proceed with account creation may simply ignore the invitation email.
+                    </p>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      By proceeding, you acknowledge that:
+                    </h4>
+                    <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-6 space-y-1 ml-2">
+                      <li>You are authorized to submit this investor's information</li>
+                      <li>The data will be used strictly for investor-relations purposes as described above</li>
+                      <li>The information will be handled securely and responsibly</li>
+                      <li>You understand the data collection, usage, and storage practices outlined in this notice</li>
+                    </ul>
+
+                    {/* Checkbox - at the end of the content */}
+                    <div className="mt-6 pt-6 border-t border-neutral-200 dark:border-neutral-700">
+                      <label className="flex items-start gap-3 cursor-pointer select-none group">
+                        <div
+                          className={`mt-0.5 w-5 h-5 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
+                            privacyCheckboxChecked ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600 group-hover:bg-neutral-400 dark:group-hover:bg-neutral-500'
+                          }`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setPrivacyCheckboxChecked(!privacyCheckboxChecked);
+                          }}
+                        >
+                          {privacyCheckboxChecked && (
+                            <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                        <span className="text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed">
+                          I confirm that I am authorized to submit this investor's information and that it will be used in accordance with the Investor Data Use & Consent.
+                        </span>
+                      </label>
+                      
+                      {/* Continue button - only appears when checkbox is checked */}
+                      {privacyCheckboxChecked && (
+                        <div className="flex items-center justify-end mt-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                          <button
+                            onClick={handlePrivacyNoticeAccept}
+                            className="px-6 py-2.5 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 bg-purple-600 text-white hover:bg-purple-700"
+                          >
+                            Continue
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Modal container - only show when privacy notice is accepted */}
+      {privacyNoticeAccepted && (
+        <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col z-50">
+          {/* Header */}
+          <div className="px-8 py-6 flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700">
+            <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100">Investor details</h2>
           <div className="flex items-center gap-4">
             <button
               onClick={onClose}
@@ -608,9 +1053,64 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
           </div>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-8 py-6">
-          {currentStep === 'UPLOAD' && (
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto px-8 py-6">
+            {currentStep === 'SELECTION' && (
+              <div className="w-full">
+                <div className="text-center mb-8">
+                  <h3 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
+                    Choose Upload Method
+                  </h3>
+                  <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                    Select how you want to add investors
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6 max-w-2xl mx-auto">
+                  {/* Batch Upload Option */}
+                  <button
+                    onClick={() => handleSelectUploadType('batch')}
+                    className="group relative bg-white dark:bg-neutral-800 border-2 border-neutral-200 dark:border-neutral-700 rounded-xl p-8 hover:border-purple-500 dark:hover:border-purple-500 transition-all hover:shadow-lg text-left"
+                  >
+                    <div className="flex flex-col items-center text-center">
+                      <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center mb-4 group-hover:bg-purple-200 dark:group-hover:bg-purple-900/50 transition-colors">
+                        <svg className="w-8 h-8 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
+                      </div>
+                      <h4 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-2">
+                        Batch Upload
+                      </h4>
+                      <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                        Upload a CSV file with multiple investors
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Individual Upload Option */}
+                  <button
+                    onClick={() => handleSelectUploadType('individual')}
+                    className="group relative bg-white dark:bg-neutral-800 border-2 border-neutral-200 dark:border-neutral-700 rounded-xl p-8 hover:border-purple-500 dark:hover:border-purple-500 transition-all hover:shadow-lg text-left"
+                  >
+                    <div className="flex flex-col items-center text-center">
+                      <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-full flex items-center justify-center mb-4 group-hover:bg-purple-200 dark:group-hover:bg-purple-900/50 transition-colors">
+                        <svg className="w-8 h-8 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                      </div>
+                      <h4 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-2">
+                        Individual
+                      </h4>
+                      <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                        Manually enter a single investor
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {currentStep === 'UPLOAD' && (
             <div className="space-y-6">
               {/* Template Download Section */}
               <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
@@ -635,7 +1135,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
               <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6">
                 <div className="mb-6">
-                  <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">Shareholder Upload</h3>
+                  <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">Add Investors</h3>
                 </div>
 
                 {/* File Upload Section */}
@@ -680,7 +1180,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
             </div>
           )}
 
-          {currentStep === 'PARSING' && (
+          {currentStep === 'PROCESSING' && (
             <div className="w-full">
               {isProcessing ? (
                 <div className="flex flex-col items-center justify-center py-12">
@@ -710,7 +1210,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </div>
-                  <p className="text-sm font-medium text-red-600 dark:text-red-400">Parsing Failed</p>
+                  <p className="text-sm font-medium text-red-600 dark:text-red-400">File Processing Failed</p>
                   <div className="text-xs text-neutral-400 dark:text-neutral-500 mt-2 max-w-md text-center">
                     {parseError.split('\n').map((line, idx) => (
                       <p key={idx} className={idx > 0 ? 'mt-1' : ''}>{line}</p>
@@ -761,8 +1261,8 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                 </div>
               )}
               
-              {/* Multiple Investors List */}
-              {extractedInvestors.length > 1 && !isAutofilling && (
+              {/* Multiple Investors List - Only show for batch upload */}
+              {uploadType === 'batch' && extractedInvestors.length > 1 && !isAutofilling && (
                 <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">
@@ -793,7 +1293,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                               {investor.investorName || `Investor ${index + 1}`}
                             </p>
                             {investor.holdingId && (
-                              <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">ID: {investor.holdingId}</p>
+                              <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">ID: {investor.holdingId.length > 6 ? investor.holdingId.slice(-6) : investor.holdingId}</p>
                             )}
                           </div>
                           <span className="text-xs font-medium text-purple-600 dark:text-purple-400">
@@ -808,26 +1308,28 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
               {/* Investor Forms List */}
               <div className="space-y-4">
-                {/* Header with Add Investor Button */}
-                <div className="flex items-center justify-end">
-                  <div className="relative group">
-                    <button
-                      onClick={handleAddInvestor}
-                      className="text-purple-600 hover:text-purple-700 transition-colors"
-                    >
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                    </button>
-                    {/* Tooltip */}
-                    <div className="absolute right-0 top-full mt-2 px-3 py-2 bg-neutral-900 dark:bg-neutral-700 text-white text-xs font-medium rounded-lg shadow-xl whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
-                      Add investor
-                      <div className="absolute bottom-full right-4">
-                        <div className="border-4 border-transparent border-b-neutral-900 dark:border-b-neutral-700"></div>
+                {/* Header with Add Investor Button - Only show for batch upload */}
+                {uploadType === 'batch' && (
+                  <div className="flex items-center justify-end">
+                    <div className="relative group">
+                      <button
+                        onClick={handleAddInvestor}
+                        className="text-purple-600 hover:text-purple-700 transition-colors"
+                      >
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                      </button>
+                      {/* Tooltip */}
+                      <div className="absolute right-0 top-full mt-2 px-3 py-2 bg-neutral-900 dark:bg-neutral-700 text-white text-xs font-medium rounded-lg shadow-xl whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
+                        Add investor
+                        <div className="absolute bottom-full right-4">
+                          <div className="border-4 border-transparent border-b-neutral-900 dark:border-b-neutral-700"></div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                )}
 
                 {investorForms.map((form, index) => {
                   const isExpanded = expandedForms.has(form.id);
@@ -852,7 +1354,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                           <div className="flex-1">
                             <h3 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{displayName}</h3>
                             {form.holdingId && (
-                              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">ID: {form.holdingId}</p>
+                              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">ID: {form.holdingId.length > 6 ? form.holdingId.slice(-6) : form.holdingId}</p>
                             )}
                           </div>
                         </div>
@@ -916,7 +1418,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 type="text"
                                 inputMode="numeric"
                                 pattern="[0-9]*"
-                                maxLength={9}
+                                maxLength={6}
                                 value={form.holdingId}
                                 onChange={(e) => handleHoldingIdChange(form.id, e.target.value)}
                                 disabled={isAutofilling && !form.holdingId && index === 0}
@@ -925,7 +1427,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                     ? 'border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20 animate-pulse' 
                                     : 'border-neutral-200 dark:border-neutral-600'
                                 }`}
-                                placeholder="Enter 9-digit registration ID"
+                                placeholder="Enter last 6 digits of registration ID"
                               />
                               {isAutofilling && form.holdingId && index === 0 && (
                                 <div className="absolute right-3 top-9">
@@ -1119,6 +1621,263 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
             </div>
           )}
 
+          {currentStep === 'SEND_INVITATION' && (
+            <div className="space-y-6">
+              <div className="text-center mb-6">
+                <h3 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
+                  Send Account Invitations
+                </h3>
+                <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                  Select investors to send invitation emails to
+                </p>
+              </div>
+
+              {/* Message Generation Section */}
+              <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-neutral-900 dark:text-neutral-100 mb-1">
+                      Email Message
+                    </h4>
+                    <p className="text-xs text-neutral-600 dark:text-neutral-400">
+                      Generate or create a new invitation message
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <select
+                      value={messageStyle}
+                      onChange={(e) => setMessageStyle(e.target.value)}
+                      className="px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100"
+                    >
+                      <option value="default">Default</option>
+                      <option value="formal">Formal</option>
+                      <option value="friendly">Friendly</option>
+                      <option value="casual">Casual</option>
+                      <option value="professional">Professional</option>
+                    </select>
+                    <button
+                      onClick={handleGenerateMessage}
+                      disabled={isGeneratingMessage}
+                      className="px-4 py-2 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {isGeneratingMessage ? (
+                        <>
+                          <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Generate Message
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {generatedSubject && generatedMessage && (
+                  <div className="mt-4">
+                    {/* Expandable header */}
+                    <button
+                      onClick={() => setIsMessageExpanded(!isMessageExpanded)}
+                      className="w-full flex items-center justify-between p-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                    >
+                      <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
+                        Generated Message
+                      </span>
+                      <svg
+                        className={`w-5 h-5 text-neutral-500 dark:text-neutral-400 transition-transform ${isMessageExpanded ? 'rotate-180' : ''}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    
+                    {/* Expandable content */}
+                    {isMessageExpanded && (
+                      <div className="space-y-4 mt-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <div>
+                          <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
+                            SUBJECT
+                          </label>
+                          <input
+                            type="text"
+                            value={generatedSubject}
+                            onChange={(e) => setGeneratedSubject(e.target.value)}
+                            className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
+                            MESSAGE
+                          </label>
+                          <textarea
+                            value={generatedMessage}
+                            onChange={(e) => setGeneratedMessage(e.target.value)}
+                            rows={8}
+                            className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 resize-none"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Investors List */}
+              <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
+                    Select Investors ({selectedInvestorsForEmail.size} selected)
+                  </h4>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => {
+                        const investorsWithEmails = investorForms.filter(f => f.email && f.email.trim() && !sentEmailsTo.has(f.id));
+                        if (selectedInvestorsForEmail.size === investorsWithEmails.length) {
+                          setSelectedInvestorsForEmail(new Set());
+                        } else {
+                          setSelectedInvestorsForEmail(new Set(investorsWithEmails.map(f => f.id)));
+                        }
+                      }}
+                      className="px-3 py-1.5 text-xs font-bold text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300"
+                    >
+                      {selectedInvestorsForEmail.size === investorForms.filter(f => f.email && f.email.trim() && !sentEmailsTo.has(f.id)).length ? 'Deselect All' : 'Select All'}
+                    </button>
+                    <button
+                      onClick={() => handleSendInvitations(false)}
+                      disabled={isSendingEmails || selectedInvestorsForEmail.size === 0 || !generatedSubject.trim() || !generatedMessage.trim()}
+                      className="px-4 py-2 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {isSendingEmails ? (
+                        <>
+                          <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          Send to Selected ({selectedInvestorsForEmail.size})
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleSendInvitations(true)}
+                      disabled={isSendingEmails || !generatedSubject.trim() || !generatedMessage.trim()}
+                      className="px-4 py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {isSendingEmails ? (
+                        <>
+                          <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          Send to All
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {investorForms
+                    .filter(f => f.email && f.email.trim())
+                    .map((investor) => {
+                      const isSelected = selectedInvestorsForEmail.has(investor.id);
+                      const isSent = sentEmailsTo.has(investor.id);
+                      const isDisabled = isSent;
+
+                      const handleRowClick = () => {
+                        if (isDisabled) return;
+                        setSelectedInvestorsForEmail(prev => {
+                          const newSet = new Set(prev);
+                          if (isSelected) {
+                            newSet.delete(investor.id);
+                          } else {
+                            newSet.add(investor.id);
+                          }
+                          return newSet;
+                        });
+                      };
+
+                      return (
+                        <div
+                          key={investor.id}
+                          onClick={handleRowClick}
+                          className={`p-4 rounded-lg border transition-all ${
+                            isSent
+                              ? 'bg-neutral-100 dark:bg-neutral-700 border-neutral-300 dark:border-neutral-600 opacity-60 cursor-not-allowed'
+                              : isSelected
+                              ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-300 dark:border-purple-700 cursor-pointer hover:border-purple-400 dark:hover:border-purple-600'
+                              : 'bg-neutral-50 dark:bg-neutral-700/50 border-neutral-200 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                e.stopPropagation(); // Prevent row click when clicking checkbox directly
+                                if (isSent) return;
+                                setSelectedInvestorsForEmail(prev => {
+                                  const newSet = new Set(prev);
+                                  if (e.target.checked) {
+                                    newSet.add(investor.id);
+                                  } else {
+                                    newSet.delete(investor.id);
+                                  }
+                                  return newSet;
+                                });
+                              }}
+                              onClick={(e) => e.stopPropagation()} // Prevent row click when clicking checkbox
+                              disabled={isDisabled}
+                              className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500 disabled:opacity-50 cursor-pointer"
+                            />
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
+                                  {investor.investorName || 'Unnamed Investor'}
+                                </p>
+                                {isSent && (
+                                  <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-bold rounded-full">
+                                    Sent
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">
+                                {investor.email}
+                              </p>
+                              {investor.holdingId && (
+                                <p className="text-xs text-neutral-500 dark:text-neutral-500 mt-0.5">
+                                  ID: {investor.holdingId.length > 6 ? investor.holdingId.slice(-6) : investor.holdingId}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  
+                  {investorForms.filter(f => f.email && f.email.trim()).length === 0 && (
+                    <div className="text-center py-8 text-sm text-neutral-500 dark:text-neutral-400">
+                      No investors with email addresses found.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {currentStep === 'CONFIRMATION' && (
             <div className="flex flex-col items-center justify-center py-12">
               {saveSuccessCount > 0 && (
@@ -1152,7 +1911,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                       {saveErrors.map((error, index) => (
                         <div key={index} className="text-xs text-red-700 dark:text-red-400">
                           <span className="font-medium">{error.investorName}</span>
-                          {error.holdingId && <span className="text-red-600 dark:text-red-500"> ({error.holdingId})</span>}
+                          {error.holdingId && <span className="text-red-600 dark:text-red-500"> ({error.holdingId.length > 6 ? error.holdingId.slice(-6) : error.holdingId})</span>}
                           : {error.error}
                         </div>
                       ))}
@@ -1171,14 +1930,14 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
         </div>
 
         {/* Footer Actions */}
-        {currentStep !== 'CONFIRMATION' && (
+        {currentStep !== 'CONFIRMATION' && currentStep !== 'SELECTION' && (
           <div className="px-8 py-6 flex items-center justify-end">
             <div className="flex items-center gap-3">
               <button
                 onClick={handlePrevious}
-                disabled={isProcessingStep || currentStep === 'UPLOAD'}
+                disabled={isProcessingStep}
                 className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 ${
-                  isProcessingStep || currentStep === 'UPLOAD'
+                  isProcessingStep
                     ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-400 dark:text-neutral-500 cursor-not-allowed'
                     : 'bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700'
                 }`}
@@ -1188,7 +1947,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                 </svg>
                 Previous
               </button>
-              {currentStep === 'REVIEW' ? (
+              {currentStep === 'SEND_INVITATION' ? (
                 <button
                   onClick={handleNext}
                   disabled={isProcessingStep || isSaving}
@@ -1226,7 +1985,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                       </svg>
                       Saving...
                     </>
-                  ) : currentStep === 'PARSING' && parseSuccess ? (
+                  ) : currentStep === 'PROCESSING' && parseSuccess ? (
                     <>
                       Continue to Review
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1262,7 +2021,8 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
             </button>
           </div>
         )}
-      </div>
+        </div>
+      )}
 
       {/* Exit Confirmation Dialog */}
       {showExitConfirm && (

@@ -47,7 +47,7 @@ const LoginPage: React.FC = () => {
     setLoading(true);
 
     try {
-      await signIn(email, password);
+      await signIn(email, password, rememberMe);
     } catch (err: any) {
       const errorCode = err.code || '';
       const errorMessage = err.message || '';
@@ -190,8 +190,10 @@ const LoginPage: React.FC = () => {
                   </svg>
                 )}
               </button>
-              {/* Remember Me - positioned at right edge, same y-axis as input */}
-              <label className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2 cursor-pointer select-none" style={{ left: '231px', top: '96px' }}>
+            </div>
+            {/* Remember Me - positioned below password field */}
+            <div className="mt-2 flex items-center gap-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
                 <div
                   className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
                     rememberMe ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600'
@@ -205,10 +207,10 @@ const LoginPage: React.FC = () => {
                   )}
                 </div>
                 <span
-                  className="text-sm text-neutral-600 dark:text-neutral-300 whitespace-nowrap"
+                  className="text-sm text-neutral-600 dark:text-neutral-300"
                   onClick={() => setRememberMe(!rememberMe)}
                 >
-                  Remember me
+                  Remember me for 31 days
                 </span>
               </label>
             </div>

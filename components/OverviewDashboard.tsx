@@ -614,7 +614,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-8">
+      <div className="grid grid-cols-4 gap-8 overflow-visible">
         {[
           { 
             label: 'Shareholders', 
