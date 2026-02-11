@@ -37,6 +37,9 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAutofilling, setIsAutofilling] = useState(false);
   const [processingSuccessAt, setProcessingSuccessAt] = useState<number | null>(null);
+  const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+  const [showProcessingSuccess, setShowProcessingSuccess] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState(0);
   const [autofillProgress, setAutofillProgress] = useState<{ current: number; total: number } | null>(null);
   const [autofillActiveFormId, setAutofillActiveFormId] = useState<string | null>(null);
   const [autofillActiveField, setAutofillActiveField] = useState<keyof Omit<InvestorFormData, 'id'> | null>(null);
@@ -48,6 +51,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
   const [parseSuccess, setParseSuccess] = useState(false);
   const [investorForms, setInvestorForms] = useState<InvestorFormData[]>([]);
   const [expandedForms, setExpandedForms] = useState<Set<string>>(new Set());
+  const [editableForms, setEditableForms] = useState<Set<string>>(new Set()); // Track which forms are in edit mode
   const [extractedInvestors, setExtractedInvestors] = useState<ExtractedInvestor[]>([]);
   const [currentInvestorIndex, setCurrentInvestorIndex] = useState<number>(0);
   const [extractionError, setExtractionError] = useState<string>('');
@@ -73,12 +77,26 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
   const [toastVariant, setToastVariant] = useState<'success' | 'warning' | 'error' | 'info'>('success');
   const toastHideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [recipientPage, setRecipientPage] = useState(0); // Track which page of recipients we're viewing
+  const [isNavigatingToReview, setIsNavigatingToReview] = useState(false); // Track if navigating to REVIEW with loading
+  const [navigationProgress, setNavigationProgress] = useState(0); // Progress for navigation loading
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageBodyRef = useRef<HTMLDivElement>(null);
   const autofillRunIdRef = useRef(0);
   const formContainerRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  // Loading messages that rotate during processing
+  const loadingMessages = [
+    'Scanning document...',
+    'Reading through file...',
+    'Extracting data...',
+    'Processing CSV structure...',
+    'Analyzing investor information...',
+    'Validating file format...',
+    'Parsing data fields...',
+    'Organizing records...'
+  ];
 
   // Note: Removed contentEditable sync effect since we're now using textarea with processed placeholders
 
@@ -91,6 +109,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       setIsProcessing(false);
       setIsAutofilling(false);
       setProcessingSuccessAt(null);
+      setProcessingProgress(0);
       setAutofillProgress(null);
       setAutofillActiveFormId(null);
       setAutofillActiveField(null);
@@ -106,6 +125,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       setParseSuccess(false);
       setInvestorForms([]);
       setExpandedForms(new Set());
+      setEditableForms(new Set()); // Reset editable forms
       setExtractedInvestors([]);
       setCurrentInvestorIndex(0);
       setExtractionError('');
@@ -131,20 +151,14 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
         toastHideTimeoutRef.current = null;
       }
       setRecipientPage(0); // Reset recipient page
+      setIsNavigatingToReview(false); // Reset navigation loading state
+      setNavigationProgress(0); // Reset navigation progress
     }
   }, [isOpen]);
 
-  // Auto-scroll to the active form while autofilling so the user can follow along
-  useEffect(() => {
-    if (!isAutofilling) return;
-    if (!autofillActiveFormId) return;
-    const el = formContainerRefs.current[autofillActiveFormId];
-    if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [isAutofilling, autofillActiveFormId]);
 
   // Check if current step is a processing step
-  const isProcessingStep = isProcessing || isAutofilling;
+  const isProcessingStep = isProcessing;
 
   // Handle privacy notice acceptance
   const handlePrivacyNoticeAccept = () => {
@@ -199,13 +213,20 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     }
     
     if (currentStep === 'UPLOAD') {
-      // Go back to selection from upload
+      // Go back to selection from upload - but preserve file if processing was successful
+      // Only clear if user explicitly wants to start over
       setCurrentStep('SELECTION');
       setUploadType(null);
-      setUploadedFile(null);
-      setParseError('');
-      setParseSuccess(false);
-      setExtractedInvestors([]);
+      // Don't clear uploadedFile, parseSuccess, or extractedInvestors here
+      // They will be cleared when modal is closed or user selects new upload type
+      setParseError(''); // Clear errors when going back
+      return;
+    }
+    
+    // When going back to PROCESSING, show the success state if processing was already completed
+    if (currentStep === 'REVIEW' && uploadType === 'batch') {
+      // Going back to PROCESSING - show success state if already processed
+      setCurrentStep('PROCESSING');
       return;
     }
     
@@ -237,14 +258,34 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
         setCurrentStep('PROCESSING');
         return;
       }
-      // If on PROCESSING and processing is complete, move to REVIEW
-      if (currentStep === 'PROCESSING' && parseSuccess && extractedInvestors.length > 0) {
-        // For batch uploads, require "Add All" before moving to REVIEW (so forms get populated).
-        if (uploadType === 'batch' && !investorsAdded) {
-          triggerToast('CSV detected investors. Click "Add All" to populate the review forms.', 'info');
-          return;
-        }
-        setCurrentStep('REVIEW');
+      // If on PROCESSING and processing is complete, move to REVIEW with loading state
+      // Note: Investors are now automatically added, so we can move to REVIEW
+      if (currentStep === 'PROCESSING' && parseSuccess && extractedInvestors.length > 0 && investorsAdded) {
+        // Show loading state with progress line
+        setIsNavigatingToReview(true);
+        setNavigationProgress(0);
+        
+        // Animate progress bar
+        const progressInterval = setInterval(() => {
+          setNavigationProgress(prev => {
+            if (prev >= 100) {
+              clearInterval(progressInterval);
+              return 100;
+            }
+            return prev + 10;
+          });
+        }, 50);
+        
+        // Wait for progress animation, then navigate
+        setTimeout(() => {
+          clearInterval(progressInterval);
+          setNavigationProgress(100);
+          setTimeout(() => {
+            setIsNavigatingToReview(false);
+            setNavigationProgress(0);
+            setCurrentStep('REVIEW');
+          }, 200);
+        }, 500);
         return;
       }
       if (currentStep === 'REVIEW') {
@@ -379,12 +420,33 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     setCurrentStep('PROCESSING');
     setParseError('');
     setParseSuccess(false);
+    setShowProcessingSuccess(false);
+    setLoadingMessageIndex(0);
+    setProcessingProgress(0);
+
+    // Start rotating loading messages
+    const loadingMessageInterval = setInterval(() => {
+      setLoadingMessageIndex(prev => (prev + 1) % loadingMessages.length);
+    }, 1500); // Change message every 1.5 seconds
+
+    const startTime = Date.now();
+    const MIN_LOADING_DURATION = 10000; // 10 seconds minimum
+
+    // Update progress bar smoothly
+    const progressInterval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(95, (elapsed / MIN_LOADING_DURATION) * 100); // Cap at 95% until processing completes
+      setProcessingProgress(progress);
+    }, 50); // Update every 50ms for smooth animation
 
     try {
       // Parse CSV file directly
       const result = await parseDocument(file, false);
       
       if (!result.success || !result.csvText) {
+        clearInterval(loadingMessageInterval);
+        clearInterval(progressInterval);
+        setProcessingProgress(0);
         setParseError(result.error || 'Failed to process CSV file');
         setIsProcessing(false);
         setParseSuccess(false);
@@ -395,6 +457,9 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       const extractionResult = await extractInvestors(result.csvText);
       
       if (!extractionResult.success) {
+        clearInterval(loadingMessageInterval);
+        clearInterval(progressInterval);
+        setProcessingProgress(0);
         setParseError(extractionResult.error || 'Failed to extract investors from CSV');
         setIsProcessing(false);
         setParseSuccess(false);
@@ -402,11 +467,27 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       }
 
       if (extractionResult.investors.length === 0) {
+        clearInterval(loadingMessageInterval);
+        clearInterval(progressInterval);
+        setProcessingProgress(0);
         setParseError('No investors found in the CSV file. Please check the file format matches the template.');
         setIsProcessing(false);
         setParseSuccess(false);
         return;
       }
+
+      // Ensure minimum loading duration of 10 seconds
+      const elapsed = Date.now() - startTime;
+      if (elapsed < MIN_LOADING_DURATION) {
+        await sleep(MIN_LOADING_DURATION - elapsed);
+      }
+
+      // Complete the progress bar to 100%
+      setProcessingProgress(100);
+      await sleep(200); // Brief pause to show 100%
+
+      clearInterval(loadingMessageInterval);
+      clearInterval(progressInterval);
 
       // Store extracted investors
       setExtractedInvestors(extractionResult.investors);
@@ -415,17 +496,28 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       
       // Reset investorsAdded flag when processing a new file
       setInvestorsAdded(false);
-      // Clear any existing forms - forms will only be filled when "Add All" is clicked
+      // Clear any existing forms
       setInvestorForms([]);
       setExpandedForms(new Set());
       
       setIsProcessing(false);
       setParseSuccess(true);
-      // Stay on PROCESSING step to show how many investors were detected.
-      // We'll move to REVIEW only after the user clicks "Add All".
-      setCurrentStep('PROCESSING');
+      setShowProcessingSuccess(true);
+      
+      // Show success message for 3 seconds
+      await sleep(3000);
+      
+      setShowProcessingSuccess(false);
+      
+      // Automatically trigger handleAddAllInvestors - NO AWAIT, runs synchronously
+      handleAddAllInvestors();
       
     } catch (error: any) {
+      clearInterval(loadingMessageInterval);
+      if (typeof progressInterval !== 'undefined') {
+        clearInterval(progressInterval);
+      }
+      setProcessingProgress(0);
       console.error('File upload error:', error);
       setParseError(error?.message || 'Failed to process CSV file');
       setIsProcessing(false);
@@ -530,6 +622,19 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     });
   };
 
+  // Toggle edit mode for a form
+  const handleToggleEdit = (id: string) => {
+    setEditableForms(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
   // Fill form with investor data (with progressive animation)
   const fillInvestorData = async (investor: ExtractedInvestor, formId?: string) => {
     setIsAutofilling(true);
@@ -603,106 +708,64 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     }
   };
   
-  // Handle adding all investors at once - fills forms instead of saving directly
-  const handleAddAllInvestors = async () => {
-    // Ensure the processing success result is shown for at least 5 seconds
-    if (processingSuccessAt) {
-      const elapsed = Date.now() - processingSuccessAt;
-      const minShowMs = 5000;
-      if (elapsed < minShowMs) {
-        await sleep(minShowMs - elapsed);
-      }
-    }
-
-    setIsAutofilling(true);
+  // Handle adding all investors at once - immediately create forms with data (no animation)
+  const handleAddAllInvestors = () => {
+    // Ensure autofill state is false
+    setIsAutofilling(false);
+    setAutofillProgress(null);
+    setAutofillActiveFormId(null);
+    setAutofillActiveField(null);
+    
     setInvestorsAdded(true); // Mark that investors have been added
-    setAutofillProgress({ current: 0, total: extractedInvestors.length });
-    const runId = ++autofillRunIdRef.current;
-
-    // Move to REVIEW so user sees the progressive fill
+    
+    // Move to REVIEW step
     if (uploadType === 'batch') {
       setCurrentStep('REVIEW');
     }
 
-    // Create EMPTY forms first (so the UI shows the "taking over" fill effect)
-    const newForms: InvestorFormData[] = extractedInvestors.map(() => createNewInvestorForm());
+    // Create forms immediately with all extracted data - NO ANIMATION, NO DELAYS
+    const newForms: InvestorFormData[] = extractedInvestors.map((investor, index) => {
+      const form = createNewInvestorForm();
+      // Filter holding ID to numbers only, max 6 characters
+      const filteredHoldingId = (investor.holdingId || '').replace(/\D/g, '').slice(0, 6);
+      
+      return {
+        ...form,
+        investorName: investor.investorName || '',
+        holdingId: filteredHoldingId,
+        email: investor.email || '',
+        phone: investor.phone || '',
+        ownershipPercent: investor.ownershipPercent || '',
+        country: investor.country || '',
+        coAddress: investor.coAddress || '',
+        // Normalize account type to match dropdown options (case-insensitive)
+        accountType: (() => {
+          const accountType = (investor.accountType || '').trim();
+          if (!accountType) return '';
+          const upperType = accountType.toUpperCase();
+          // Map common variations to standard values
+          const typeMap: { [key: string]: string } = {
+            'INDIVIDUAL': 'INDIVIDUAL',
+            'JOINT': 'JOINT',
+            'TRUST': 'TRUST',
+            'CORPORATE': 'CORPORATE',
+            'ORDINARY': 'ORDINARY',
+            'NOMINEE': 'NOMINEE',
+          };
+          // Return mapped value if found, otherwise return original (will show as custom option)
+          return typeMap[upperType] || accountType;
+        })(),
+        holdings: investor.holdings || '',
+        stake: investor.stake || '',
+      };
+    });
     
-    // Set all forms at once
+    // Set all forms at once with data - INSTANTLY, NO ANIMATION
     setInvestorForms(newForms);
-    // Expand all forms
-    setExpandedForms(new Set(newForms.map(f => f.id)));
-
-    const setField = (formId: string, field: keyof Omit<InvestorFormData, 'id'>, value: string) => {
-      setInvestorForms(prev => prev.map(f => (f.id === formId ? { ...f, [field]: value } : f)));
-    };
-
-    const typeIntoField = async (
-      formId: string,
-      field: keyof Omit<InvestorFormData, 'id'>,
-      targetValue: string,
-      totalMs: number
-    ) => {
-      setAutofillActiveFormId(formId);
-      setAutofillActiveField(field);
-
-      const value = String(targetValue ?? '');
-      if (!value) {
-        // Still spend a tiny moment so it doesn't "skip" abruptly
-        await sleep(Math.min(150, totalMs));
-        return;
-      }
-
-      const chars = value.split('');
-      const perChar = Math.max(25, Math.floor(totalMs / chars.length));
-      let current = '';
-
-      for (let i = 0; i < chars.length; i++) {
-        if (runId !== autofillRunIdRef.current) return;
-        current += chars[i];
-        setField(formId, field, current);
-        await sleep(perChar);
-      }
-    };
-
-    // Progressive autofill: minimum 8 seconds per investor (typing animation)
-    const perInvestorMinMs = 8000;
-    const fieldPlan: Array<{ field: keyof Omit<InvestorFormData, 'id'>; ms: number; get: (inv: ExtractedInvestor) => string }> = [
-      { field: 'investorName', ms: 1600, get: inv => inv.investorName || '' },
-      { field: 'holdingId', ms: 900, get: inv => (inv.holdingId || '').replace(/\D/g, '').slice(0, 6) },
-      { field: 'email', ms: 1300, get: inv => inv.email || '' },
-      { field: 'phone', ms: 900, get: inv => inv.phone || '' },
-      { field: 'ownershipPercent', ms: 700, get: inv => inv.ownershipPercent || '' },
-      { field: 'country', ms: 700, get: inv => inv.country || '' },
-      { field: 'coAddress', ms: 1200, get: inv => inv.coAddress || '' },
-      // select-like field: still "type" into it for effect (works since it's a string value)
-      { field: 'accountType', ms: 400, get: inv => inv.accountType || '' },
-      { field: 'holdings', ms: 650, get: inv => inv.holdings || '' },
-      { field: 'stake', ms: 650, get: inv => inv.stake || '' },
-    ];
-    const plannedMs = fieldPlan.reduce((sum, x) => sum + x.ms, 0);
-    const extraPauseMs = Math.max(0, perInvestorMinMs - plannedMs);
-    const extraPerField = Math.floor(extraPauseMs / Math.max(1, fieldPlan.length));
-
-    for (let i = 0; i < extractedInvestors.length; i++) {
-      if (runId !== autofillRunIdRef.current) break; // cancelled
-
-      const investor = extractedInvestors[i];
-      const formId = newForms[i].id;
-
-      setAutofillProgress({ current: i + 1, total: extractedInvestors.length });
-
-      for (const step of fieldPlan) {
-        if (runId !== autofillRunIdRef.current) break;
-        await typeIntoField(formId, step.field, step.get(investor), step.ms + extraPerField);
-      }
-    }
-
-    if (runId === autofillRunIdRef.current) {
-      setIsAutofilling(false);
-      setAutofillProgress(null);
-      setAutofillActiveFormId(null);
-      setAutofillActiveField(null);
-    }
+    // Forms are collapsed by default - user must expand to see details
+    setExpandedForms(new Set());
+    // Forms are read-only by default - user must click Edit to make changes
+    setEditableForms(new Set());
   };
 
 
@@ -1412,12 +1475,43 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                     </div>
                     {uploadedFile && (
                       <div 
-                        className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800"
+                        className="mt-4 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800 flex items-center justify-between"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <p className="text-sm font-medium text-purple-700 dark:text-purple-300">
-                          {uploadedFile.name}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <p className="text-sm font-medium text-purple-700 dark:text-purple-300">
+                            {uploadedFile.name}
+                          </p>
+                          {parseSuccess && extractedInvestors.length > 0 && (
+                            <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                              ({extractedInvestors.length} investor{extractedInvestors.length !== 1 ? 's' : ''} processed)
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setUploadedFile(null);
+                            setParseSuccess(false);
+                            setExtractedInvestors([]);
+                            setInvestorsAdded(false);
+                            setInvestorForms([]);
+                            setExpandedForms(new Set());
+                            setParseError('');
+                            if (fileInputRef.current) {
+                              fileInputRef.current.value = '';
+                            }
+                          }}
+                          className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
+                          title="Remove file"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1431,70 +1525,36 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
               {isProcessing ? (
                 <div className="flex flex-col items-center justify-center w-full py-12">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
-                  <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Processing CSV file...</p>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">Extracting investor data from CSV</p>
-                  <div className="mt-4 w-64 bg-neutral-200 dark:bg-neutral-700 rounded-full h-1.5">
-                    <div className="bg-purple-600 h-1.5 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+                  <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
+                    {loadingMessages[loadingMessageIndex]}
+                  </p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
+                    Please wait while we process your file...
+                  </p>
+                  <div className="mt-4 w-64 bg-neutral-200 dark:bg-neutral-700 rounded-full h-1.5 overflow-hidden">
+                    <div 
+                      className="bg-purple-600 h-1.5 rounded-full transition-all duration-300 ease-out" 
+                      style={{ width: `${processingProgress}%` }}
+                    ></div>
                   </div>
                 </div>
-              ) : parseSuccess && extractedInvestors.length > 0 ? (
-                <div className="w-full max-w-5xl px-6 py-8">
-                  {/* Card layout like your screenshot (non-clickable) */}
-                  {uploadType === 'batch' && (
-                    <div className="bg-white dark:bg-neutral-900/40 border border-neutral-200 dark:border-white/10 rounded-2xl p-6 shadow-sm">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center flex-shrink-0">
-                              <svg className="w-5 h-5 text-green-700 dark:text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                              </svg>
-                            </div>
-                            <div className="min-w-0">
-                              <p className="text-sm font-black text-green-700 dark:text-green-400 truncate">
-                                CSV processed successfully!
-                              </p>
-                              <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5 truncate">
-                                Found {extractedInvestors.length} investor{extractedInvestors.length !== 1 ? 's' : ''} in the file
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                        <button
-                          onClick={handleAddAllInvestors}
-                          disabled={isAutofilling || investorsAdded}
-                          className="px-4 py-2.5 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {isAutofilling ? 'Adding...' : `Add All (${extractedInvestors.length})`}
-                        </button>
-                      </div>
-
-                      <div className="space-y-3">
-                        {extractedInvestors.map((inv, idx) => {
-                          const idLast6 = (inv.holdingId || '').replace(/\D/g, '').slice(-6);
-                          const name = (inv.investorName || '').trim() || `Investor ${idx + 1}`;
-
-                          return (
-                            <div
-                              key={`${idx}-${idLast6}-${name}`}
-                              className="rounded-lg border p-4 flex items-center justify-between transition-colors bg-neutral-50 dark:bg-neutral-800/60 border-neutral-200 dark:border-white/10"
-                            >
-                              <div className="min-w-0">
-                                <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 truncate">
-                                  {name}
-                                </p>
-                                <p className="text-xs text-neutral-600 dark:text-neutral-300 mt-0.5 truncate">
-                                  ID: {idLast6 || '—'}
-                                </p>
-                              </div>
-                              <span className="text-xs font-bold text-purple-600 dark:text-purple-300 flex-shrink-0">
-                                {idx + 1} of {extractedInvestors.length}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+              ) : (parseSuccess && extractedInvestors.length > 0) || (showProcessingSuccess && parseSuccess && extractedInvestors.length > 0) ? (
+                <div className="flex flex-col items-center justify-center w-full py-12">
+                  <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
+                    <svg className="w-6 h-6 text-green-700 dark:text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <p className="text-sm font-black text-green-700 dark:text-green-400">
+                    CSV processed successfully!
+                  </p>
+                  <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-2">
+                    Found {extractedInvestors.length} investor{extractedInvestors.length !== 1 ? 's' : ''} in the file
+                  </p>
+                  {uploadedFile && (
+                    <p className="text-xs text-neutral-500 dark:text-neutral-500 mt-1">
+                      File: {uploadedFile.name}
+                    </p>
                   )}
                 </div>
               ) : parseError ? (
@@ -1537,21 +1597,6 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
           {currentStep === 'REVIEW' && (
             <div className="space-y-6">
-              {/* Autofill Status Banner */}
-              {isAutofilling && (
-                <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4 flex items-center gap-3">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-600"></div>
-                  <div>
-                    <p className="text-sm font-bold text-purple-900 dark:text-purple-300">
-                      Adding investors{autofillProgress ? ` (${autofillProgress.current} of ${autofillProgress.total})` : '...'}
-                    </p>
-                    <p className="text-xs text-purple-700 dark:text-purple-400 mt-1">
-                      Filling fields one by one for better reliability
-                    </p>
-                  </div>
-                </div>
-              )}
-              
               {/* Extraction Error */}
               {extractionError && (
                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
@@ -1563,13 +1608,45 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
               {/* Investor Forms List */}
               <div className="space-y-4">
+                {/* Summary when forms exist but are collapsed */}
+                {investorForms.length > 0 && expandedForms.size === 0 && (
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-bold text-blue-900 dark:text-blue-300">
+                          {investorForms.length} investor{investorForms.length !== 1 ? 's' : ''} ready for review
+                        </p>
+                        <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">
+                          Click on any investor card below to expand and review details
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          // Expand all forms
+                          setExpandedForms(new Set(investorForms.map(f => f.id)));
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        Expand All
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Header with Add Investor Button - allow manual adding in both batch + individual */}
                 {(uploadType === 'batch' || uploadType === 'individual') && (
-                  <div className="flex items-center justify-end">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-neutral-600 dark:text-neutral-400">
+                      {investorForms.length > 0 && (
+                        <span className="font-medium">
+                          {investorForms.length} investor{investorForms.length !== 1 ? 's' : ''} added
+                        </span>
+                      )}
+                    </div>
                     <div className="relative group">
                       <button
                         onClick={handleAddInvestor}
-                        className="text-purple-600 hover:text-purple-700 transition-colors"
+                        className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
                       >
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -1586,20 +1663,31 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                   </div>
                 )}
 
+                {/* Empty state */}
+                {investorForms.length === 0 && (
+                  <div className="text-center py-12">
+                    <svg className="w-16 h-16 mx-auto text-neutral-400 dark:text-neutral-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400 mb-2">
+                      No investors added yet
+                    </p>
+                    <p className="text-xs text-neutral-500 dark:text-neutral-500">
+                      Click the + button above to add an investor manually
+                    </p>
+                  </div>
+                )}
+
                 {investorForms.map((form, index) => {
                   const isExpanded = expandedForms.has(form.id);
+                  const isEditable = editableForms.has(form.id);
                   const displayName = form.investorName || `Investor ${index + 1}`;
-                  const isActiveAutofillForm = isAutofilling && autofillActiveFormId === form.id;
                   
                   return (
                     <div
                       key={form.id}
                       ref={(el) => { formContainerRefs.current[form.id] = el; }}
-                      className={`bg-white dark:bg-neutral-800 border rounded-lg overflow-hidden transition-colors ${
-                        isActiveAutofillForm
-                          ? 'border-purple-300 dark:border-purple-600 ring-1 ring-purple-300/40 dark:ring-purple-600/30'
-                          : 'border-neutral-200 dark:border-neutral-700'
-                      }`}
+                      className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden transition-colors"
                     >
                       {/* Collapsible Header */}
                       <div 
@@ -1623,20 +1711,29 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          {isActiveAutofillForm && (
-                            <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-bold rounded-full">
-                              Auto-filling
-                            </span>
-                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleEdit(form.id);
+                            }}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                              isEditable
+                                ? 'bg-purple-600 text-white hover:bg-purple-700'
+                                : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-600'
+                            }`}
+                            title={isEditable ? 'Save changes' : 'Edit form'}
+                          >
+                            {isEditable ? 'Save' : 'Edit'}
+                          </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               handleRemoveInvestor(form.id);
                             }}
-                            className="p-1.5 hover:bg-red-50 rounded-full transition-colors group"
+                            className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors group"
                             title="Remove investor"
                           >
-                            <svg className="w-4 h-4 text-neutral-400 group-hover:text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-4 h-4 text-neutral-400 dark:text-neutral-500 group-hover:text-red-600 dark:group-hover:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
                           </button>
@@ -1656,21 +1753,15 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 type="text"
                                 value={form.investorName}
                                 onChange={(e) => handleFieldChange(form.id, 'investorName', e.target.value)}
-                                disabled={isAutofilling}
-                                className={`w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all ${
-                                  isActiveAutofillForm && autofillActiveField === 'investorName'
-                                    ? 'border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20 animate-pulse' 
-                                    : 'border-neutral-200 dark:border-neutral-600'
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
                                 }`}
                                 placeholder="Enter investor name"
                               />
-                              {isActiveAutofillForm && form.investorName && (
-                                <div className="absolute right-3 top-9">
-                                  <svg className="w-4 h-4 text-purple-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                </div>
-                              )}
                             </div>
 
                             {/* Registration ID */}
@@ -1686,23 +1777,17 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                   maxLength={6}
                                   value={form.holdingId}
                                   onChange={(e) => handleHoldingIdChange(form.id, e.target.value)}
-                                  disabled={isAutofilling}
-                                  className={`w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 transition-all ${
+                                  disabled={!isEditable}
+                                  readOnly={!isEditable}
+                                  className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
                                     registrationIdErrors.has(form.id)
-                                      ? 'border-red-500 dark:border-red-500 focus:ring-red-500 focus:border-red-500'
-                                      : isActiveAutofillForm && autofillActiveField === 'holdingId'
-                                      ? 'border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20 animate-pulse focus:ring-purple-500 focus:border-transparent' 
-                                      : 'border-neutral-200 dark:border-neutral-600 focus:ring-purple-500 focus:border-transparent'
+                                      ? 'border-red-500 dark:border-red-500 focus:ring-red-500 focus:border-red-500 bg-red-50 dark:bg-red-900/20 text-neutral-900 dark:text-neutral-100'
+                                      : isEditable
+                                      ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                      : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
                                   }`}
                                   placeholder="Enter last 6 digits of registration ID"
                                 />
-                                {isActiveAutofillForm && form.holdingId && (
-                                  <div className="absolute right-3 top-9">
-                                    <svg className="w-4 h-4 text-purple-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                  </div>
-                                )}
                                 {/* Tooltip for invalid characters */}
                                 {registrationIdErrors.has(form.id) && registrationIdErrors.get(form.id)?.hasInvalidChars && (
                                   <div className="absolute z-50 left-0 top-full mt-1 w-64 p-3 bg-neutral-900 dark:bg-neutral-800 text-white text-xs rounded-lg shadow-xl pointer-events-none">
@@ -1731,21 +1816,15 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 type="email"
                                 value={form.email}
                                 onChange={(e) => handleFieldChange(form.id, 'email', e.target.value)}
-                                disabled={isAutofilling}
-                                className={`w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all ${
-                                  isActiveAutofillForm && autofillActiveField === 'email'
-                                    ? 'border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20 animate-pulse' 
-                                    : 'border-neutral-200 dark:border-neutral-600'
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
                                 }`}
                                 placeholder="Enter email address"
                               />
-                              {isActiveAutofillForm && form.email && (
-                                <div className="absolute right-3 top-9">
-                                  <svg className="w-4 h-4 text-purple-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                </div>
-                              )}
                             </div>
 
                             {/* Phone */}
@@ -1757,21 +1836,15 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 type="tel"
                                 value={form.phone}
                                 onChange={(e) => handleFieldChange(form.id, 'phone', e.target.value)}
-                                disabled={isAutofilling}
-                                className={`w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all ${
-                                  isActiveAutofillForm && autofillActiveField === 'phone'
-                                    ? 'border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20 animate-pulse' 
-                                    : 'border-neutral-200 dark:border-neutral-600'
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
                                 }`}
                                 placeholder="Enter phone number"
                               />
-                              {isActiveAutofillForm && form.phone && (
-                                <div className="absolute right-3 top-9">
-                                  <svg className="w-4 h-4 text-purple-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                </div>
-                              )}
                             </div>
 
                             {/* Ownership %} */}
@@ -1783,21 +1856,15 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 type="text"
                                 value={form.ownershipPercent}
                                 onChange={(e) => handleFieldChange(form.id, 'ownershipPercent', e.target.value)}
-                                disabled={isAutofilling}
-                                className={`w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all ${
-                                  isActiveAutofillForm && autofillActiveField === 'ownershipPercent'
-                                    ? 'border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20 animate-pulse' 
-                                    : 'border-neutral-200 dark:border-neutral-600'
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
                                 }`}
                                 placeholder="Enter ownership percentage"
                               />
-                              {isActiveAutofillForm && form.ownershipPercent && (
-                                <div className="absolute right-3 top-9">
-                                  <svg className="w-4 h-4 text-purple-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                </div>
-                              )}
                             </div>
 
                             {/* Country */}
@@ -1809,7 +1876,13 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 type="text"
                                 value={form.country}
                                 onChange={(e) => handleFieldChange(form.id, 'country', e.target.value)}
-                                className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                }`}
                                 placeholder="Enter country"
                               />
                             </div>
@@ -1823,7 +1896,13 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 type="text"
                                 value={form.coAddress}
                                 onChange={(e) => handleFieldChange(form.id, 'coAddress', e.target.value)}
-                                className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                }`}
                                 placeholder="Enter company address"
                               />
                             </div>
@@ -1836,7 +1915,12 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                               <select
                                 value={form.accountType}
                                 onChange={(e) => handleFieldChange(form.id, 'accountType', e.target.value)}
-                                className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                                disabled={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                }`}
                               >
                                 <option value="">Select account type</option>
                                 <option value="INDIVIDUAL">Individual</option>
@@ -1866,7 +1950,13 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 inputMode="numeric"
                                 value={form.holdings}
                                 onChange={(e) => handleFieldChange(form.id, 'holdings', e.target.value)}
-                                className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                }`}
                                 placeholder="Enter holdings"
                               />
                             </div>
@@ -1881,7 +1971,13 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                 inputMode="numeric"
                                 value={form.stake}
                                 onChange={(e) => handleFieldChange(form.id, 'stake', e.target.value)}
-                                className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                }`}
                                 placeholder="Enter stake percentage"
                               />
                             </div>
@@ -2364,10 +2460,10 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
               ) : (
                 <button
                   onClick={handleNext}
-                  disabled={isProcessingStep || isSaving}
-                  className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 ${
-                    isProcessingStep || isSaving
-                      ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed'
+                  disabled={isProcessingStep || isSaving || isNavigatingToReview}
+                  className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 relative overflow-hidden ${
+                    isProcessingStep || isSaving || isNavigatingToReview
+                      ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed dark:bg-neutral-800 dark:text-neutral-500'
                       : 'bg-purple-600 text-white hover:bg-purple-700'
                   }`}
                 >
@@ -2380,10 +2476,29 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                     </>
                   ) : currentStep === 'PROCESSING' && parseSuccess ? (
                     <>
-                      Continue to Review
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                      </svg>
+                      {isNavigatingToReview ? (
+                        <>
+                          <div className="absolute inset-0 bg-purple-600 rounded-lg overflow-hidden">
+                            <div 
+                              className="h-full bg-purple-700 transition-all duration-300 ease-out"
+                              style={{ width: `${navigationProgress}%` }}
+                            ></div>
+                          </div>
+                          <span className="relative z-10 flex items-center gap-2">
+                            <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Proceeding to Review...
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          Continue to Review
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                          </svg>
+                        </>
+                      )}
                     </>
                   ) : (
                     <>

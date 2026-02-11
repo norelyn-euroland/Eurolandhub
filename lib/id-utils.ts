@@ -26,3 +26,4 @@ export function formatIdWithEllipsis(id: string | undefined | null): string {
   return `...${idStr.slice(-6)}`;
 }
 
+

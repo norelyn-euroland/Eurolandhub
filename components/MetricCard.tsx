@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { ResponsiveContainer, AreaChart, Area, Tooltip, TooltipProps, XAxis } from 'recharts';
 
 interface MetricCardProps {
@@ -19,20 +20,67 @@ interface MetricCardProps {
  * Custom Tooltip component for the Sparkline.
  * Positions itself near the hover point on the chart, outside the card boundaries.
  */
-const CustomTooltip = ({ active, payload, themeColor, coordinate }: TooltipProps<number, string> & { themeColor: string }) => {
+const CustomTooltip = ({
+  active,
+  payload,
+  themeColor,
+  coordinate,
+  containerRef,
+}: TooltipProps<number, string> & {
+  themeColor: string;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) => {
+  const tooltipRef = React.useRef<HTMLDivElement | null>(null);
+  const [tooltipSize, setTooltipSize] = React.useState({ w: 0, h: 0 });
+
+  React.useLayoutEffect(() => {
+    if (!active) return;
+    if (!tooltipRef.current) return;
+    const rect = tooltipRef.current.getBoundingClientRect();
+    setTooltipSize({ w: rect.width, h: rect.height });
+  }, [active, payload?.[0]?.value, payload?.[0]?.payload?.date]);
+
   if (active && payload && payload.length && coordinate) {
     const data = payload[0].payload;
-    
-    return (
-      <div 
+
+    // Render into a portal to guarantee it stays above charts/cards regardless of stacking contexts.
+    if (typeof document === 'undefined') return null;
+
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    if (!containerRect) return null;
+
+    const pointX = containerRect.left + coordinate.x;
+    const pointY = containerRect.top + coordinate.y;
+
+    const GAP = 12;
+    const EDGE = 8;
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+
+    // Prefer above; flip below when we don't have room.
+    const wouldOverflowTop = pointY - GAP - tooltipSize.h < EDGE;
+    const wouldOverflowBottom = pointY + GAP + tooltipSize.h > viewportH - EDGE;
+    const placeBelow = wouldOverflowTop && !wouldOverflowBottom;
+
+    const transform = placeBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)';
+    const top = placeBelow ? pointY + GAP : pointY - GAP;
+
+    const halfW = tooltipSize.w ? tooltipSize.w / 2 : 0;
+    const minLeft = EDGE + halfW;
+    const maxLeft = viewportW - EDGE - halfW;
+    const left = Math.min(Math.max(pointX, minLeft), maxLeft);
+
+    return createPortal(
+      <div
+        ref={tooltipRef}
         className="bg-white dark:bg-[#262626] border border-neutral-200 dark:border-white/10 px-3 py-2 rounded-lg shadow-2xl backdrop-blur-md pointer-events-none" 
         style={{ 
-          position: 'fixed', // Use fixed to escape parent overflow and z-index constraints
-          zIndex: 999999, // Very high z-index to ensure it's above everything including text
-          left: `${coordinate.x}px`,
-          top: `${coordinate.y - 70}px`, // Position above the point
-          transform: 'translate(-50%, 0)', // Center horizontally
-          whiteSpace: 'nowrap' // Prevent text wrapping
+          position: 'fixed',
+          zIndex: 2147483647,
+          left: `${left}px`,
+          top: `${top}px`,
+          transform,
+          whiteSpace: 'nowrap'
         }}
       >
         <p className="text-[10px] uppercase tracking-widest text-neutral-500 dark:text-gray-400 font-bold mb-0.5">
@@ -42,7 +90,7 @@ const CustomTooltip = ({ active, payload, themeColor, coordinate }: TooltipProps
           {payload[0].value?.toLocaleString()}
         </p>
       </div>
-    );
+    , document.body);
   }
   return null;
 };
@@ -55,6 +103,8 @@ const MetricCard: React.FC<MetricCardProps> = ({
   chartColor = '#7C3AED',
   subtitle = 'compared to last week',
 }) => {
+  const chartContainerRef = React.useRef<HTMLDivElement | null>(null);
+
   // Map chartColor to colorTheme
   const getColorTheme = (color: string): 'pink' | 'blue' | 'emerald' | 'amber' => {
     const colorMap: Record<string, 'pink' | 'blue' | 'emerald' | 'amber'> = {
@@ -199,44 +249,45 @@ const MetricCard: React.FC<MetricCardProps> = ({
 
       {/* Animated Sparkline Section — full-width, bottom section */}
       <div className="absolute bottom-0 left-0 right-0 h-[42%] transition-opacity duration-500 group-hover:opacity-100 opacity-60 overflow-visible" style={{ zIndex: 5 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={convertChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={theme.stroke} stopOpacity={0.4} />
-                <stop offset="95%" stopColor={theme.stroke} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <XAxis dataKey="date" hide />
-            <Tooltip
-              content={<CustomTooltip themeColor={theme.stroke} />}
-              cursor={{ stroke: theme.stroke, strokeWidth: 1.5, strokeDasharray: '4 4' }}
-              allowEscapeViewBox={{ x: true, y: true }}
-              offset={20}
-              wrapperStyle={{ zIndex: 999999, pointerEvents: 'none', outline: 'none', overflow: 'visible', position: 'relative' }}
-              animationDuration={0}
-              position={{ x: 'auto', y: 'auto' }}
-            />
-            <Area
-              type="monotone"
-              dataKey="value"
-              stroke={theme.stroke}
-              strokeWidth={3}
-              fillOpacity={1}
-              fill={`url(#${gradientId})`}
-              isAnimationActive={true}
-              animationDuration={1500}
-              animationEasing="cubic-bezier(0.16, 1, 0.3, 1)"
-              activeDot={{
-                r: 6,
-                fill: theme.stroke,
-                stroke: '#ffffff',
-                strokeWidth: 2,
-                className: "dark:stroke-[#1a1a1a] drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]"
-              }}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+        <div ref={chartContainerRef} className="w-full h-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={convertChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={theme.stroke} stopOpacity={0.4} />
+                  <stop offset="95%" stopColor={theme.stroke} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="date" hide />
+              <Tooltip
+                content={<CustomTooltip themeColor={theme.stroke} containerRef={chartContainerRef} />}
+                cursor={{ stroke: theme.stroke, strokeWidth: 1.5, strokeDasharray: '4 4' }}
+                allowEscapeViewBox={{ x: true, y: true }}
+                offset={10}
+                wrapperStyle={{ pointerEvents: 'none', outline: 'none' }}
+                animationDuration={0}
+              />
+              <Area
+                type="monotone"
+                dataKey="value"
+                stroke={theme.stroke}
+                strokeWidth={3}
+                fillOpacity={1}
+                fill={`url(#${gradientId})`}
+                isAnimationActive={true}
+                animationDuration={1500}
+                animationEasing="cubic-bezier(0.16, 1, 0.3, 1)"
+                activeDot={{
+                  r: 6,
+                  fill: theme.stroke,
+                  stroke: '#ffffff',
+                  strokeWidth: 2,
+                  className: "dark:stroke-[#1a1a1a] drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]"
+                }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
   );
