@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { invitationTemplate } from '../lib/email-templates';
+import { invitationTemplate } from '../lib/email-templates.js';
 
 /**
  * Convert HTML to plain text while preserving paragraph structure.
