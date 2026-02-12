@@ -81,6 +81,14 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
           {!isCollapsed && <span>Registrations</span>}
         </button>
         <button 
+          onClick={() => onViewChange('investor-processing')}
+          className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 rounded-lg transition-all text-sm font-medium ${currentView === 'investor-processing' ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border-l-4 border-[#082b4a] dark:border-[#00adf0]' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'}`}
+          title={isCollapsed ? 'Investor Processing' : ''}
+        >
+          <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          {!isCollapsed && <span>Investor Processing</span>}
+        </button>
+        <button 
           onClick={() => onViewChange('shareholders')}
           className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 rounded-lg transition-all text-sm font-medium ${currentView === 'shareholders' ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border-l-4 border-[#082b4a] dark:border-[#00adf0]' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'}`}
           title={isCollapsed ? 'Shareholders' : ''}

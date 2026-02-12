@@ -112,7 +112,7 @@ export interface ShareholdingsVerificationState {
 }
 
 // @google/genai guidelines: Define a shared ViewType for navigation consistency
-export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders';
+export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders' | 'investor-processing';
 
 /**
  * Tab filter type for registrations page

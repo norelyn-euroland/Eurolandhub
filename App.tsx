@@ -13,6 +13,7 @@ import ApplicantDetail from './components/ApplicantDetail';
 import ShareholdersRegistry from './components/ShareholdersRegistry';
 import OverviewDashboard from './components/OverviewDashboard';
 import LoginPage from './components/LoginPage';
+import InvestorProcessing from './components/InvestorProcessing';
 
 const FADE_DURATION_MS = 300;
 
@@ -29,7 +30,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
   const getInitialView = (): ViewType => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('eurolandhub_view');
-      if (saved && ['dashboard', 'registrations', 'shareholders'].includes(saved)) {
+      if (saved && ['dashboard', 'registrations', 'shareholders', 'investor-processing'].includes(saved)) {
         return saved as ViewType;
       }
     }
@@ -243,6 +244,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
       case 'registrations': return 'Investor Registrations';
       case 'detail': return 'Verification Review';
       case 'shareholders': return 'Shareholders Registry';
+      case 'investor-processing': return 'Investor Processing';
       default: return 'Dashboard';
     }
   };
@@ -466,6 +468,9 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
           )}
           {view === 'shareholders' && (
             <ShareholdersRegistry searchQuery={searchQuery} />
+          )}
+          {view === 'investor-processing' && (
+            <InvestorProcessing sidebarCollapsed={isSidebarCollapsed} />
           )}
         </main>
       </div>

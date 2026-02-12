@@ -7,7 +7,6 @@ import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import Tooltip from './Tooltip';
 import { getWorkflowStatusInternal, getGeneralAccountStatus, getWorkflowStatusFrontendLabel } from '../lib/shareholdingsVerification';
-import AddInvestorModal from './AddInvestorModal';
 import MetricCard from './MetricCard';
 
 // Helper function to get initials (first letter of first name and last name)
@@ -117,7 +116,6 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
     return initialTab || 'ALL';
   });
   const [isExportOpen, setIsExportOpen] = useState(false);
-  const [isAddInvestorModalOpen, setIsAddInvestorModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || '');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   
@@ -621,15 +619,6 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                   )}
                 </div>
                 
-                <button 
-                  onClick={() => setIsAddInvestorModalOpen(true)}
-                  className="px-3 py-1.5 text-[10px] font-bold bg-[#4169E1] text-white rounded-lg hover:bg-[#3151C7] transition-colors uppercase tracking-widest flex items-center gap-2 shadow-sm"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-                  </svg>
-                  Add Investors
-                </button>
                  <div className="relative" ref={exportRef}>
                    <button 
                     onClick={() => setIsExportOpen(!isExportOpen)}
@@ -801,13 +790,6 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
         </table>
       </div>
 
-      {/* Add Investor Modal */}
-      <AddInvestorModal
-        isOpen={isAddInvestorModalOpen}
-        onClose={() => setIsAddInvestorModalOpen(false)}
-        onSave={handleInvestorSave}
-        sidebarCollapsed={sidebarCollapsed}
-      />
     </div>
   );
 };
