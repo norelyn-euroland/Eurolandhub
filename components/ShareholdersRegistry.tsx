@@ -3,7 +3,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { MOCK_SHAREHOLDERS } from '../lib/mockShareholders';
-import { batchService } from '../lib/firestore-service';
+import { batchService, applicantService, shareholderService } from '../lib/firestore-service';
+import { RegistrationStatus, Shareholder, Applicant } from '../lib/types';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import Tooltip from './Tooltip';
@@ -25,12 +26,196 @@ interface ShareholdersRegistryProps {
   searchQuery: string;
 }
 
+// Helper function to generate a 6-digit random ID
+const generateRandomId = (): string => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+// Helper function to generate random values
+const generateRandomShareHeld = (): number => {
+  // Random between 1,000 and 10,000,000 shares
+  return Math.floor(1000 + Math.random() * 9999000);
+};
+
+const generateRandomOwnershipClass = (): string => {
+  const classes = ['INDIVIDUAL', 'JOINT', 'TRUST', 'CORPORATE', 'ORDINARY'];
+  return classes[Math.floor(Math.random() * classes.length)];
+};
+
+const generateRandomSharePrice = (): number => {
+  // Random between $10 and $500 per share
+  return Math.round((10 + Math.random() * 490) * 100) / 100;
+};
+
+// Convert verified applicants to shareholders with random values
+// existingHoldings: Set of existing holdings values to avoid duplicates
+// existingIds: Set of existing IDs to ensure uniqueness
+const convertApplicantsToShareholders = (
+  applicants: Applicant[],
+  existingHoldings: Set<number>,
+  existingIds: Set<string>
+): Shareholder[] => {
+  const shareholders: Shareholder[] = [];
+  const usedIds = new Set<string>(existingIds);
+
+  for (const applicant of applicants) {
+    // Skip if neither holdingsRecord nor verified through workflow
+    const hasHoldingsRecord = applicant.holdingsRecord !== undefined;
+    const isFullyVerified = applicant.shareholdingsVerification?.step6?.verifiedAt !== undefined;
+    if (!hasHoldingsRecord && !isFullyVerified) continue;
+
+    // Generate unique 6-digit ID
+    let randomId = generateRandomId();
+    while (usedIds.has(randomId)) {
+      randomId = generateRandomId();
+    }
+    usedIds.add(randomId);
+
+    // Generate random holdings that are different from existing ones
+    let randomHoldings = generateRandomShareHeld();
+    while (existingHoldings.has(randomHoldings)) {
+      randomHoldings = generateRandomShareHeld();
+    }
+    existingHoldings.add(randomHoldings);
+
+    const randomOwnershipClass = generateRandomOwnershipClass();
+    const randomSharePrice = generateRandomSharePrice();
+    const randomMarketValue = randomHoldings * randomSharePrice;
+
+    // Create shareholder with random values
+    const shareholder: Shareholder = {
+      id: randomId,
+      name: applicant.fullName,
+      firstName: applicant.fullName.split(' ')[0],
+      holdings: randomHoldings,
+      stake: 0, // Will be calculated after combining with existing shareholders
+      rank: 0, // Will be calculated after sorting
+      coAddress: applicant.location || 'Registered Office',
+      country: applicant.location?.split(',').pop()?.trim() || 'Unknown',
+      accountType: randomOwnershipClass,
+    };
+
+    shareholders.push(shareholder);
+  }
+
+  return shareholders;
+};
+
+// Recalculate ranks and stakes for combined shareholders list
+const recalculateRanksAndStakes = (shareholders: Shareholder[]): Shareholder[] => {
+  // Sort by holdings descending
+  const sorted = [...shareholders].sort((a, b) => b.holdings - a.holdings);
+  const totalHoldings = sorted.reduce((sum, s) => sum + s.holdings, 0);
+
+  // Calculate stake percentages and assign ranks
+  sorted.forEach((sh, index) => {
+    sh.rank = index + 1;
+    sh.stake = totalHoldings > 0 ? (sh.holdings / totalHoldings) * 100 : 0;
+  });
+
+  return sorted;
+};
+
 const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery }) => {
   const [isAuditOpen, setIsAuditOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [localQuery, setLocalQuery] = useState('');
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationStatus, setMigrationStatus] = useState<string>('');
+  const [shareholders, setShareholders] = useState<Shareholder[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch existing shareholders and verified investors on component mount
+  useEffect(() => {
+    const fetchAllShareholders = async () => {
+      setLoading(true);
+      try {
+        console.log('Fetching shareholders and verified investors...');
+        
+        // Fetch existing shareholders from Firebase
+        let existingShareholders: Shareholder[] = [];
+        try {
+          existingShareholders = await shareholderService.getAll();
+          console.log(`Found ${existingShareholders.length} existing shareholders`);
+          
+          // If no shareholders in Firebase, use mock data as fallback
+          if (existingShareholders.length === 0) {
+            console.log('No shareholders in Firebase, using mock data as fallback');
+            existingShareholders = MOCK_SHAREHOLDERS.map(sh => ({ ...sh }));
+          }
+        } catch (error) {
+          console.warn('Error fetching existing shareholders, using mock data as fallback:', error);
+          // Use mock data as fallback if Firebase fails
+          existingShareholders = MOCK_SHAREHOLDERS.map(sh => ({ ...sh }));
+        }
+        
+        // Get existing IDs and holdings to avoid duplicates
+        const existingIds = new Set<string>(existingShareholders.map(s => s.id));
+        const existingHoldings = new Set<number>(existingShareholders.map(s => s.holdings));
+
+        // Fetch all approved applicants that are verified (have shareholdings data)
+        // Verified accounts are those with APPROVED status AND:
+        // - Either have holdingsRecord (explicit holdings data)
+        // - Or have completed shareholdings verification (step6.verifiedAt exists)
+        let verifiedApplicants: Applicant[] = [];
+        try {
+          const allApplicants = await applicantService.getAll({ status: RegistrationStatus.APPROVED });
+          console.log(`Found ${allApplicants.length} approved applicants`);
+          
+          verifiedApplicants = allApplicants.filter((applicant) => {
+            // Check if they have holdingsRecord OR are fully verified through shareholdings workflow
+            const hasHoldingsRecord = applicant.holdingsRecord !== undefined;
+            const isFullyVerified = applicant.shareholdingsVerification?.step6?.verifiedAt !== undefined;
+            return hasHoldingsRecord || isFullyVerified;
+          });
+          console.log(`Found ${verifiedApplicants.length} verified applicants with shareholdings data`);
+          console.log('Verified applicants:', verifiedApplicants.map(a => ({ 
+            id: a.id, 
+            name: a.fullName, 
+            hasHoldingsRecord: !!a.holdingsRecord,
+            hasStep6: !!a.shareholdingsVerification?.step6?.verifiedAt 
+          })));
+        } catch (error) {
+          console.warn('Error fetching verified applicants, continuing with empty list:', error);
+          verifiedApplicants = [];
+        }
+
+        // Convert verified applicants to shareholders with random values
+        const verifiedShareholders = convertApplicantsToShareholders(
+          verifiedApplicants,
+          existingHoldings,
+          existingIds
+        );
+        console.log(`Converted ${verifiedShareholders.length} verified applicants to shareholders`);
+
+        // Combine existing shareholders with verified accounts
+        const combinedShareholders = [...existingShareholders, ...verifiedShareholders];
+        console.log(`Total combined shareholders: ${combinedShareholders.length}`);
+
+        // Ensure we have at least some data - use mock data if everything is empty
+        let finalShareholders: Shareholder[] = [];
+        if (combinedShareholders.length > 0) {
+          // Recalculate ranks and stakes for the combined list
+          finalShareholders = recalculateRanksAndStakes(combinedShareholders);
+          console.log(`Final shareholders after recalculation: ${finalShareholders.length}`);
+        } else {
+          // If no data at all, use mock data
+          console.log('No shareholders found, using mock data');
+          finalShareholders = recalculateRanksAndStakes(MOCK_SHAREHOLDERS.map(sh => ({ ...sh })));
+        }
+        
+        setShareholders(finalShareholders);
+      } catch (error) {
+        console.error('Error fetching shareholders:', error);
+        // Fallback to empty array on error
+        setShareholders([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAllShareholders();
+  }, []);
 
   // One-time migration function - can be called from browser console
   const handleMigrateShareholders = async () => {
@@ -57,7 +242,7 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
   }, []);
 
   const effectiveQuery = (localQuery.trim() || searchQuery.trim()).toLowerCase();
-  const filtered = MOCK_SHAREHOLDERS.filter(s => {
+  const filtered = shareholders.filter(s => {
     if (!effectiveQuery) return true;
     return (
       s.name.toLowerCase().includes(effectiveQuery) ||
@@ -65,8 +250,8 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     );
   });
 
-  const totalHoldings = MOCK_SHAREHOLDERS.reduce((sum, s) => sum + s.holdings, 0);
-  const top3Stake = MOCK_SHAREHOLDERS.slice(0, 3).reduce((sum, s) => sum + s.stake, 0);
+  const totalHoldings = shareholders.reduce((sum, s) => sum + s.holdings, 0);
+  const top3Stake = shareholders.slice(0, 3).reduce((sum, s) => sum + s.stake, 0);
 
   const handleExportLedger = () => {
     setIsExporting(true);
@@ -333,12 +518,23 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
           </table>
         </div>
 
-        {filtered.length === 0 && (
+        {loading && (
+          <div className="py-24 text-center">
+            <div className="w-16 h-16 bg-neutral-50 dark:bg-neutral-900 rounded-full flex items-center justify-center mx-auto mb-4 border border-dashed border-neutral-200 dark:border-neutral-700">
+              <svg className="w-6 h-6 text-neutral-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+            </div>
+            <p className="text-sm font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">Loading verified investors...</p>
+          </div>
+        )}
+
+        {!loading && filtered.length === 0 && (
           <div className="py-24 text-center">
             <div className="w-16 h-16 bg-neutral-50 dark:bg-neutral-900 rounded-full flex items-center justify-center mx-auto mb-4 border border-dashed border-neutral-200 dark:border-neutral-700">
                 <svg className="w-6 h-6 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
             </div>
-            <p className="text-sm font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">No matching records found in the registry.</p>
+            <p className="text-sm font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">No verified investors found in the registry.</p>
           </div>
         )}
       </div>

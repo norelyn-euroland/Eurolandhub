@@ -32,15 +32,57 @@ const CustomTooltip = ({
 }) => {
   const tooltipRef = React.useRef<HTMLDivElement | null>(null);
   const [tooltipSize, setTooltipSize] = React.useState({ w: 0, h: 0 });
+  const [shouldShow, setShouldShow] = React.useState(false);
+
+  // Update shouldShow based on active state
+  React.useEffect(() => {
+    setShouldShow(active === true);
+  }, [active]);
+
+  // Hide tooltip on scroll
+  React.useEffect(() => {
+    if (!shouldShow) return;
+
+    const handleScroll = () => {
+      setShouldShow(false);
+    };
+
+    // Listen to scroll events on window and all scrollable containers
+    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('wheel', handleScroll, true);
+    window.addEventListener('touchmove', handleScroll, true);
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('wheel', handleScroll, true);
+      window.removeEventListener('touchmove', handleScroll, true);
+    };
+  }, [shouldShow]);
+
+  // Hide tooltip when mouse leaves the chart container
+  React.useEffect(() => {
+    if (!shouldShow || !containerRef.current) return;
+
+    const container = containerRef.current;
+    const handleMouseLeave = () => {
+      setShouldShow(false);
+    };
+
+    container.addEventListener('mouseleave', handleMouseLeave);
+
+    return () => {
+      container.removeEventListener('mouseleave', handleMouseLeave);
+    };
+  }, [shouldShow, containerRef]);
 
   React.useLayoutEffect(() => {
-    if (!active) return;
+    if (!shouldShow) return;
     if (!tooltipRef.current) return;
     const rect = tooltipRef.current.getBoundingClientRect();
     setTooltipSize({ w: rect.width, h: rect.height });
-  }, [active, payload?.[0]?.value, payload?.[0]?.payload?.date]);
+  }, [shouldShow, payload?.[0]?.value, payload?.[0]?.payload?.date]);
 
-  if (active && payload && payload.length && coordinate) {
+  if (shouldShow && active && payload && payload.length && coordinate) {
     const data = payload[0].payload;
 
     // Render into a portal to guarantee it stays above charts/cards regardless of stacking contexts.

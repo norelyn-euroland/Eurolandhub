@@ -30,7 +30,7 @@ function isValidEmail(email: string): boolean {
 /**
  * Parse numeric string to number, removing commas and percentage signs
  */
-function parseNumeric(value: string): number {
+export function parseNumeric(value: string): number {
   if (!value || value.trim() === '') return 0;
   // Remove commas, percentage signs, and other non-numeric characters except decimal point
   const cleaned = value.replace(/[^\d.-]/g, '');
@@ -226,5 +226,56 @@ export async function saveInvestors(
   }
   
   return { success, errors };
+}
+
+/**
+ * Update existing investor with only editable fields
+ * Only updates: Holdings, Stake %
+ * Note: Ownership % is calculated from holdings/stake, so we update holdings and stake
+ * 
+ * @param holdingId - The holding ID of the investor to update
+ * @param updates - Partial shareholder data with only editable fields
+ * @returns Promise<void>
+ */
+export async function updateExistingInvestor(
+  holdingId: string,
+  updates: { ownershipPercent?: string; holdings?: string; stake?: string }
+): Promise<void> {
+  if (!holdingId || holdingId.trim() === '') {
+    throw new Error('Holding ID is required');
+  }
+
+  try {
+    // Check if shareholder exists
+    const existingShareholder = await shareholderService.getById(holdingId);
+    if (!existingShareholder) {
+      throw new Error(`Shareholder with ID ${holdingId} not found`);
+    }
+
+    // Prepare update data with only editable fields converted to numbers
+    const updateData: Partial<Shareholder> = {};
+    
+    // Note: ownershipPercent is calculated from holdings/stake, so we update holdings and stake
+    // The ownershipPercent parameter is kept for API consistency but we use holdings and stake
+    
+    if (updates.holdings !== undefined) {
+      updateData.holdings = parseNumeric(updates.holdings);
+    }
+    
+    if (updates.stake !== undefined) {
+      updateData.stake = parseNumeric(updates.stake);
+    }
+
+    // Only update if there are actual changes
+    if (Object.keys(updateData).length === 0) {
+      return; // No updates to make
+    }
+
+    // Update shareholder with only the editable fields
+    await shareholderService.update(holdingId, updateData);
+  } catch (error: any) {
+    console.error('Error updating existing investor:', error);
+    throw new Error(`Failed to update investor ${holdingId}: ${error.message}`);
+  }
 }
 

@@ -195,6 +195,27 @@ export const applicantService = {
   },
 
   /**
+   * Get applicant by email address
+   */
+  async getByEmail(email: string): Promise<Applicant | null> {
+    try {
+      const emailQuery = query(
+        collection(db, COLLECTIONS.APPLICANTS),
+        where('email', '==', email.toLowerCase().trim())
+      );
+      const emailSnapshot = await getDocs(emailQuery);
+      
+      if (!emailSnapshot.empty) {
+        return firestoreToApplicant(emailSnapshot.docs[0] as QueryDocumentSnapshot<DocumentData>);
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting applicant by email:', error);
+      throw error;
+    }
+  },
+
+  /**
    * Get all applicants with optional filters
    * Flexible query that handles missing fields gracefully
    */

@@ -229,3 +229,12 @@ export interface AIAnalysisResult {
   discrepancies: string[];
   recommendation: string;
 }
+
+/**
+ * Verification result for investor database checks
+ */
+export interface VerificationResult {
+  existing: Array<{ investor: any; existingData: Shareholder }>;
+  new: any[];
+  stats: { existingCount: number; newCount: number; totalCount: number };
+}
