@@ -68,6 +68,7 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showSaveQuitConfirm, setShowSaveQuitConfirm] = useState(false);
   const [saveQuitPendingRemaining, setSaveQuitPendingRemaining] = useState<number>(0);
+  const [showBackFromSummaryWarning, setShowBackFromSummaryWarning] = useState(false);
   const [parsedCSV, setParsedCSV] = useState<string>('');
   const [parseError, setParseError] = useState<string>('');
   const [parseSuccess, setParseSuccess] = useState(false);
@@ -404,20 +405,8 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
         return;
       }
       if (currentStep === 'SEND_INVITATION') {
-        // Guard: Save & Exit is always clickable.
-        // - If there are investors with emails that haven't been invited yet, show a confirmation prompt.
-        // - Investors with NO email are excluded from this check.
-        const investorsWithEmails = investorForms.filter(f => f.email && f.email.trim());
-        const remainingToInvite = investorsWithEmails.filter(f => !sentEmailsTo.has(f.id));
-
-        if (investorsWithEmails.length > 0 && remainingToInvite.length > 0) {
-          setSaveQuitPendingRemaining(remainingToInvite.length);
-          setShowSaveQuitConfirm(true);
-          return;
-        }
-
-        // No remaining invitations (or no emails at all) — proceed with saving
-        await handleSubmit();
+        // Navigate to CONFIRMATION step
+        setCurrentStep('CONFIRMATION');
         return;
       }
       // Allow navigation to all steps for preview
@@ -2718,31 +2707,6 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                 </div>
               </div>
 
-              {/* Confirm and Process Button */}
-              <div className="flex justify-center">
-                <button
-                  onClick={handleConfirmAndProcess}
-                  disabled={isConfirmProcessing || pendingInvestors.length === 0}
-                  className="px-8 py-3 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {isConfirmProcessing ? (
-                    <>
-                      <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      Confirm and Process
-                    </>
-                  )}
-                </button>
-              </div>
-
               {/* Success/Error Messages */}
               {saveSuccessCount > 0 && !isConfirmProcessing && (
                 <div className="mt-8 text-center">
@@ -2875,7 +2839,7 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                   className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 ${
                     isProcessingStep || isSaving
                       ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-400 dark:text-neutral-500 cursor-not-allowed'
-                      : 'bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700'
+                      : 'bg-purple-600 text-white hover:bg-purple-700'
                   }`}
                 >
                   {isSaving ? (
@@ -2886,7 +2850,12 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                       Saving...
                     </>
                   ) : (
-                    'Save & Exit'
+                    <>
+                      Next
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </>
                   )}
                 </button>
               ) : (
@@ -2947,17 +2916,41 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
         )}
 
         {currentStep === 'CONFIRMATION' && (
-          <div className="px-8 py-6 border-t border-neutral-200 dark:border-neutral-700 flex items-center justify-end">
+          <div className="px-8 py-6 border-t border-neutral-200 dark:border-neutral-700 flex items-center justify-between">
             <button
-              onClick={() => {
-                onClose();
-                // Reset state when closing
-                setSaveSuccessCount(0);
-                setSaveErrors([]);
-              }}
-              className="px-6 py-2 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition-colors"
+              onClick={() => setShowBackFromSummaryWarning(true)}
+              disabled={isConfirmProcessing}
+              className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 ${
+                isConfirmProcessing
+                  ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-400 dark:text-neutral-500 cursor-not-allowed'
+                  : 'bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700'
+              }`}
             >
-              Close
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
+              </svg>
+              Previous
+            </button>
+            <button
+              onClick={handleConfirmAndProcess}
+              disabled={isConfirmProcessing || pendingInvestors.length === 0}
+              className="px-8 py-3 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {isConfirmProcessing ? (
+                <>
+                  <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Confirm and Process
+                </>
+              )}
             </button>
           </div>
         )}
@@ -2965,6 +2958,46 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
       )}
 
       {/* Exit Confirmation Dialog - removed for page component */}
+
+      {/* Warning modal when going back from Summary */}
+      {showBackFromSummaryWarning && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-neutral-900/20 dark:bg-black/20"
+            onClick={() => setShowBackFromSummaryWarning(false)}
+          />
+          <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl max-w-md w-full mx-4 z-50">
+            <div className="px-6 py-4 border-b border-neutral-200 dark:border-neutral-700">
+              <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">Go back to previous step?</h3>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-2">
+                If you go back and make changes to investor data, email selections, or any other information, the summary results will be recalculated.
+              </p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-500">
+                This may affect the counts of existing investors, new investors with emails, and new investors without emails shown in the summary.
+              </p>
+            </div>
+            <div className="px-6 py-4 flex items-center justify-end gap-3 border-t border-neutral-200 dark:border-neutral-700">
+              <button
+                onClick={() => setShowBackFromSummaryWarning(false)}
+                className="px-4 py-2 text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowBackFromSummaryWarning(false);
+                  handlePrevious();
+                }}
+                className="px-4 py-2 text-sm font-bold bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                Go back
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Save & Exit confirmation (when some investors with emails are still unsent) */}
       {showSaveQuitConfirm && (
