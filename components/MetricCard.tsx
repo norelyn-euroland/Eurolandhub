@@ -11,9 +11,18 @@ interface MetricCardProps {
     percent: number;
     direction: 'up' | 'down' | 'neutral';
   };
+  trendDisplay?: 'always' | 'hover';
+  trendLabel?: string; // e.g. "Today"
+  secondaryTrend?: {
+    percent: number;
+    direction: 'up' | 'down' | 'neutral';
+    display?: 'always' | 'hover';
+    label?: string;
+  };
   chartData?: number[];
   chartColor?: string;
   subtitle?: string;
+  tooltipSymbol?: string; // Symbol to display in tooltip (e.g., "₱", "%", "📊")
 }
 
 /**
@@ -26,9 +35,11 @@ const CustomTooltip = ({
   themeColor,
   coordinate,
   containerRef,
+  tooltipSymbol,
 }: TooltipProps<number, string> & {
   themeColor: string;
   containerRef: React.RefObject<HTMLDivElement | null>;
+  tooltipSymbol?: string;
 }) => {
   const tooltipRef = React.useRef<HTMLDivElement | null>(null);
   const [tooltipSize, setTooltipSize] = React.useState({ w: 0, h: 0 });
@@ -128,8 +139,23 @@ const CustomTooltip = ({
         <p className="text-[10px] uppercase tracking-widest text-neutral-500 dark:text-gray-400 font-bold mb-0.5">
           {data.date}
         </p>
-        <p className="text-sm font-bold" style={{ color: themeColor }}>
-          {payload[0].value?.toLocaleString()}
+        <p className="text-sm font-bold flex items-center gap-1" style={{ color: themeColor }}>
+          {tooltipSymbol === '%' ? (
+            // Percentage: value at front, % at end
+            <>
+              {payload[0].value?.toLocaleString()}
+              <span>%</span>
+            </>
+          ) : tooltipSymbol === '₱' ? (
+            // Currency: ₱ at front, value after
+            <>
+              <span>₱</span>
+              {payload[0].value?.toLocaleString()}
+            </>
+          ) : (
+            // Other values: no symbol
+            <>{payload[0].value?.toLocaleString()}</>
+          )}
         </p>
       </div>
     , document.body);
@@ -141,9 +167,13 @@ const MetricCard: React.FC<MetricCardProps> = ({
   title,
   value,
   trend,
+  trendDisplay = 'always',
+  trendLabel,
+  secondaryTrend,
   chartData,
   chartColor = '#7C3AED',
   subtitle = 'compared to last week',
+  tooltipSymbol,
 }) => {
   const chartContainerRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -246,10 +276,48 @@ const MetricCard: React.FC<MetricCardProps> = ({
   }, [chartData]);
 
   // Trend display
-  const trendValue = trend.direction === 'neutral'
-    ? '0%'
-    : `${Math.abs(trend.percent).toFixed(trend.percent < 10 ? 1 : 0)}%`;
+  const trendValue =
+    trend.direction === 'neutral'
+      ? '—'
+      : `${Math.abs(trend.percent).toFixed(trend.percent < 10 ? 1 : 0)}%`;
+
   const isUp = trend.direction === 'up';
+  const isNeutral = trend.direction === 'neutral';
+
+  const trendClass = isNeutral
+    ? 'text-neutral-600 dark:text-neutral-300 bg-neutral-200/60 dark:bg-white/10'
+    : isUp
+      ? `${theme.trendUp} ${theme.bgTrendUp}`
+      : `${theme.trendDown} ${theme.bgTrendDown}`;
+
+  const trendVisibilityClass =
+    trendDisplay === 'hover'
+      ? 'opacity-0 group-hover:opacity-100 transition-opacity duration-300'
+      : 'opacity-100';
+
+  const secondaryIsUp = secondaryTrend?.direction === 'up';
+  const secondaryIsNeutral = secondaryTrend?.direction === 'neutral';
+  const secondaryTrendValue =
+    secondaryTrend?.direction === 'neutral'
+      ? '—'
+      : secondaryTrend
+        ? `${Math.abs(secondaryTrend.percent).toFixed(secondaryTrend.percent < 10 ? 1 : 0)}%`
+        : '';
+
+  const secondaryTrendClass = !secondaryTrend
+    ? ''
+    : secondaryIsNeutral
+      ? 'text-neutral-600 dark:text-neutral-300 bg-neutral-200/60 dark:bg-white/10'
+      : secondaryIsUp
+        ? `${theme.trendUp} ${theme.bgTrendUp}`
+        : `${theme.trendDown} ${theme.bgTrendDown}`;
+
+  const secondaryVisibilityClass =
+    secondaryTrend?.display === 'hover'
+      ? 'opacity-0 group-hover:opacity-100 transition-opacity duration-300'
+      : 'opacity-100';
+
+  const valueText = typeof value === 'number' ? value.toLocaleString() : value;
 
   return (
     <div className="group relative rounded-2xl bg-white dark:bg-[#1a1a1a] p-6 shadow-xl border border-neutral-200 dark:border-white/5 flex flex-col justify-between transition-all duration-300 hover:border-neutral-300 dark:hover:border-white/10 hover:bg-neutral-50 dark:hover:bg-[#1e1e1e] hover:-translate-y-1 h-[260px] overflow-visible">
@@ -275,14 +343,37 @@ const MetricCard: React.FC<MetricCardProps> = ({
         <h3 className="text-neutral-500 dark:text-gray-400 text-xs font-semibold mb-2 tracking-widest uppercase opacity-70">
           {title}
         </h3>
-        <div className="flex items-baseline gap-2 mb-1">
-          <span className="text-3xl font-black text-neutral-900 dark:text-white tracking-tight">
-            {typeof value === 'number' ? value.toLocaleString() : value}
+        <div className="flex flex-wrap items-baseline gap-2 mb-1">
+          <span
+            className="text-3xl font-black text-neutral-900 dark:text-white tracking-tight whitespace-nowrap"
+            title={valueText}
+          >
+            {valueText}
           </span>
-          <div className={`flex items-center px-2 py-0.5 rounded-full text-[11px] font-black ${isUp ? theme.trendUp + ' ' + theme.bgTrendUp : theme.trendDown + ' ' + theme.bgTrendDown}`}>
-            <span>{isUp ? '↑' : '↓'}</span>
+          <div
+            className={`flex items-center px-2 py-0.5 rounded-full text-[11px] font-black shrink-0 ${trendClass} ${trendVisibilityClass}`}
+          >
+            <span>{isNeutral ? '•' : isUp ? '↑' : '↓'}</span>
             <span className="ml-0.5">{trendValue}</span>
+            {trendLabel ? (
+              <span className="ml-1 text-[9px] font-black tracking-widest uppercase opacity-70">
+                {trendLabel}
+              </span>
+            ) : null}
           </div>
+          {secondaryTrend ? (
+            <div
+              className={`flex items-center px-2 py-0.5 rounded-full text-[11px] font-black shrink-0 ${secondaryTrendClass} ${secondaryVisibilityClass}`}
+            >
+              <span>{secondaryIsNeutral ? '•' : secondaryIsUp ? '↑' : '↓'}</span>
+              <span className="ml-0.5">{secondaryTrendValue}</span>
+              {secondaryTrend.label ? (
+                <span className="ml-1 text-[9px] font-black tracking-widest uppercase opacity-70">
+                  {secondaryTrend.label}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <p className="text-neutral-600 dark:text-gray-500 text-xs font-medium italic opacity-80">
           {subtitle}
@@ -302,7 +393,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
               </defs>
               <XAxis dataKey="date" hide />
               <Tooltip
-                content={<CustomTooltip themeColor={theme.stroke} containerRef={chartContainerRef} />}
+                content={<CustomTooltip themeColor={theme.stroke} containerRef={chartContainerRef} tooltipSymbol={tooltipSymbol} />}
                 cursor={{ stroke: theme.stroke, strokeWidth: 1.5, strokeDasharray: '4 4' }}
                 allowEscapeViewBox={{ x: true, y: true }}
                 offset={10}

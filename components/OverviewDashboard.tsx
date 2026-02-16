@@ -693,6 +693,15 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
             return baseValue * trendMultiplier * (1 + (seededRandom(weekSeed + i * 7 + idx) - 0.5) * 0.1);
           });
 
+          // Determine tooltip symbol based on label - only currency and percentage
+          const getTooltipSymbol = (label: string) => {
+            const lowerLabel = label.toLowerCase();
+            if (lowerLabel.includes('asset') || lowerLabel.includes('delta') || lowerLabel.includes('engagement')) {
+              return '%'; // Percentage values
+            }
+            return undefined; // No symbol for other values
+          };
+          
           return (
             <MetricCard
               key={i}
@@ -701,6 +710,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
               trend={stat.trend}
               chartData={chartData}
               chartColor={stat.chartColor}
+              tooltipSymbol={getTooltipSymbol(stat.label)}
             />
           );
         })}

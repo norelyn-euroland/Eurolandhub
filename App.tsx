@@ -243,7 +243,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
       case 'dashboard': return 'EurolandHUB Dashboard';
       case 'registrations': return 'Investor Registrations';
       case 'detail': return 'Verification Review';
-      case 'shareholders': return 'Shareholders Registry';
+      case 'shareholders': return 'Registry';
       case 'investor-processing': return 'Investor Processing';
       default: return 'Dashboard';
     }
@@ -384,7 +384,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
         });
         
         items.push({
-          label: 'Shareholders',
+          label: 'Registry',
           view: 'shareholders',
           onClick: () => setView('shareholders')
         });

@@ -687,12 +687,30 @@ export const shareholderService = {
 export const batchService = {
   /**
    * Migrate mock applicants to Firestore
+   * Updates existing documents or creates new ones
    */
   async migrateApplicants(applicants: Applicant[]): Promise<void> {
     try {
-      const promises = applicants.map(applicant => 
-        applicantService.create(applicant)
-      );
+      const promises = applicants.map(async (applicant) => {
+        try {
+          // Check if applicant already exists
+          const existing = await applicantService.getById(applicant.id);
+          if (existing) {
+            // Update existing
+            await applicantService.update(applicant.id, applicant);
+          } else {
+            // Create new
+            await applicantService.create(applicant);
+          }
+        } catch (error: any) {
+          // If create fails due to existing document, try update
+          if (error.message?.includes('already exists') || error.code === 'already-exists') {
+            await applicantService.update(applicant.id, applicant);
+          } else {
+            throw error;
+          }
+        }
+      });
       await Promise.all(promises);
       console.log(`Successfully migrated ${applicants.length} applicants to Firestore`);
     } catch (error) {
@@ -703,12 +721,30 @@ export const batchService = {
 
   /**
    * Migrate mock shareholders to Firestore
+   * Updates existing documents or creates new ones
    */
   async migrateShareholders(shareholders: Shareholder[]): Promise<void> {
     try {
-      const promises = shareholders.map(shareholder => 
-        shareholderService.create(shareholder)
-      );
+      const promises = shareholders.map(async (shareholder) => {
+        try {
+          // Check if shareholder already exists
+          const existing = await shareholderService.getById(shareholder.id);
+          if (existing) {
+            // Update existing
+            await shareholderService.update(shareholder.id, shareholder);
+          } else {
+            // Create new
+            await shareholderService.create(shareholder);
+          }
+        } catch (error: any) {
+          // If create fails due to existing document, try update
+          if (error.message?.includes('already exists') || error.code === 'already-exists') {
+            await shareholderService.update(shareholder.id, shareholder);
+          } else {
+            throw error;
+          }
+        }
+      });
       await Promise.all(promises);
       console.log(`Successfully migrated ${shareholders.length} shareholders to Firestore`);
     } catch (error) {
