@@ -1063,12 +1063,6 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       {!privacyNoticeAccepted && (
         <div 
           className={`fixed inset-0 z-[60] flex items-center justify-center ${sidebarWidthClass} transition-all duration-300`}
-          onClick={(e) => {
-            // Close when clicking outside the modal
-            if (e.target === e.currentTarget) {
-              onClose();
-            }
-          }}
         >
           <div 
             className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col"

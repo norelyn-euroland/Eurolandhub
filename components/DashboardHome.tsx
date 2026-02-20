@@ -1018,11 +1018,6 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
           {/* Blurred background */}
           <div 
             className={`fixed top-0 right-0 bottom-0 ${sidebarCollapsed ? 'left-20' : 'left-64'} bg-neutral-900/40 dark:bg-black/40 backdrop-blur-sm z-40 transition-all duration-300`}
-            onClick={() => {
-              setIsInvestorProcessingOpen(false);
-              setPrivacyNoticeAccepted(false);
-              setPrivacyCheckboxChecked(false);
-            }}
           />
           
           {/* Modal Content */}

@@ -2808,10 +2808,6 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
         <div className="fixed inset-0 z-[60] flex items-center justify-center">
           <div
             className="absolute inset-0 bg-neutral-900/20 dark:bg-black/20"
-            onClick={() => {
-              setShowSaveQuitConfirm(false);
-              setSaveQuitPendingRemaining(0);
-            }}
           />
           <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl max-w-md w-full mx-4 z-50">
             <div className="px-6 py-4 border-b border-neutral-200 dark:border-neutral-700">

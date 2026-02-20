@@ -238,3 +238,38 @@ export interface VerificationResult {
   new: any[];
   stats: { existingCount: number; newCount: number; totalCount: number };
 }
+
+/**
+ * Document types for IRO documents
+ */
+export type DocumentType = 
+  | 'earnings'
+  | 'dividend'
+  | 'disclosure'
+  | 'press_release'
+  | 'agm'
+  | 'governance'
+  | 'esg'
+  | 'presentation'
+  | 'silent_period';
+
+/**
+ * Document status
+ */
+export type DocumentStatus = 'draft' | 'published' | 'archived';
+
+/**
+ * Document metadata stored in Firestore
+ * Minimal schema: only metadata + summary (no file storage, automation flags computed dynamically)
+ */
+export interface Document {
+  id: string;
+  title: string;
+  type: DocumentType;
+  status: DocumentStatus;
+  publishDate: string; // ISO date string
+  createdAt: string; // ISO timestamp
+  updatedAt: string; // ISO timestamp
+  summary: string; // AI-generated summary
+  summaryRegenerationCount?: number; // Number of times summary was regenerated
+}
