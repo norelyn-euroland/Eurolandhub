@@ -50,9 +50,10 @@ type UploadType = 'batch' | 'individual' | null;
 
 interface InvestorProcessingProps {
   sidebarCollapsed?: boolean;
+  onClose?: () => void;
 }
 
-const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapsed = false }) => {
+const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapsed = false, onClose }) => {
   const [currentStep, setCurrentStep] = useState<Step>('SELECTION');
   const [uploadType, setUploadType] = useState<UploadType>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -104,8 +105,6 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
     status: 'idle',
     message: '',
   });
-  const [privacyNoticeAccepted, setPrivacyNoticeAccepted] = useState<boolean>(false);
-  const [privacyCheckboxChecked, setPrivacyCheckboxChecked] = useState<boolean>(false);
   const [isMessageExpanded, setIsMessageExpanded] = useState<boolean>(true);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -152,29 +151,6 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
   // Check if current step is a processing step
   const isProcessingStep = isProcessing;
 
-  // Handle privacy notice acceptance
-  const handlePrivacyNoticeAccept = () => {
-    setPrivacyNoticeAccepted(true);
-    // Optional: Log privacy notice acceptance (operational logging)
-    try {
-      const timestamp = new Date().toISOString();
-      const userId = typeof window !== 'undefined' && window.localStorage 
-        ? localStorage.getItem('eurolandhub_user_id') || 'unknown'
-        : 'unknown';
-      console.log('Privacy notice accepted:', {
-        timestamp,
-        userId,
-        action: 'add_investor_attempt'
-      });
-    } catch (error) {
-      // Silently fail if logging fails
-    }
-  };
-
-  // Toggle privacy details visibility
-  const togglePrivacyDetails = () => {
-    setShowPrivacyDetails(prev => !prev);
-  };
 
   // Handle upload type selection
   const handleSelectUploadType = (type: 'batch' | 'individual') => {
@@ -1274,179 +1250,8 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
 
   return (
     <div className="w-full">
-      {/* Privacy Notice - shown before main content if not accepted */}
-      {!privacyNoticeAccepted && (
-        <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-lg w-full max-w-4xl mx-auto overflow-hidden flex flex-col">
-            {/* Privacy Notice Header */}
-            <div className="px-8 py-6 border-b border-neutral-200 dark:border-neutral-700">
-              <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100">
-                Investor Privacy & Data Use Notice
-              </h2>
-            </div>
-
-            {/* Privacy Notice Content */}
-            <div className="flex-1 overflow-y-auto px-8 py-6">
-              <div className="prose prose-sm dark:prose-invert max-w-none">
-                <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-4">
-                  Investor Data Use & Consent
-                </h3>
-                
-                <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-4">
-                  When adding an investor to the platform, you confirm that you are authorized to provide the investor's information for investor-relations purposes.
-                </p>
-
-                <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
-                  What Data Is Collected
-                </h4>
-                <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
-                  The information collected may include (depending on what is provided):
-                </p>
-                <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
-                  <li>Investor's name</li>
-                  <li>Email address</li>
-                  <li>Shareholder or registration identifiers</li>
-                  <li>Investment-related metadata required for verification and investor access</li>
-                </ul>
-
-                <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
-                  Why It Is Collected
-                </h4>
-                <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-4">
-                  This data is collected to support investor-relations operations and facilitate secure investor onboarding and communication.
-                </p>
-
-                <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
-                  How It Is Used
-                </h4>
-                <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
-                  The investor's information is used <strong>solely</strong> for the following purposes:
-                </p>
-                <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
-                  <li>Verifying investor identity and shareholder status</li>
-                  <li>Sending account invitations and onboarding communications</li>
-                  <li>Delivering important investor-related notifications, disclosures, and updates</li>
-                  <li>Supporting investor access to verified features within the platform</li>
-                  <li>Managing investor account status and workflow progression</li>
-                  <li>Operational tracking necessary to support investor onboarding, account access, and communication delivery</li>
-                </ul>
-
-                <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
-                  What It Is NOT Used For
-                </h4>
-                <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
-                  The investor's information will <strong>not</strong> be used for:
-                </p>
-                <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
-                  <li>Marketing or promotional communications unrelated to investor relations</li>
-                  <li>Advertising or third-party solicitations</li>
-                  <li>Sharing with third parties outside of authorized investor-relations operations</li>
-                  <li>Any purpose other than those explicitly stated above</li>
-                </ul>
-
-                <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
-                  Who Can Access It
-                </h4>
-                <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
-                  Investor data is stored securely and accessed only by:
-                </p>
-                <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-2 space-y-1 ml-2">
-                  <li>Authorized Investor Relations Officers (IROs) who are authenticated users of the platform</li>
-                  <li>Authorized personnel with proper authentication credentials</li>
-                  <li>System administrators for technical support and maintenance purposes</li>
-                </ul>
-                <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-4">
-                  All access is logged and monitored to ensure data security and compliance.
-                </p>
-
-                <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
-                  How Long It Is Stored
-                </h4>
-                <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
-                  Investor data is stored for as long as necessary to fulfill investor-relations purposes and maintain accurate shareholder records. Data may be retained:
-                </p>
-                <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
-                  <li>For the duration of the investor's relationship with the company</li>
-                  <li>As required by applicable regulations and compliance standards</li>
-                  <li>Until the investor requests deletion (subject to legal and regulatory requirements)</li>
-                </ul>
-
-                <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
-                  Security & Confidentiality
-                </h4>
-                <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
-                  All investor data is:
-                </p>
-                <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
-                  <li>Stored securely in encrypted cloud infrastructure using industry-standard security controls</li>
-                  <li>Protected by authentication and authorization controls</li>
-                  <li>Transmitted over secure, encrypted connections</li>
-                  <li>Subject to regular security audits and monitoring</li>
-                  <li>Handled in accordance with applicable data protection and confidentiality standards</li>
-                </ul>
-
-                <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
-                  Right to Ignore / Opt Out
-                </h4>
-                <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-4">
-                  If an investor receives an invitation or communication in error, they may safely disregard the message and no further action will be required. Investors who do not wish to proceed with account creation may simply ignore the invitation email.
-                </p>
-
-                <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
-                  By proceeding, you acknowledge that:
-                </h4>
-                <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-6 space-y-1 ml-2">
-                  <li>You are authorized to submit this investor's information</li>
-                  <li>The data will be used strictly for investor-relations purposes as described above</li>
-                  <li>The information will be handled securely and responsibly</li>
-                  <li>You understand the data collection, usage, and storage practices outlined in this notice</li>
-                </ul>
-
-                {/* Checkbox - at the end of the content */}
-                <div className="mt-6 pt-6 border-t border-neutral-200 dark:border-neutral-700">
-                  <label className="flex items-start gap-3 cursor-pointer select-none group">
-                    <div
-                      className={`mt-0.5 w-5 h-5 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
-                        privacyCheckboxChecked ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600 group-hover:bg-neutral-400 dark:group-hover:bg-neutral-500'
-                      }`}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setPrivacyCheckboxChecked(!privacyCheckboxChecked);
-                      }}
-                    >
-                      {privacyCheckboxChecked && (
-                        <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </div>
-                    <span className="text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed">
-                      I confirm that I am authorized to submit this investor's information and that it will be used in accordance with the Investor Data Use & Consent.
-                    </span>
-                  </label>
-                  
-                  {/* Continue button - only appears when checkbox is checked */}
-                  {privacyCheckboxChecked && (
-                    <div className="flex items-center justify-end mt-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                      <button
-                        onClick={handlePrivacyNoticeAccept}
-                        className="px-6 py-2.5 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 bg-purple-600 text-white hover:bg-purple-700"
-                      >
-                        Continue
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-        </div>
-      )}
-      
-      {/* Main content - only show when privacy notice is accepted */}
-      {privacyNoticeAccepted && (
-        <div className="w-full max-w-7xl mx-auto">
+      {/* Main content - always show (privacy notice is now handled in parent modal) */}
+      <div className="w-full max-w-7xl mx-auto">
         {/* Progress Indicator */}
         <div className="px-8 py-6">
           <div className="flex items-center justify-between">
@@ -2954,8 +2759,7 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
             </button>
           </div>
         )}
-        </div>
-      )}
+      </div>
 
       {/* Exit Confirmation Dialog - removed for page component */}
 

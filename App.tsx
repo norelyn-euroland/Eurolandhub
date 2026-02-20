@@ -14,6 +14,9 @@ import ShareholdersRegistry from './components/ShareholdersRegistry';
 import OverviewDashboard from './components/OverviewDashboard';
 import LoginPage from './components/LoginPage';
 import InvestorProcessing from './components/InvestorProcessing';
+import EngagementPage from './components/EngagementPage';
+import DocumentsPage from './components/DocumentsPage';
+import ThemeToggle from './components/ThemeToggle';
 
 const FADE_DURATION_MS = 300;
 
@@ -30,7 +33,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
   const getInitialView = (): ViewType => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('eurolandhub_view');
-      if (saved && ['dashboard', 'registrations', 'shareholders', 'investor-processing'].includes(saved)) {
+      if (saved && ['dashboard', 'registrations', 'shareholders', 'engagement', 'documents'].includes(saved)) {
         return saved as ViewType;
       }
     }
@@ -243,8 +246,9 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
       case 'dashboard': return 'EurolandHUB Dashboard';
       case 'registrations': return 'Investor Registrations';
       case 'detail': return 'Verification Review';
-      case 'shareholders': return 'Registry';
-      case 'investor-processing': return 'Investor Processing';
+      case 'shareholders': return 'Shareholders';
+      case 'engagement': return 'Engagement';
+      case 'documents': return 'Documents';
       default: return 'Dashboard';
     }
   };
@@ -384,9 +388,39 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
         });
         
         items.push({
-          label: 'Registry',
+          label: 'Shareholders',
           view: 'shareholders',
           onClick: () => setView('shareholders')
+        });
+        break;
+
+      case 'engagement':
+        // Always start with Dashboard
+        items.push({
+          label: 'Dashboard',
+          view: 'dashboard',
+          onClick: () => setView('dashboard')
+        });
+        
+        items.push({
+          label: 'Engagement',
+          view: 'engagement',
+          onClick: () => setView('engagement')
+        });
+        break;
+
+      case 'documents':
+        // Always start with Dashboard
+        items.push({
+          label: 'Dashboard',
+          view: 'dashboard',
+          onClick: () => setView('dashboard')
+        });
+        
+        items.push({
+          label: 'Documents',
+          view: 'documents',
+          onClick: () => setView('documents')
         });
         break;
     }
@@ -469,11 +503,17 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
           {view === 'shareholders' && (
             <ShareholdersRegistry searchQuery={searchQuery} />
           )}
-          {view === 'investor-processing' && (
-            <InvestorProcessing sidebarCollapsed={isSidebarCollapsed} />
+          {view === 'engagement' && (
+            <EngagementPage />
+          )}
+          {view === 'documents' && (
+            <DocumentsPage />
           )}
         </main>
       </div>
+      
+      {/* Floating Theme Toggle */}
+      <ThemeToggle theme={theme} toggleTheme={toggleTheme} isDraggable={true} />
     </div>
   );
 };

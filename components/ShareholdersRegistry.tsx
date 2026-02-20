@@ -1,14 +1,175 @@
-
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { MOCK_SHAREHOLDERS } from '../lib/mockShareholders';
+import { MOCK_APPLICANTS } from '../lib/mockApplicants';
 import { shareholderService, applicantService, batchService } from '../lib/firestore-service';
 import { Shareholder, Applicant, RegistrationStatus } from '../lib/types';
-import { getWorkflowStatusInternal } from '../lib/shareholdingsVerification';
+import { getWorkflowStatusInternal, getGeneralAccountStatus } from '../lib/shareholdingsVerification';
 import MetricCard from './MetricCard';
 import Tooltip from './Tooltip';
 import Toast from './Toast';
+import HoldingsSummary from './HoldingsSummary';
+import { EngagementTabContent } from './OverviewDashboard';
+
+// Engagement Activity Types (matching OverviewDashboard)
+interface EngagementActivity {
+  id: string;
+  type: 'comment' | 'interaction' | 'share';
+  commentText: string;
+  likes: number;
+  replies: number;
+  replyDetails?: Array<{
+    id: string;
+    author: string;
+    text: string;
+    timestamp: string;
+  }>;
+  timestamp: string;
+  status: 'Responded' | 'Pending';
+  associatedContent?: {
+    type: 'Press Release' | 'Announcement' | 'Event' | 'Document';
+    title: string;
+  };
+}
+
+// Mock engagement data generator (matching OverviewDashboard)
+const generateEngagementData = (applicant: Applicant): EngagementActivity[] => {
+  const activities: EngagementActivity[] = [];
+  const now = new Date();
+  
+  // Generate mock activities based on user's last active date
+  let lastActive: Date;
+  try {
+    if (applicant.lastActive) {
+      lastActive = new Date(applicant.lastActive);
+      if (isNaN(lastActive.getTime())) {
+        lastActive = applicant.submissionDate ? new Date(applicant.submissionDate) : now;
+        if (isNaN(lastActive.getTime())) {
+          lastActive = now;
+        }
+      }
+    } else {
+      lastActive = applicant.submissionDate ? new Date(applicant.submissionDate) : now;
+      if (isNaN(lastActive.getTime())) {
+        lastActive = now;
+      }
+    }
+  } catch (error) {
+    lastActive = now;
+  }
+  
+  if (lastActive.getTime() > now.getTime()) {
+    lastActive = now;
+  }
+  
+  const daysSinceActive = Math.max(0, Math.floor((now.getTime() - lastActive.getTime()) / (1000 * 60 * 60 * 24)));
+  const maxDays = Math.max(daysSinceActive, 30);
+  
+  const sampleComments = [
+    'Great Q3 results! The ESG initiatives are impressive. Would love to see more details on the sustainability roadmap.',
+    'Excellent performance this quarter. The strategic investments in retail and property are paying off well.',
+    'Looking forward to the annual report. The transparency in governance is commendable.',
+    'The dividend announcement is great news for shareholders. Keep up the good work!',
+    'Impressive growth in the property segment. Can we get more insights on the expansion strategy?',
+    'The corporate governance improvements are notable. This builds investor confidence.',
+    'Strong financial position. The debt reduction strategy is working effectively.',
+    'The digital transformation initiatives in SM Retail are showing results. Excited to see what\'s next.',
+  ];
+  
+  const sampleReplies = [
+    { author: 'Maria Santos', text: 'I agree! The sustainability initiatives are a key differentiator for SM.' },
+    { author: 'Juan Dela Cruz', text: 'The property segment growth is impressive. Looking forward to more updates.' },
+    { author: 'Ana Garcia', text: 'Great point about governance. Transparency is crucial for long-term investors.' },
+    { author: 'Carlos Rodriguez', text: 'The dividend yield is attractive. This shows management\'s commitment to shareholders.' },
+    { author: 'Lisa Tan', text: 'The retail expansion strategy is well-executed. SM continues to lead the market.' },
+    { author: 'Robert Lim', text: 'Strong fundamentals. The diversified portfolio approach is working well.' },
+    { author: 'Patricia Ong', text: 'The ESG focus aligns with global trends. Good to see SM taking the lead.' },
+    { author: 'Michael Chen', text: 'The financial metrics are solid. Management is executing the strategy effectively.' },
+  ];
+  
+  const contentTypes: Array<'Press Release' | 'Announcement' | 'Event' | 'Document'> = ['Press Release', 'Announcement', 'Event', 'Document'];
+  const contentTitles = [
+    'Q3 2024 Earnings Release',
+    'Annual General Meeting Notice',
+    'Sustainability Report 2024',
+    'Corporate Governance Update',
+    'Dividend Declaration',
+    'Strategic Partnership Announcement',
+    'Quarterly Financial Results',
+    'Investor Relations Update',
+  ];
+  const statuses: Array<'Responded' | 'Pending'> = ['Responded', 'Pending'];
+  
+  const activityCount = Math.floor(Math.random() * 6) + 5;
+  
+  for (let i = 0; i < activityCount; i++) {
+    const daysAgo = Math.floor(Math.random() * Math.min(Math.max(maxDays, 1), 90));
+    const activityDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+    
+    if (isNaN(activityDate.getTime())) {
+      continue;
+    }
+    
+    const activityTypes: Array<'comment' | 'interaction' | 'share'> = ['comment', 'interaction', 'share'];
+    const type = activityTypes[Math.floor(Math.random() * activityTypes.length)];
+    
+    const commentText = sampleComments[Math.floor(Math.random() * sampleComments.length)];
+    const likes = Math.floor(Math.random() * 50) + 1;
+    const replyCount = type === 'interaction' ? Math.floor(Math.random() * 5) + 1 : Math.floor(Math.random() * 3);
+    
+    const replyDetails: Array<{ id: string; author: string; text: string; timestamp: string }> = [];
+    if (replyCount > 0) {
+      const shuffledReplies = [...sampleReplies].sort(() => Math.random() - 0.5);
+      for (let j = 0; j < Math.min(replyCount, shuffledReplies.length); j++) {
+        const replyDate = new Date(activityDate.getTime() + (j + 1) * 60 * 60 * 1000);
+        replyDetails.push({
+          id: `reply-${i}-${j}`,
+          author: shuffledReplies[j].author,
+          text: shuffledReplies[j].text,
+          timestamp: replyDate.toISOString(),
+        });
+      }
+    }
+    
+    const contentType = contentTypes[Math.floor(Math.random() * contentTypes.length)];
+    const contentTitle = contentTitles[Math.floor(Math.random() * contentTitles.length)];
+    const status = statuses[Math.floor(Math.random() * statuses.length)];
+    
+    try {
+      activities.push({
+        id: `activity-${i}`,
+        type,
+        commentText,
+        likes,
+        replies: replyCount,
+        replyDetails: replyDetails.length > 0 ? replyDetails : undefined,
+        timestamp: activityDate.toISOString(),
+        status,
+        associatedContent: {
+          type: contentType,
+          title: contentTitle,
+        },
+      });
+    } catch (error) {
+      console.warn('Skipping activity with invalid timestamp:', error);
+      continue;
+    }
+  }
+  
+  return activities.sort((a, b) => {
+    try {
+      const dateA = new Date(a.timestamp);
+      const dateB = new Date(b.timestamp);
+      if (isNaN(dateA.getTime()) || isNaN(dateB.getTime())) {
+        return 0;
+      }
+      return dateB.getTime() - dateA.getTime();
+    } catch (error) {
+      return 0;
+    }
+  });
+};
 
 const MOCK_AUDIT_LOGS = [
   { id: 1, event: 'Ledger Export Generated', user: 'D. Sterling', time: '10:45 AM', date: 'Today' },
@@ -23,7 +184,7 @@ interface ShareholdersRegistryProps {
 }
 
 
-type TabType = 'shareholder' | 'investor' | 'engagement';
+type TabType = 'shareholder' | 'engagement' | 'all-users';
 
 const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery }) => {
   const [isAuditOpen, setIsAuditOpen] = useState(false);
@@ -32,10 +193,10 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
   const [activeTab, setActiveTab] = useState<TabType>('shareholder');
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [displayTab, setDisplayTab] = useState<TabType>('shareholder');
-  const [verifiedShareholders, setVerifiedShareholders] = useState<Shareholder[]>([]);
+  const [verifiedShareholders, setVerifiedShareholders] = useState<(Shareholder | Applicant)[]>([]);
   const [loadingShareholders, setLoadingShareholders] = useState(true);
-  const [allInvestors, setAllInvestors] = useState<Applicant[]>([]);
-  const [loadingInvestors, setLoadingInvestors] = useState(true);
+  const [allUsers, setAllUsers] = useState<Applicant[]>([]);
+  const [loadingAllUsers, setLoadingAllUsers] = useState(true);
   const [engagementData, setEngagementData] = useState<Array<{
     investorName: string;
     verificationStatus: string;
@@ -43,25 +204,219 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     engagementType: string;
     totalInteractions: number;
     notificationsEnabled: boolean;
+    activities: EngagementActivity[];
+    applicant: Applicant;
   }>>([]);
   const [loadingEngagement, setLoadingEngagement] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadToast, setUploadToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({ show: false, message: '', type: 'success' });
+  const [selectedUser, setSelectedUser] = useState<Applicant | null>(null);
+  const [activeDetailTab, setActiveDetailTab] = useState<'holdings' | 'engagement'>('holdings');
+
+  // Search and filter state
+  const [localSearchQuery, setLocalSearchQuery] = useState('');
+  const [nameSort, setNameSort] = useState<string | null>(null); // 'a-z' or 'z-a'
+  const [holdingsSort, setHoldingsSort] = useState<string | null>(null); // 'high-to-low' or 'low-to-high'
+  const [engagementTypeFilter, setEngagementTypeFilter] = useState<string | null>(null);
+
+  // Pagination state for each tab
+  const [currentPage, setCurrentPage] = useState<Record<TabType, number>>({
+    shareholder: 1,
+    'all-users': 1,
+    engagement: 1,
+  });
+
+  const itemsPerPage = 10;
 
   // Handle smooth tab transitions
   const handleTabChange = (newTab: TabType) => {
-    if (newTab === activeTab) return;
+    if (newTab === activeTab || isTransitioning) return;
     
+    // Update active tab immediately for button styling
+    setActiveTab(newTab);
+    
+    // Start transition
     setIsTransitioning(true);
     
-    // Wait for fade out, then change tab and fade in
-    setTimeout(() => {
-      setActiveTab(newTab);
-      setDisplayTab(newTab);
+    // Use requestAnimationFrame for smoother transitions
+    requestAnimationFrame(() => {
+      // Wait for fade out animation
       setTimeout(() => {
+        setDisplayTab(newTab);
         setIsTransitioning(false);
-      }, 50);
-    }, 200);
+      }, 150);
+    });
+  };
+
+  // Pagination helper functions
+  const getPaginatedData = <T,>(data: T[], tab: TabType): T[] => {
+    const page = currentPage[tab];
+    const startIndex = (page - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return data.slice(startIndex, endIndex);
+  };
+
+  const getTotalPages = (dataLength: number): number => {
+    return Math.ceil(dataLength / itemsPerPage);
+  };
+
+  const handlePageChange = (tab: TabType, newPage: number) => {
+    setCurrentPage(prev => ({ ...prev, [tab]: newPage }));
+  };
+
+  // Filter and sort functions for Applicant/Shareholder data
+  const filterData = <T extends Applicant | Shareholder>(data: T[]): T[] => {
+    let filtered = [...data];
+
+    // Search query filter
+    if (localSearchQuery.trim()) {
+      const query = localSearchQuery.toLowerCase().trim();
+      filtered = filtered.filter((item) => {
+        if ('fullName' in item) {
+          return item.fullName.toLowerCase().includes(query) || 
+                 item.email?.toLowerCase().includes(query) ||
+                 (item.registrationId || item.id).toLowerCase().includes(query);
+        }
+        return item.name?.toLowerCase().includes(query) || item.id.toLowerCase().includes(query);
+      });
+    }
+
+    // Name sort (A-Z or Z-A)
+    if (nameSort) {
+      filtered.sort((a, b) => {
+        const nameA = ('fullName' in a ? a.fullName : a.name || '').toLowerCase();
+        const nameB = ('fullName' in b ? b.fullName : b.name || '').toLowerCase();
+        
+        if (nameSort === 'a-z') {
+          return nameA.localeCompare(nameB);
+        } else if (nameSort === 'z-a') {
+          return nameB.localeCompare(nameA);
+        }
+        return 0;
+      });
+    }
+
+    // Holdings sort (High to Low or Low to High)
+    // For "All Users" tab, prioritize verified/pre-verified accounts first
+    if (holdingsSort && displayTab === 'all-users') {
+      // Separate into verified/pre-verified and unverified/pending groups
+      const verifiedGroup: T[] = [];
+      const unverifiedGroup: T[] = [];
+      
+      filtered.forEach((item) => {
+        if ('fullName' in item) {
+          const applicant = item as Applicant;
+          const internalStatus = getWorkflowStatusInternal(applicant);
+          const isVerified = internalStatus === 'VERIFIED';
+          const isPreVerified = applicant.isPreVerified;
+          
+          if (isVerified || isPreVerified) {
+            verifiedGroup.push(item);
+          } else {
+            unverifiedGroup.push(item);
+          }
+        } else {
+          // For Shareholder items, treat as verified
+          verifiedGroup.push(item);
+        }
+      });
+      
+      // Sort each group by holdings
+      const sortByHoldings = (a: T, b: T) => {
+        let holdingsA = 0;
+        let holdingsB = 0;
+        
+        if ('holdingsRecord' in a && a.holdingsRecord) {
+          holdingsA = a.holdingsRecord.sharesHeld || 0;
+        } else if ('holdings' in a) {
+          holdingsA = a.holdings || 0;
+        }
+        
+        if ('holdingsRecord' in b && b.holdingsRecord) {
+          holdingsB = b.holdingsRecord.sharesHeld || 0;
+        } else if ('holdings' in b) {
+          holdingsB = b.holdings || 0;
+        }
+        
+        if (holdingsSort === 'high-to-low') {
+          return holdingsB - holdingsA;
+        } else if (holdingsSort === 'low-to-high') {
+          return holdingsA - holdingsB;
+        }
+        return 0;
+      };
+      
+      verifiedGroup.sort(sortByHoldings);
+      unverifiedGroup.sort(sortByHoldings);
+      
+      // Combine: verified/pre-verified first, then unverified/pending
+      filtered = [...verifiedGroup, ...unverifiedGroup];
+    } else if (holdingsSort) {
+      // For other tabs, use regular holdings sort
+      filtered.sort((a, b) => {
+        let holdingsA = 0;
+        let holdingsB = 0;
+        
+        if ('holdingsRecord' in a && a.holdingsRecord) {
+          holdingsA = a.holdingsRecord.sharesHeld || 0;
+        } else if ('holdings' in a) {
+          holdingsA = a.holdings || 0;
+        }
+        
+        if ('holdingsRecord' in b && b.holdingsRecord) {
+          holdingsB = b.holdingsRecord.sharesHeld || 0;
+        } else if ('holdings' in b) {
+          holdingsB = b.holdings || 0;
+        }
+        
+        if (holdingsSort === 'high-to-low') {
+          return holdingsB - holdingsA;
+        } else if (holdingsSort === 'low-to-high') {
+          return holdingsA - holdingsB;
+        }
+        return 0;
+      });
+    }
+
+    return filtered;
+  };
+
+  // Filter and sort function for engagement data
+  const filterEngagementData = (data: typeof engagementData): typeof engagementData => {
+    let filtered = [...data];
+
+    // Search query filter
+    if (localSearchQuery.trim()) {
+      const query = localSearchQuery.toLowerCase().trim();
+      filtered = filtered.filter((item) => {
+        return item.investorName.toLowerCase().includes(query) ||
+               item.engagementType.toLowerCase().includes(query);
+      });
+    }
+
+    // Name sort (A-Z or Z-A)
+    if (nameSort) {
+      filtered.sort((a, b) => {
+        const nameA = a.investorName.toLowerCase();
+        const nameB = b.investorName.toLowerCase();
+        
+        if (nameSort === 'a-z') {
+          return nameA.localeCompare(nameB);
+        } else if (nameSort === 'z-a') {
+          return nameB.localeCompare(nameA);
+        }
+        return 0;
+      });
+    }
+
+    // Engagement type filter
+    if (engagementTypeFilter && engagementTypeFilter !== 'all') {
+      filtered = filtered.filter((item) => {
+        return item.engagementType.toLowerCase() === engagementTypeFilter.toLowerCase();
+      });
+    }
+
+    return filtered;
   };
 
   // Fetch SM Investment Corporation issuer data
@@ -106,92 +461,43 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                 sh.name.toLowerCase().includes('sm investments')
         ) || MOCK_SHAREHOLDERS[0];
         setIssuer(fallback);
-      } finally {
+    } finally {
         setLoading(false);
-      }
-    };
+    }
+  };
 
     fetchIssuer();
   }, []);
 
-  // Fetch shareholdings data (registry truth) for Shareholder tab
+  // Fetch shareholdings data for Shareholder tab - Pending + Verified accounts only
   useEffect(() => {
     const fetchShareholdings = async () => {
       setLoadingShareholders(true);
       try {
-        // Fetch all shareholders from registry (both from Firebase and verified applicants)
-        const allShareholders = await shareholderService.getAll();
+        // Fetch all applicants
         const allApplicants = await applicantService.getAll();
         
-        // Get verified applicants with holdings
-        const verifiedApplicants = allApplicants.filter((applicant) => {
-          const hasHoldingsRecord = applicant.holdingsRecord !== undefined;
-          const isFullyVerified = applicant.shareholdingsVerification?.step6?.verifiedAt !== undefined;
-          return hasHoldingsRecord || isFullyVerified;
-        });
-
-        // Convert verified applicants to shareholders format
-        const applicantShareholders: Shareholder[] = verifiedApplicants.map((applicant) => {
-          const holdings = applicant.holdingsRecord?.sharesHeld || 0;
-          const ownershipPercentage = applicant.holdingsRecord?.ownershipPercentage || 0;
+        // Shareholder Tab (Verification Actions):
+        // - Include pre-verified accounts (pending actions)
+        // - Include user claims only (not full registry)
+        // - Exclude corporates (only individuals)
+        const shareholdersWithClaims = allApplicants.filter((applicant) => {
+          const internalStatus = getWorkflowStatusInternal(applicant);
           
-          return {
-            id: applicant.holdingsRecord?.companyId || applicant.registrationId || applicant.id,
-            name: applicant.fullName,
-            firstName: applicant.fullName.split(' ')[0],
-            holdings: holdings,
-            stake: ownershipPercentage,
-            rank: 0, // Will be recalculated
-            coAddress: applicant.location || 'Registered Office',
-            country: applicant.location?.split(',').pop()?.trim() || 'Unknown',
-            accountType: applicant.holdingsRecord?.sharesClass || 'Ordinary',
-          };
+          // Include pre-verified accounts (pending actions) OR regular user claims
+          // Pre-verified: isPreVerified === true with pending/verified status
+          // User claims: VERIFIED or AWAITING_IRO_REVIEW (non-pre-verified)
+          const isPreVerifiedPending = applicant.isPreVerified && 
+            (internalStatus === 'VERIFIED' || internalStatus === 'AWAITING_IRO_REVIEW');
+          const isUserClaim = !applicant.isPreVerified && 
+            (internalStatus === 'VERIFIED' || internalStatus === 'AWAITING_IRO_REVIEW');
+          
+          // Only include individuals (applicants are always individuals, not corporates)
+          return isPreVerifiedPending || isUserClaim;
         });
 
-        // Combine Firebase shareholders and applicant shareholders
-        const combined = [...allShareholders, ...applicantShareholders];
-        
-        // Remove duplicates by ID and sort by holdings
-        const uniqueMap = new Map<string, Shareholder>();
-        combined.forEach(sh => {
-          const existing = uniqueMap.get(sh.id);
-          if (!existing || sh.holdings > existing.holdings) {
-            uniqueMap.set(sh.id, sh);
-          }
-        });
-        
-        const sorted = Array.from(uniqueMap.values()).sort((a, b) => b.holdings - a.holdings);
-        sorted.forEach((sh, index) => {
-          sh.rank = index + 1;
-        });
-
-        // Generate 6-digit shareholdings ID for Direct account types
-        const shareholdersWithIds = sorted.map((sh) => {
-          // Generate a deterministic 6-digit ID based on shareholder ID for Direct accounts
-          const generateShareholdingsId = (id: string): string => {
-            // Use a hash-like function to generate consistent 6-digit ID from existing ID
-            let hash = 0;
-            for (let i = 0; i < id.length; i++) {
-              const char = id.charCodeAt(i);
-              hash = ((hash << 5) - hash) + char;
-              hash = hash & hash; // Convert to 32-bit integer
-            }
-            // Convert to positive 6-digit number
-            const sixDigit = Math.abs(hash) % 1000000;
-            // Pad with zeros to ensure 6 digits
-            return String(sixDigit).padStart(6, '0');
-          };
-
-          // Check if account type is 'Direct' (case-insensitive)
-          const isDirect = sh.accountType && sh.accountType.toString().toLowerCase() === 'direct';
-
-          return {
-            ...sh,
-            shareholdingsId: isDirect ? generateShareholdingsId(sh.id) : undefined
-          };
-        });
-
-        setVerifiedShareholders(shareholdersWithIds);
+        // Store the applicants with claims for display in Shareholder tab
+        setVerifiedShareholders(shareholdersWithClaims);
       } catch (error) {
         console.error('Error fetching shareholdings:', error);
         setVerifiedShareholders([]);
@@ -205,24 +511,48 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     }
   }, [displayTab]);
 
-  // Fetch investors (platform users) for Investor tab
+
+  // Fetch all users (basic sign-ups without share claims) for All Users tab
   useEffect(() => {
-    const fetchInvestors = async () => {
-      setLoadingInvestors(true);
+    const fetchAllUsers = async () => {
+      setLoadingAllUsers(true);
       try {
-        // Fetch all applicants (all platform users)
-        const applicants = await applicantService.getAll();
-        setAllInvestors(applicants);
+        // Fetch all applicants
+        const allApplicants = await applicantService.getAll();
+        
+        // All Users Tab: Include pre-verified accounts since they represent 
+        // provisioned users ready for claiming/activation, providing a full registration overview.
+        // Also include basic sign-ups without share claims
+        const basicUsers = allApplicants.filter((applicant) => {
+          const internalStatus = getWorkflowStatusInternal(applicant);
+          
+          // Include pre-verified accounts (provisioned users ready for claiming/activation)
+          if (applicant.isPreVerified) {
+            // Include pre-verified accounts that haven't been claimed yet
+            // or are in early stages (not yet verified with holdings)
+            return internalStatus !== 'VERIFIED' || !applicant.holdingsRecord;
+          }
+          
+          // For non-pre-verified accounts:
+          // Exclude users with valid claims (VERIFIED, AWAITING_IRO_REVIEW) - these go to Shareholder tab
+          // Exclude users who need to resubmit (RESUBMISSION_REQUIRED)
+          // Include only: unverified, no claims, or declined verification
+          return internalStatus !== 'VERIFIED' 
+            && internalStatus !== 'AWAITING_IRO_REVIEW'
+            && internalStatus !== 'RESUBMISSION_REQUIRED';
+        });
+        
+        setAllUsers(basicUsers);
       } catch (error) {
-        console.error('Error fetching investors:', error);
-        setAllInvestors([]);
+        console.error('Error fetching all users:', error);
+        setAllUsers([]);
       } finally {
-        setLoadingInvestors(false);
+        setLoadingAllUsers(false);
       }
     };
 
-    if (displayTab === 'investor') {
-      fetchInvestors();
+    if (displayTab === 'all-users') {
+      fetchAllUsers();
     }
   }, [displayTab]);
 
@@ -234,6 +564,9 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
         const applicants = await applicantService.getAll();
         
         const engagement = applicants.map((applicant) => {
+          // Generate detailed engagement activities for this user
+          const activities = generateEngagementData(applicant);
+          
           // Determine verification status
           let verificationStatus = 'Unverified';
           if (applicant.status === RegistrationStatus.APPROVED && applicant.shareholdingsVerification?.step6?.verifiedAt) {
@@ -242,27 +575,52 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
             verificationStatus = 'Pending';
           }
 
-          // Get latest interaction (most recent of email opened, link clicked, or account claimed)
+          // Get latest interaction (most recent of email opened, link clicked, account claimed, or latest activity)
           const interactions: string[] = [];
           if (applicant.emailOpenedAt) interactions.push(applicant.emailOpenedAt);
           if (applicant.linkClickedAt) interactions.push(applicant.linkClickedAt);
           if (applicant.accountClaimedAt) interactions.push(applicant.accountClaimedAt);
+          // Add latest activity timestamp if available
+          if (activities.length > 0) {
+            interactions.push(activities[0].timestamp);
+          }
           const latestInteraction = interactions.length > 0 
             ? new Date(Math.max(...interactions.map(d => new Date(d).getTime()))).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
             : 'Never';
 
-          // Determine engagement type
+          // Determine engagement type based on activities or account status
           let engagementType = 'None';
-          if (applicant.accountClaimedAt) {
-            engagementType = 'Disclosure';
-          } else if (applicant.linkClickedAt) {
-            engagementType = 'Event';
-          } else if (applicant.emailOpenedAt) {
-            engagementType = 'News';
+          if (activities.length > 0) {
+            // Use the most recent activity's associated content type
+            const latestActivity = activities[0];
+            if (latestActivity.associatedContent) {
+              switch (latestActivity.associatedContent.type) {
+                case 'Press Release':
+                case 'Announcement':
+                  engagementType = 'News';
+                  break;
+                case 'Event':
+                  engagementType = 'Event';
+                  break;
+                case 'Document':
+                  engagementType = 'Disclosure';
+                  break;
+              }
+            }
+          }
+          // Fallback to account-based engagement type if no activities
+          if (engagementType === 'None') {
+            if (applicant.accountClaimedAt) {
+              engagementType = 'Disclosure';
+            } else if (applicant.linkClickedAt) {
+              engagementType = 'Event';
+            } else if (applicant.emailOpenedAt) {
+              engagementType = 'News';
+            }
           }
 
-          // Calculate total interactions
-          const totalInteractions = (applicant.emailOpenedCount || 0) + (applicant.linkClickedCount || 0) + (applicant.accountClaimedAt ? 1 : 0);
+          // Calculate total interactions (include activity count)
+          const totalInteractions = activities.length + (applicant.emailOpenedCount || 0) + (applicant.linkClickedCount || 0) + (applicant.accountClaimedAt ? 1 : 0);
 
           // Notifications enabled if email was sent
           const notificationsEnabled = !!applicant.emailSentAt;
@@ -274,6 +632,8 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
             engagementType,
             totalInteractions,
             notificationsEnabled,
+            activities,
+            applicant,
           };
         });
 
@@ -295,9 +655,17 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
   const totalSharesOutstanding = 25381100; // Fixed value from issuer/registry source
   const sharePrice = 125.50; // Random share price in peso
   const marketCap = totalSharesOutstanding * sharePrice; // Computed live
-  const topHoldersConcentration = verifiedShareholders.length >= 3
-    ? verifiedShareholders.slice(0, 3).reduce((sum, sh) => sum + sh.stake, 0)
-    : verifiedShareholders.reduce((sum, sh) => sum + sh.stake, 0);
+  // Calculate top holders concentration from verified shareholders only
+  const verifiedShareholdersForMetrics = verifiedShareholders.filter((item): item is Applicant => 'fullName' in item);
+  const topHoldersConcentration = verifiedShareholdersForMetrics.length >= 3
+    ? verifiedShareholdersForMetrics.slice(0, 3).reduce((sum, applicant) => {
+        const ownership = applicant.holdingsRecord?.ownershipPercentage || 0;
+        return sum + ownership;
+      }, 0)
+    : verifiedShareholdersForMetrics.reduce((sum, applicant) => {
+        const ownership = applicant.holdingsRecord?.ownershipPercentage || 0;
+        return sum + ownership;
+      }, 0);
   
   // Generate sample chart data for metric cards (7 days)
   const generateChartData = (baseValue: number, variance: number = 0.1) => {
@@ -332,53 +700,88 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
   const marketCapSeries = sharePriceSeries.map((p) => Math.round(p * totalSharesOutstanding));
   const topHoldersSeries = generateChartData(topHoldersConcentration, 0.02);
 
-  // Handle uploading current data to Firebase
+  // Helper function to get last 6 digits of registration/holders ID
+  const getLast6Digits = (id: string | undefined | null): string => {
+    if (!id) return '—';
+    const idStr = id.toString();
+    // Get last 6 digits
+    return idStr.length >= 6 ? idStr.slice(-6) : idStr.padStart(6, '0');
+  };
+
+  // Helper function to get registration/holders ID for applicants
+  const getApplicantRegistrationId = (applicant: Applicant): string => {
+    // Priority: shareholdingsId from step2 > registrationId > applicant.id
+    const internalStatus = getWorkflowStatusInternal(applicant);
+    if (internalStatus === 'VERIFIED' || internalStatus === 'AWAITING_IRO_REVIEW') {
+      return applicant.shareholdingsVerification?.step2?.shareholdingsId || 
+             applicant.registrationId || 
+             applicant.id;
+    }
+    // For pre-verified accounts
+    if (applicant.isPreVerified && applicant.registrationId) {
+      return applicant.registrationId;
+    }
+    return applicant.id;
+  };
+
+  // Handle uploading all mock data to Firebase
+  // Follows the same separation logic as Registry Master tabs:
+  // - Shareholders collection: Registry/IRO uploads (Investor tab) - includes corporates
+  // - Applicants collection: Individual users (Shareholder tab + All Users tab) - only individuals
   const handleUploadToFirebase = async () => {
     setIsUploading(true);
-    console.log('🚀 Starting Firebase upload process...');
+    console.log('🚀 Starting Firebase upload process for all mock data...');
+    console.log('📋 Following Registry Master tab conditions for clean data separation...');
     
     try {
-      // Collect all current data
-      const shareholdersToUpload: Shareholder[] = [];
-      const applicantsToUpload: Applicant[] = [];
+      // ============================================
+      // SHAREHOLDERS COLLECTION (Investor Tab Data)
+      // ============================================
+      // Conditions:
+      // - Include IRO uploads (full registry)
+      // - Include corporates (yes)
+      // - Registry/IRO-uploaded institutional data
+      // This data appears in the Investor tab (Ownership Reports)
+      const shareholdersToUpload: Shareholder[] = [...MOCK_SHAREHOLDERS];
+      
+      console.log(`\n📊 SHAREHOLDERS COLLECTION (Investor Tab)`);
+      console.log(`   Purpose: Registry/IRO uploads for ownership reports`);
+      console.log(`   Includes: Corporates, institutions, nominee accounts`);
+      console.log(`   Count: ${shareholdersToUpload.length} records`);
 
-      // Get verified shareholders from the shareholder tab
-      if (verifiedShareholders.length > 0) {
-        shareholdersToUpload.push(...verifiedShareholders);
-        console.log(`📊 Found ${verifiedShareholders.length} shareholders in current state`);
-      }
-
-      // Get all investors from the investor tab
-      if (allInvestors.length > 0) {
-        applicantsToUpload.push(...allInvestors);
-        console.log(`👥 Found ${allInvestors.length} investors in current state`);
-      }
-
-      // If no data in state, fetch from Firebase to upload
-      if (shareholdersToUpload.length === 0 && applicantsToUpload.length === 0) {
-        console.log('📥 No data in state, fetching from Firebase...');
-        // Fetch current data from Firebase
-        const allShareholders = await shareholderService.getAll();
-        const allApplicants = await applicantService.getAll();
-        
-        shareholdersToUpload.push(...allShareholders);
-        applicantsToUpload.push(...allApplicants);
-        console.log(`📊 Fetched ${allShareholders.length} shareholders from Firebase`);
-        console.log(`👥 Fetched ${allApplicants.length} applicants from Firebase`);
-      }
+      // ============================================
+      // APPLICANTS COLLECTION (Shareholder + All Users Tab Data)
+      // ============================================
+      // Conditions:
+      // - Include pre-verified accounts (pending actions)
+      // - Include user claims only (not full registry)
+      // - Exclude corporates (only individuals)
+      // This data appears in:
+      //   - Shareholder tab: Verified/pending individuals with claims
+      //   - All Users tab: Basic sign-ups and pre-verified accounts
+      const applicantsToUpload: Applicant[] = [...MOCK_APPLICANTS];
+      
+      console.log(`\n👥 APPLICANTS COLLECTION (Shareholder + All Users Tab)`);
+      console.log(`   Purpose: Individual user accounts for verification actions`);
+      console.log(`   Includes: Pre-verified accounts, verified users, pending claims, basic sign-ups`);
+      console.log(`   Excludes: Corporate entities (only individuals)`);
+      console.log(`   Count: ${applicantsToUpload.length} records`);
 
       let uploadedShareholdersCount = 0;
       let uploadedApplicantsCount = 0;
       let errorCount = 0;
       const errors: string[] = [];
 
-      // Upload shareholders
+      // Upload shareholders to 'shareholders' collection (Investor tab data)
       if (shareholdersToUpload.length > 0) {
-        console.log(`\n📤 Uploading ${shareholdersToUpload.length} shareholders to Firebase...`);
+        console.log(`\n📤 Uploading ${shareholdersToUpload.length} shareholders to Firebase 'shareholders' collection...`);
+        console.log(`   → These will appear in the Investor tab (Ownership Reports)`);
+        console.log(`   → System will check for duplicates and overwrite existing records`);
         try {
           await batchService.migrateShareholders(shareholdersToUpload);
           uploadedShareholdersCount = shareholdersToUpload.length;
-          console.log(`✅ Successfully uploaded ${uploadedShareholdersCount} shareholders to Firebase`);
+          console.log(`✅ Successfully uploaded ${uploadedShareholdersCount} shareholders to Firebase 'shareholders' collection`);
+          console.log(`   → Available in Investor tab: Registry/IRO uploads, includes corporates`);
         } catch (error: any) {
           console.error('❌ Error uploading shareholders:', error);
           const errorMsg = `Shareholders: ${error.message || 'Unknown error'}`;
@@ -389,13 +792,17 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
         console.log('ℹ️  No shareholders to upload');
       }
 
-      // Upload applicants/investors
+      // Upload applicants to 'applicants' collection (Shareholder + All Users tab data)
       if (applicantsToUpload.length > 0) {
-        console.log(`\n📤 Uploading ${applicantsToUpload.length} applicants/investors to Firebase...`);
+        console.log(`\n📤 Uploading ${applicantsToUpload.length} applicants to Firebase 'applicants' collection...`);
+        console.log(`   → These will appear in Shareholder tab (verified/pending) and All Users tab (all accounts)`);
+        console.log(`   → System will check for duplicates by email/registrationId and overwrite existing records`);
         try {
           await batchService.migrateApplicants(applicantsToUpload);
           uploadedApplicantsCount = applicantsToUpload.length;
-          console.log(`✅ Successfully uploaded ${uploadedApplicantsCount} applicants/investors to Firebase`);
+          console.log(`✅ Successfully uploaded ${uploadedApplicantsCount} applicants to Firebase 'applicants' collection`);
+          console.log(`   → Available in Shareholder tab: Pre-verified accounts + user claims (individuals only)`);
+          console.log(`   → Available in All Users tab: All registered accounts (including pre-verified)`);
         } catch (error: any) {
           console.error('❌ Error uploading applicants:', error);
           const errorMsg = `Applicants: ${error.message || 'Unknown error'}`;
@@ -403,20 +810,31 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
           errorCount += applicantsToUpload.length;
         }
       } else {
-        console.log('ℹ️  No applicants/investors to upload');
+        console.log('ℹ️  No applicants to upload');
       }
 
       const totalUploaded = uploadedShareholdersCount + uploadedApplicantsCount;
 
       if (errorCount === 0) {
         console.log(`\n🎉 Upload completed successfully!`);
-        console.log(`   📊 Shareholders: ${uploadedShareholdersCount}`);
-        console.log(`   👥 Applicants/Investors: ${uploadedApplicantsCount}`);
+        console.log(`\n📊 DATA SEPARATION SUMMARY:`);
+        console.log(`   ┌─────────────────────────────────────────────────┐`);
+        console.log(`   │ Shareholders Collection (Investor Tab)         │`);
+        console.log(`   │ • Registry/IRO uploads                        │`);
+        console.log(`   │ • Includes corporates & institutions           │`);
+        console.log(`   │ • Count: ${uploadedShareholdersCount.toString().padEnd(3)} records                    │`);
+        console.log(`   └─────────────────────────────────────────────────┘`);
+        console.log(`   ┌─────────────────────────────────────────────────┐`);
+        console.log(`   │ Applicants Collection (Shareholder + All Users) │`);
+        console.log(`   │ • Individual user accounts                     │`);
+        console.log(`   │ • Pre-verified, verified, pending, basic sign-ups│`);
+        console.log(`   │ • Count: ${uploadedApplicantsCount.toString().padEnd(3)} records                    │`);
+        console.log(`   └─────────────────────────────────────────────────┘`);
         console.log(`   📈 Total records uploaded: ${totalUploaded}`);
         
         setUploadToast({
           show: true,
-          message: `Successfully uploaded ${totalUploaded} records to Firebase! (${uploadedShareholdersCount} shareholders, ${uploadedApplicantsCount} investors)`,
+          message: `Successfully uploaded ${totalUploaded} records! ${uploadedShareholdersCount} shareholders (Investor tab) + ${uploadedApplicantsCount} applicants (Shareholder/All Users tabs)`,
           type: 'success'
         });
       } else {
@@ -454,6 +872,221 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
       console.log('\n🏁 Upload process completed.\n');
     }
   };
+
+  // Helper functions for Avatar and CopyableField
+  const getInitials = (fullName: string): string => {
+    const parts = fullName.trim().split(/\s+/);
+    if (parts.length === 0) return '';
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  };
+
+  const getAvatarColor = (name: string): string => {
+    const colors = [
+      '#4F46E5', '#7C3AED', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#8B5CF6', '#EF4444',
+      '#14B8A6', '#F97316', '#6366F1', '#A855F7', '#06B6D4', '#84CC16',
+    ];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
+  };
+
+  const Avatar: React.FC<{ name: string; size?: number; profilePictureUrl?: string }> = ({ name, size = 40, profilePictureUrl }) => {
+    const [imageError, setImageError] = useState(false);
+    const initials = getInitials(name);
+    const color = getAvatarColor(name);
+    
+    if (profilePictureUrl && !imageError) {
+      return (
+        <img
+          src={profilePictureUrl}
+          alt={name}
+          className="rounded-full shrink-0 object-cover"
+          style={{ width: `${size}px`, height: `${size}px` }}
+          onError={() => setImageError(true)}
+        />
+      );
+    }
+    
+    return (
+      <div
+        className="rounded-full flex items-center justify-center text-white font-black shrink-0"
+        style={{ width: `${size}px`, height: `${size}px`, backgroundColor: color, fontSize: `${size * 0.4}px` }}
+      >
+        {initials}
+      </div>
+    );
+  };
+
+  const CopyableField: React.FC<{ label: string; value: string; copyable: boolean }> = ({ label, value, copyable }) => {
+    const [showCopied, setShowCopied] = useState(false);
+    const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    const handleCopy = async () => {
+      if (!copyable || !value || value === 'Not provided') return;
+      try {
+        await navigator.clipboard.writeText(value);
+        setShowCopied(true);
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        timeoutRef.current = setTimeout(() => setShowCopied(false), 2000);
+      } catch (err) {
+        console.error('Failed to copy:', err);
+      }
+    };
+
+    useEffect(() => {
+      return () => {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      };
+    }, []);
+
+    return (
+      <div className="relative">
+        <p className="text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-2">{label}</p>
+        {copyable && value && value !== 'Not provided' ? (
+          <button
+            onClick={handleCopy}
+            className="text-sm font-black text-neutral-900 dark:text-neutral-100 hover:text-primary transition-colors cursor-pointer relative group"
+          >
+            {value}
+            {showCopied && (
+              <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-neutral-800 dark:bg-black text-white text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap z-10">
+                Copied!
+              </span>
+            )}
+          </button>
+        ) : (
+          <p className="text-sm font-black text-neutral-900 dark:text-neutral-100">{value}</p>
+        )}
+      </div>
+    );
+  };
+
+  // Show detail view if user is selected
+  if (selectedUser) {
+    // Get account status
+    const getDisplayStatus = () => {
+      if (selectedUser.isPreVerified) {
+        if (selectedUser.accountStatus) {
+          return selectedUser.accountStatus === 'VERIFIED' ? 'VERIFIED INVESTOR' : 
+                 selectedUser.accountStatus === 'PENDING' ? 'PENDING INVESTOR' : 
+                 'UNVERIFIED INVESTOR';
+        }
+        return 'PENDING INVESTOR';
+      }
+      const internalStatus = getWorkflowStatusInternal(selectedUser);
+      const status = getGeneralAccountStatus(internalStatus);
+      return status === 'VERIFIED' ? 'VERIFIED INVESTOR' : 
+             status === 'PENDING' ? 'PENDING INVESTOR' : 
+             'UNVERIFIED INVESTOR';
+    };
+
+    const displayStatus = getDisplayStatus();
+    const initials = getInitials(selectedUser.fullName);
+
+    return (
+      <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <button 
+          onClick={() => setSelectedUser(null)} 
+          className="flex items-center gap-2 text-[10px] font-black text-neutral-500 dark:text-neutral-400 hover:text-primary transition-colors uppercase tracking-widest group"
+        >
+          <svg className="w-3 h-3 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7"/>
+          </svg>
+          Shareholders
+        </button>
+        
+        {/* Profile Card - Matching image style */}
+        <div className="bg-neutral-700 dark:bg-neutral-800 rounded-lg p-8 flex items-center gap-8">
+          {/* Avatar with teal-green background */}
+          <div className="w-20 h-20 rounded-full bg-teal-500 flex items-center justify-center text-white font-bold text-2xl shrink-0">
+            {initials}
+          </div>
+          <div className="flex-1">
+            <h2 className="text-3xl font-bold text-white uppercase tracking-tight mb-2">{selectedUser.fullName}</h2>
+            {/* Status with icon */}
+            <div className="flex items-center gap-2 mb-6">
+              {displayStatus === 'VERIFIED INVESTOR' && (
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                    <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
+                    <path d="m9 12 2 2 4-4"/>
+                  </svg>
+                  <p className="text-base text-emerald-400 font-medium uppercase tracking-wide">{displayStatus}</p>
+                </div>
+              )}
+              {displayStatus === 'PENDING INVESTOR' && (
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 6v6l4 2"/>
+                  </svg>
+                  <p className="text-base text-amber-400 font-medium uppercase tracking-wide">{displayStatus}</p>
+                </div>
+              )}
+              {(displayStatus === 'UNVERIFIED INVESTOR' || !displayStatus.includes('VERIFIED') && !displayStatus.includes('PENDING')) && (
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-neutral-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                    <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
+                  </svg>
+                  <p className="text-base text-neutral-400 font-medium uppercase tracking-wide">{displayStatus}</p>
+                </div>
+              )}
+            </div>
+            {/* Profile data inline */}
+            <div className="grid grid-cols-4 gap-8 mt-6">
+              <div>
+                <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Email</p>
+                <p className="text-sm text-white">{selectedUser.email}</p>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Contact</p>
+                <p className="text-sm text-white">{selectedUser.phoneNumber || 'Not provided'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Network Origin</p>
+                <p className="text-sm text-white">{selectedUser.location || 'Global Hub'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Registry Date</p>
+                <p className="text-sm text-white">
+                  {selectedUser.submissionDate ? new Date(selectedUser.submissionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 shadow-sm rounded-xl overflow-hidden">
+          <div className="flex border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50/30 dark:bg-neutral-900/30">
+            <button 
+              onClick={() => setActiveDetailTab('holdings')} 
+              className={`px-10 py-5 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeDetailTab === 'holdings' ? 'text-blue-400' : 'text-neutral-400 hover:text-blue-400'}`}
+            >
+              Holdings summary
+              {activeDetailTab === 'holdings' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-400"></div>}
+            </button>
+            <button 
+              onClick={() => setActiveDetailTab('engagement')} 
+              className={`px-10 py-5 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeDetailTab === 'engagement' ? 'text-blue-400' : 'text-neutral-400 hover:text-blue-400'}`}
+            >
+              Engagement
+              {activeDetailTab === 'engagement' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-400"></div>}
+            </button>
+          </div>
+          <div className="p-10">
+            {activeDetailTab === 'holdings' ? (
+              <HoldingsSummary applicant={selectedUser} />
+            ) : (
+              <EngagementTabContent applicant={selectedUser} />
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto relative">
@@ -497,13 +1130,13 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
       {/* Top Header Section */}
       <div className="flex items-end justify-between">
         <div>
-          <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 tracking-tighter uppercase">Registry Master</h2>
+          <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 tracking-tighter uppercase">Shareholders</h2>
           <p className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.2em] mt-1">
             {issuer ? `${issuer.name.toUpperCase()} • Issuer Information` : 'Issuer Information • Updated Today'}
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button 
+          <button
             onClick={handleUploadToFirebase}
             disabled={isUploading}
             className="px-5 py-2 text-[10px] font-black border border-neutral-200 dark:border-neutral-700 rounded-lg uppercase tracking-widest hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-all flex items-center gap-2 group text-neutral-600 dark:text-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -541,9 +1174,9 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
             <svg className="w-6 h-6 text-neutral-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
             </svg>
-          </div>
+            </div>
           <p className="text-sm font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">Loading issuer data...</p>
-        </div>
+          </div>
       ) : issuer ? (
         <>
           {/* Issuer Details Header - Enlarged like greeting card */}
@@ -562,8 +1195,8 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                 </filter>
                 <rect width="100%" height="100%" filter="url(#issuer-noise-filter)" />
               </svg>
-            </div>
-
+        </div>
+        
             <div className="absolute top-1/2 right-0 -translate-y-1/2 p-4 opacity-10 group-hover:opacity-20 group-hover:scale-110 transition-all duration-500">
               <svg 
                 className="w-24 h-24" 
@@ -608,11 +1241,11 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                     <div>
                       <span className="font-bold uppercase tracking-wider">Issuer ID:</span>{' '}
                       <span className="font-mono">{issuer.id}</span>
-                    </div>
+          </div>
                     <div>
                       <span className="font-bold uppercase tracking-wider">Address:</span>{' '}
                       {issuer.coAddress || 'Registered Office'}
-                    </div>
+            </div>
                     <div>
                       <span className="font-bold uppercase tracking-wider">Country:</span>{' '}
                       {issuer.country}
@@ -622,10 +1255,10 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                       {issuer.accountType}
                     </div>
                   </div>
-                </div>
-              </div>
+            </div>
             </div>
           </div>
+        </div>
 
           {/* Metric Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
@@ -668,50 +1301,133 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
           </div>
 
           {/* Tabs Section */}
-          <div className="bg-white dark:bg-neutral-800 rounded-xl border border-neutral-200 dark:border-neutral-700 shadow-sm overflow-hidden">
-            {/* Tab Headers */}
-            <div className="border-b border-neutral-200 dark:border-neutral-700">
-              <div className="flex">
-                <button
-                  onClick={() => handleTabChange('shareholder')}
-                  className={`px-6 py-4 text-sm font-black uppercase tracking-wider transition-all duration-300 ${
-                    activeTab === 'shareholder'
-                      ? 'text-neutral-900 dark:text-neutral-100 border-b-2 border-neutral-900 dark:border-neutral-100'
-                      : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
-                  }`}
-                >
-                  Shareholder
-                </button>
-                <button
-                  onClick={() => handleTabChange('investor')}
-                  className={`px-6 py-4 text-sm font-black uppercase tracking-wider transition-all duration-300 ${
-                    activeTab === 'investor'
-                      ? 'text-neutral-900 dark:text-neutral-100 border-b-2 border-neutral-900 dark:border-neutral-100'
-                      : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
-                  }`}
-                >
-                  Investor
-                </button>
-                <button
-                  onClick={() => handleTabChange('engagement')}
-                  className={`px-6 py-4 text-sm font-black uppercase tracking-wider transition-all duration-300 ${
-                    activeTab === 'engagement'
-                      ? 'text-neutral-900 dark:text-neutral-100 border-b-2 border-neutral-900 dark:border-neutral-100'
-                      : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
-                  }`}
-                >
-                  Engagement
-                </button>
+          {/* Tab Headers */}
+          <div className="border-b border-neutral-200 dark:border-neutral-700 mb-6">
+            <div className="flex">
+              <button
+                onClick={() => handleTabChange('shareholder')}
+                className={`px-6 py-4 text-sm font-black uppercase tracking-wider transition-all duration-300 ${
+                  activeTab === 'shareholder'
+                    ? 'text-neutral-900 dark:text-neutral-100 border-b-2 border-neutral-900 dark:border-neutral-100'
+                    : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
+                }`}
+              >
+                Shareholder
+              </button>
+              <button
+                onClick={() => handleTabChange('all-users')}
+                className={`px-6 py-4 text-sm font-black uppercase tracking-wider transition-all duration-300 ${
+                  activeTab === 'all-users'
+                    ? 'text-neutral-900 dark:text-neutral-100 border-b-2 border-neutral-900 dark:border-neutral-100'
+                    : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
+                }`}
+              >
+                All Users
+              </button>
+              <button
+                onClick={() => handleTabChange('engagement')}
+                className={`px-6 py-4 text-sm font-black uppercase tracking-wider transition-all duration-300 ${
+                  activeTab === 'engagement'
+                    ? 'text-neutral-900 dark:text-neutral-100 border-b-2 border-neutral-900 dark:border-neutral-100'
+                    : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
+                }`}
+              >
+                Engagement
+              </button>
+            </div>
+          </div>
+
+          {/* Search and Filters */}
+          <div className="mb-6 space-y-4">
+            {/* Search Input */}
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg className="h-5 w-5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
               </div>
+              <input
+                type="text"
+                value={localSearchQuery}
+                onChange={(e) => {
+                  setLocalSearchQuery(e.target.value);
+                  setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
+                }}
+                placeholder="Search by name, email, or ID..."
+                className="w-full pl-10 pr-4 py-2.5 text-sm border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 placeholder-neutral-500 dark:placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0] focus:border-transparent"
+              />
             </div>
 
-            {/* Tab Content */}
-            <div className="p-6 relative min-h-[400px] overflow-hidden">
+            {/* Filters Row */}
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Name Sort (A-Z / Z-A) */}
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-bold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider">Name:</label>
+                <select
+                  value={nameSort || 'none'}
+                  onChange={(e) => {
+                    setNameSort(e.target.value === 'none' ? null : e.target.value);
+                    setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
+                  }}
+                  className="px-3 py-1.5 text-xs border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0] focus:border-transparent"
+                >
+                  <option value="none">None</option>
+                  <option value="a-z">A-Z</option>
+                  <option value="z-a">Z-A</option>
+                </select>
+              </div>
+
+              {/* Holdings Sort (High to Low / Low to High) - for Shareholder and All Users tabs */}
+              {displayTab !== 'engagement' && (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-bold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider">Holdings:</label>
+                  <select
+                    value={holdingsSort || 'none'}
+                    onChange={(e) => {
+                      setHoldingsSort(e.target.value === 'none' ? null : e.target.value);
+                      setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
+                    }}
+                    className="px-3 py-1.5 text-xs border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0] focus:border-transparent"
+                  >
+                    <option value="none">None</option>
+                    <option value="high-to-low">High to Low</option>
+                    <option value="low-to-high">Low to High</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Engagement Type Filter (for Engagement tab) */}
+              {displayTab === 'engagement' && (
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-bold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider">Type:</label>
+                  <select
+                    value={engagementTypeFilter || 'all'}
+                    onChange={(e) => {
+                      setEngagementTypeFilter(e.target.value === 'all' ? null : e.target.value);
+                      setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
+                    }}
+                    className="px-3 py-1.5 text-xs border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0] focus:border-transparent"
+                  >
+                    <option value="all">All</option>
+                    <option value="disclosure">Disclosure</option>
+                    <option value="event">Event</option>
+                    <option value="news">News</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Tab Content */}
+          <div className="relative">
               <div 
-                key={displayTab}
-                className={`transition-all duration-300 ease-in-out ${
-                  isTransitioning ? 'opacity-0 translate-y-2' : 'opacity-100 translate-y-0'
+                className={`transition-opacity duration-150 ease-in-out ${
+                  isTransitioning 
+                    ? 'opacity-0 pointer-events-none' 
+                    : 'opacity-100 pointer-events-auto'
                 }`}
+                style={{ willChange: isTransitioning ? 'opacity' : 'auto' }}
               >
               {displayTab === 'shareholder' && (
                 <div className="overflow-x-auto">
@@ -725,80 +1441,148 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                       <p className="text-xs font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">Loading shareholdings...</p>
                     </div>
                   ) : verifiedShareholders.length > 0 ? (
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-neutral-50 dark:bg-neutral-900/50 text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200 dark:border-neutral-700">
-                          <th className="px-4 py-5 text-center">RANK</th>
-                          <th className="px-4 py-5">HOLDER NAME</th>
-                          <th className="px-4 py-5">SHARES HELD</th>
-                          <th className="px-4 py-5">STAKE %</th>
-                          <th className="px-4 py-5">ACCOUNT TYPE</th>
-                          <th className="px-4 py-5">SHAREHOLDINGS ID</th>
-                          <th className="px-4 py-5">LAST UPDATED</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
-                        {verifiedShareholders.map((sh) => (
-                          <tr key={sh.id} className="group hover:bg-neutral-50 dark:hover:bg-neutral-700/80 transition-all cursor-default">
-                            <td className="px-4 py-5">
-                              <div className="flex items-center justify-center">
-                                <span className={`w-8 h-8 flex items-center justify-center rounded-full text-[11px] font-black transition-colors ${sh.rank === 1 ? 'bg-neutral-900 dark:bg-black text-white' : 'bg-transparent text-neutral-900 dark:text-neutral-300'}`}>
-                                  {sh.rank}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-4 py-5">
-                              <Tooltip content={sh.name.toUpperCase()}>
-                                <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 uppercase truncate">{sh.name.toUpperCase()}</p>
-                              </Tooltip>
-                            </td>
-                            <td className="px-4 py-5">
-                              <p className="text-sm font-black text-neutral-900 dark:text-neutral-100 tracking-tight">
-                                {sh.holdings.toLocaleString()}
-                              </p>
-                            </td>
-                            <td className="px-4 py-5">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-black text-neutral-900 dark:text-neutral-100">{sh.stake.toFixed(5)}%</span>
-                                <div className="w-16 h-1.5 bg-neutral-200 dark:bg-neutral-700 rounded-full overflow-hidden">
-                                  <div className="h-full bg-[#082b4a] dark:bg-[#00adf0]" style={{ width: `${Math.min(sh.stake * 3, 100)}%` }}></div>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-4 py-5">
-                              <span className="inline-block px-3 py-1 bg-neutral-100 dark:bg-neutral-700 text-[10px] font-medium text-neutral-700 dark:text-neutral-200 rounded-full uppercase tracking-wider whitespace-nowrap">
-                                {(() => {
-                                  // Map accountType to proper Account Type values
-                                  // If it's "Ordinary", "Preferred", etc. (share class), default to "Direct"
-                                  // If it's "Nominee", "Custodian", "Direct", use that
-                                  const accountType = sh.accountType?.toString() || '';
-                                  const lowerType = accountType.toLowerCase();
-                                  if (lowerType === 'nominee' || lowerType === 'custodian' || lowerType === 'direct') {
-                                    return accountType;
-                                  }
-                                  // Default to "Direct" for share class values like "Ordinary"
-                                  return 'Direct';
-                                })()}
-                              </span>
-                            </td>
-                            <td className="px-4 py-5">
-                              {(sh as any).shareholdingsId ? (
-                                <span className="text-sm font-black text-neutral-900 dark:text-neutral-100 font-mono tracking-tighter">
-                                  {(sh as any).shareholdingsId}
-                                </span>
-                              ) : (
-                                <span className="text-xs text-neutral-400 dark:text-neutral-500 italic">—</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-5">
-                              <span className="text-xs text-neutral-600 dark:text-neutral-400">
-                                {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                              </span>
-                            </td>
+                    <div>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-4 italic">
+                        Operational list of only pending/verified individuals needing IRO review—no full registry dump. Includes pre-verified accounts (pending actions) and user claims only.
+                      </p>
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-neutral-50 dark:bg-neutral-900/50 text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200 dark:border-neutral-700">
+                            <th className="px-4 py-5">REGISTRATION ID</th>
+                            <th className="px-4 py-5">NAME</th>
+                            <th className="px-4 py-5">EMAIL</th>
+                            <th className="px-4 py-5">VERIFICATION STATUS</th>
+                            <th className="px-4 py-5">SHARES</th>
+                            <th className="px-4 py-5">% OWNERSHIP</th>
+                            <th className="px-4 py-5">LAST UPDATED</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
+                          {getPaginatedData(filterData(verifiedShareholders.filter((item): item is Applicant => 'fullName' in item)), 'shareholder').map((applicant) => {
+                            const internalStatus = getWorkflowStatusInternal(applicant);
+                            const verificationStatus = internalStatus === 'VERIFIED'
+                              ? 'Verified' 
+                              : internalStatus === 'AWAITING_IRO_REVIEW'
+                              ? 'Pending'
+                              : 'Unverified';
+                            
+                            // For pending accounts (AWAITING_IRO_REVIEW), get holdings from holdingsRecord if available
+                            // For verified accounts, use holdingsRecord
+                            // Holdings should be displayed for both pending and verified
+                            let shares = 0;
+                            let ownership = 0;
+                            
+                            if (internalStatus === 'VERIFIED' || internalStatus === 'AWAITING_IRO_REVIEW') {
+                              // Both verified and pending (awaiting IRO) should show holdings
+                              shares = applicant.holdingsRecord?.sharesHeld || 0;
+                              ownership = applicant.holdingsRecord?.ownershipPercentage || 0;
+                            }
+                            
+                            const lastUpdated = applicant.shareholdingsVerification?.step6?.verifiedAt 
+                              || applicant.shareholdingsVerification?.step2?.submittedAt 
+                              || applicant.submissionDate;
+
+                            const registrationId = getApplicantRegistrationId(applicant);
+                            const displayId = getLast6Digits(registrationId);
+
+                            return (
+                              <tr 
+                                key={applicant.id} 
+                                onClick={() => setSelectedUser(applicant)}
+                                className="group hover:bg-neutral-50 dark:hover:bg-neutral-700/80 transition-all cursor-pointer"
+                              >
+                                <td className="px-4 py-5">
+                                  <Tooltip content={`Full ID: ${registrationId}`}>
+                                    <span className="text-sm font-mono font-black text-neutral-900 dark:text-neutral-100">
+                                      {displayId}
+                                    </span>
+                                  </Tooltip>
+                                </td>
+                                <td className="px-4 py-5">
+                                  <Tooltip content={applicant.fullName}>
+                                    <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 truncate">{applicant.fullName}</p>
+                                  </Tooltip>
+                                </td>
+                                <td className="px-4 py-5">
+                                  <Tooltip content={applicant.email}>
+                                    <span className="text-xs text-neutral-600 dark:text-neutral-400 truncate block">{applicant.email}</span>
+                                  </Tooltip>
+                                </td>
+                                <td className="px-4 py-5">
+                                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${
+                                    verificationStatus === 'Verified'
+                                      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                                      : verificationStatus === 'Pending'
+                                      ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                                      : 'bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400'
+                                  }`}>
+                                    {verificationStatus === 'Unverified' && (
+                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                        <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
+                                      </svg>
+                                    )}
+                                    {verificationStatus === 'Pending' && (
+                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <path d="M12 6v6l4 2"/>
+                                      </svg>
+                                    )}
+                                    {verificationStatus === 'Verified' && (
+                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                        <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
+                                        <path d="m9 12 2 2 4-4"/>
+                                      </svg>
+                                    )}
+                                    {verificationStatus}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-5">
+                                  <span className="text-sm font-black text-neutral-900 dark:text-neutral-100">
+                                    {shares > 0 ? shares.toLocaleString() : '—'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-5">
+                                  <span className="text-sm font-black text-neutral-900 dark:text-neutral-100">
+                                    {ownership > 0 ? `${ownership.toFixed(5)}%` : '—'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-5">
+                                  <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                                    {lastUpdated ? new Date(lastUpdated).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      {(() => {
+                        const filteredData = filterData(verifiedShareholders.filter((item): item is Applicant => 'fullName' in item));
+                        return filteredData.length > itemsPerPage && (
+                          <div className="mt-6 flex items-center justify-between border-t border-neutral-200 dark:border-neutral-700 pt-4">
+                            <div className="text-sm text-neutral-600 dark:text-neutral-400">
+                              Showing {((currentPage.shareholder - 1) * itemsPerPage) + 1} to {Math.min(currentPage.shareholder * itemsPerPage, filteredData.length)} of {filteredData.length} verified investors
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handlePageChange('shareholder', currentPage.shareholder - 1)}
+                                disabled={currentPage.shareholder === 1}
+                                className="px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              >
+                                Previous
+                              </button>
+                              <button
+                                onClick={() => handlePageChange('shareholder', currentPage.shareholder + 1)}
+                                disabled={currentPage.shareholder >= getTotalPages(filteredData.length)}
+                                className="px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              >
+                                Next
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   ) : (
                     <div className="py-12 text-center">
                       <div className="w-12 h-12 bg-neutral-50 dark:bg-neutral-900 rounded-full flex items-center justify-center mx-auto mb-4 border border-dashed border-neutral-200 dark:border-neutral-700">
@@ -812,107 +1596,123 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                 </div>
               )}
 
-              {displayTab === 'investor' && (
+              {displayTab === 'all-users' && (
                 <div className="overflow-x-auto">
-                  {loadingInvestors ? (
+                  {loadingAllUsers ? (
                     <div className="py-12 text-center">
                       <div className="w-12 h-12 bg-neutral-50 dark:bg-neutral-900 rounded-full flex items-center justify-center mx-auto mb-4 border border-dashed border-neutral-200 dark:border-neutral-700">
                         <svg className="w-5 h-5 text-neutral-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                         </svg>
-                      </div>
-                      <p className="text-xs font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">Loading investors...</p>
+                        </div>
+                      <p className="text-xs font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">Loading users...</p>
                     </div>
-                  ) : allInvestors.length > 0 ? (
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-neutral-50 dark:bg-neutral-900/50 text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200 dark:border-neutral-700">
-                          <th className="px-4 py-5">INVESTOR ID</th>
-                          <th className="px-4 py-5">NAME</th>
-                          <th className="px-4 py-5">EMAIL</th>
-                          <th className="px-4 py-5">VERIFICATION STATUS</th>
-                          <th className="px-4 py-5">LINKED SHARES</th>
-                          <th className="px-4 py-5">STAKE %</th>
-                          <th className="px-4 py-5">INVITATION STATUS</th>
-                          <th className="px-4 py-5">LAST ACTIVITY</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
-                        {allInvestors.map((investor) => {
-                          const verificationStatus = investor.status === RegistrationStatus.APPROVED && investor.shareholdingsVerification?.step6?.verifiedAt
-                            ? 'Verified'
-                            : investor.status === RegistrationStatus.PENDING
-                            ? 'Pending'
-                            : 'Unverified';
-                          
-                          const linkedShares = investor.holdingsRecord?.sharesHeld || 0;
-                          const stake = investor.holdingsRecord?.ownershipPercentage || 0;
-                          
-                          const invitationStatus = investor.accountClaimedAt
-                            ? 'Accepted'
-                            : investor.emailSentAt
-                            ? 'Sent'
-                            : 'Not Sent';
+                  ) : allUsers.length > 0 ? (
+                    <div>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-4 italic">
+                        Tracks all frontend-registered accounts (basic sign-ups without share claims). Includes pre-verified accounts since they represent provisioned users ready for claiming/activation, providing a full registration overview.
+                      </p>
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-neutral-50 dark:bg-neutral-900/50 text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200 dark:border-neutral-700">
+                            <th className="px-4 py-5">NAME</th>
+                            <th className="px-4 py-5">EMAIL</th>
+                            <th className="px-4 py-5">REGISTRATION DATE</th>
+                            <th className="px-4 py-5">ACTIVITY LEVEL</th>
+                            <th className="px-4 py-5">STATUS</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
+                          {getPaginatedData(filterData(allUsers), 'all-users').map((user) => {
+                            // Determine status (active/inactive)
+                            const getStatus = (lastActive: string): 'Active' | 'Inactive' => {
+                              if (lastActive === 'Just now' || lastActive.includes('hour') || lastActive.includes('day')) {
+                                return 'Active';
+                              }
+                              return 'Inactive';
+                            };
 
-                          const lastActivity = investor.lastActive || 'Never';
+                            const lastActive = user.lastActive || 'Never';
+                            const status = getStatus(lastActive);
 
-                          return (
-                            <tr key={investor.id} className="group hover:bg-neutral-50 dark:hover:bg-neutral-700/80 transition-all cursor-default">
-                              <td className="px-4 py-5">
-                                <span className="text-sm font-black text-neutral-900 dark:text-neutral-100 font-mono tracking-tighter">
-                                  {investor.registrationId || investor.id.slice(-6)}
-                                </span>
-                              </td>
-                              <td className="px-4 py-5">
-                                <Tooltip content={investor.fullName}>
-                                  <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 truncate">{investor.fullName}</p>
-                                </Tooltip>
-                              </td>
-                              <td className="px-4 py-5">
-                                <Tooltip content={investor.email}>
-                                  <span className="text-xs text-neutral-600 dark:text-neutral-400 truncate block">{investor.email}</span>
-                                </Tooltip>
-                              </td>
-                              <td className="px-4 py-5">
-                                <span className={`inline-block px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${
-                                  verificationStatus === 'Verified'
-                                    ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
-                                    : verificationStatus === 'Pending'
-                                    ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
-                                    : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'
-                                }`}>
-                                  {verificationStatus}
-                                </span>
-                              </td>
-                              <td className="px-4 py-5">
-                                <span className="text-sm font-black text-neutral-900 dark:text-neutral-100">
-                                  {linkedShares > 0 ? linkedShares.toLocaleString() : '—'}
-                                </span>
-                              </td>
-                              <td className="px-4 py-5">
-                                <span className="text-sm font-black text-neutral-900 dark:text-neutral-100">
-                                  {stake > 0 ? `${stake.toFixed(5)}%` : '—'}
-                                </span>
-                              </td>
-                              <td className="px-4 py-5">
-                                <span className={`inline-block px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${
-                                  invitationStatus === 'Accepted'
-                                    ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
-                                    : invitationStatus === 'Sent'
-                                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                                    : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'
-                                }`}>
-                                  {invitationStatus}
-                                </span>
-                              </td>
-                              <td className="px-4 py-5">
-                                <span className="text-xs text-neutral-600 dark:text-neutral-400">{lastActivity}</span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                            // Determine badge color based on activity recency
+                            const getActivityBadgeColor = (lastActive: string) => {
+                              if (lastActive === 'Just now' || lastActive.includes('hour')) {
+                                return 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300';
+                              }
+                              if (lastActive.includes('day') || lastActive.includes('week')) {
+                                return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300';
+                              }
+                              return 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300';
+                            };
+
+                            return (
+                              <tr 
+                                key={user.id} 
+                                onClick={() => setSelectedUser(user)}
+                                className="group hover:bg-neutral-50 dark:hover:bg-neutral-700/80 transition-all cursor-pointer"
+                              >
+                                <td className="px-4 py-5">
+                                  <Tooltip content={user.fullName}>
+                                    <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 truncate">{user.fullName}</p>
+                                  </Tooltip>
+                  </td>
+                  <td className="px-4 py-5">
+                                  <Tooltip content={user.email}>
+                                    <span className="text-xs text-neutral-600 dark:text-neutral-400 truncate block">{user.email}</span>
+                                  </Tooltip>
+                                </td>
+                                <td className="px-4 py-5">
+                                  <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                                    {user.submissionDate ? new Date(user.submissionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-5">
+                                  <span className={`inline-block px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${getActivityBadgeColor(lastActive)}`}>
+                                    {lastActive}
+                    </span>
+                  </td>
+                  <td className="px-4 py-5">
+                                  <span className={`inline-block px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${
+                                    status === 'Active'
+                                      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                                      : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'
+                                  }`}>
+                                    {status}
+                      </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      {(() => {
+                        const filteredData = filterData(allUsers);
+                        return filteredData.length > itemsPerPage && (
+                          <div className="mt-6 flex items-center justify-between border-t border-neutral-200 dark:border-neutral-700 pt-4">
+                            <div className="text-sm text-neutral-600 dark:text-neutral-400">
+                              Showing {((currentPage['all-users'] - 1) * itemsPerPage) + 1} to {Math.min(currentPage['all-users'] * itemsPerPage, filteredData.length)} of {filteredData.length} users
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handlePageChange('all-users', currentPage['all-users'] - 1)}
+                                disabled={currentPage['all-users'] === 1}
+                                className="px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              >
+                                Previous
+                              </button>
+                              <button
+                                onClick={() => handlePageChange('all-users', currentPage['all-users'] + 1)}
+                                disabled={currentPage['all-users'] >= getTotalPages(filteredData.length)}
+                                className="px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              >
+                                Next
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   ) : (
                     <div className="py-12 text-center">
                       <div className="w-12 h-12 bg-neutral-50 dark:bg-neutral-900 rounded-full flex items-center justify-center mx-auto mb-4 border border-dashed border-neutral-200 dark:border-neutral-700">
@@ -920,7 +1720,7 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
                         </svg>
                       </div>
-                      <p className="text-xs font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">No investors found.</p>
+                      <p className="text-xs font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">No users found.</p>
                     </div>
                   )}
                 </div>
@@ -938,26 +1738,27 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                       <p className="text-xs font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">Loading engagement data...</p>
                     </div>
                   ) : engagementData.length > 0 ? (
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-neutral-50 dark:bg-neutral-900/50 text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200 dark:border-neutral-700">
-                          <th className="px-4 py-5">INVESTOR NAME</th>
-                          <th className="px-4 py-5">VERIFICATION STATUS</th>
-                          <th className="px-4 py-5">LATEST INTERACTION</th>
-                          <th className="px-4 py-5">ENGAGEMENT TYPE</th>
-                          <th className="px-4 py-5">TOTAL INTERACTIONS</th>
-                          <th className="px-4 py-5">NOTIFICATIONS ENABLED</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
-                        {engagementData.map((engagement, index) => (
+                    <div>
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-neutral-50 dark:bg-neutral-900/50 text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200 dark:border-neutral-700">
+                            <th className="px-4 py-5">INVESTOR NAME</th>
+                            <th className="px-4 py-5">VERIFICATION STATUS</th>
+                            <th className="px-4 py-5">LATEST INTERACTION</th>
+                            <th className="px-4 py-5">ENGAGEMENT TYPE</th>
+                            <th className="px-4 py-5">TOTAL INTERACTIONS</th>
+                            <th className="px-4 py-5">NOTIFICATIONS ENABLED</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
+                          {getPaginatedData(filterEngagementData(engagementData), 'engagement').map((engagement, index) => (
                           <tr key={index} className="group hover:bg-neutral-50 dark:hover:bg-neutral-700/80 transition-all cursor-default">
                             <td className="px-4 py-5">
                               <Tooltip content={engagement.investorName}>
                                 <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 truncate">{engagement.investorName}</p>
-                              </Tooltip>
-                            </td>
-                            <td className="px-4 py-5">
+                    </Tooltip>
+                  </td>
+                  <td className="px-4 py-5">
                               <span className={`inline-block px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${
                                 engagement.verificationStatus === 'Verified'
                                   ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
@@ -967,7 +1768,7 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                               }`}>
                                 {engagement.verificationStatus}
                               </span>
-                            </td>
+                  </td>
                             <td className="px-4 py-5">
                               <span className="text-xs text-neutral-600 dark:text-neutral-400">{engagement.latestInteraction}</span>
                             </td>
@@ -982,13 +1783,13 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                                   : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'
                               }`}>
                                 {engagement.engagementType}
-                              </span>
-                            </td>
-                            <td className="px-4 py-5">
+                      </span>
+                  </td>
+                  <td className="px-4 py-5">
                               <span className="text-sm font-black text-neutral-900 dark:text-neutral-100">
                                 {engagement.totalInteractions}
                               </span>
-                            </td>
+                  </td>
                             <td className="px-4 py-5">
                               <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${
                                 engagement.notificationsEnabled
@@ -1010,12 +1811,39 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                                     No
                                   </>
                                 )}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+                        {(() => {
+                          const filteredData = filterEngagementData(engagementData);
+                          return filteredData.length > itemsPerPage && (
+                            <div className="mt-6 flex items-center justify-between border-t border-neutral-200 dark:border-neutral-700 pt-4">
+                              <div className="text-sm text-neutral-600 dark:text-neutral-400">
+                                Showing {((currentPage.engagement - 1) * itemsPerPage) + 1} to {Math.min(currentPage.engagement * itemsPerPage, filteredData.length)} of {filteredData.length} engagement records
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handlePageChange('engagement', currentPage.engagement - 1)}
+                                  disabled={currentPage.engagement === 1}
+                                  className="px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  Previous
+                                </button>
+                                <button
+                                  onClick={() => handlePageChange('engagement', currentPage.engagement + 1)}
+                                  disabled={currentPage.engagement >= getTotalPages(filteredData.length)}
+                                  className="px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  Next
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                    </div>
                   ) : (
                     <div className="py-12 text-center">
                       <div className="w-12 h-12 bg-neutral-50 dark:bg-neutral-900 rounded-full flex items-center justify-center mx-auto mb-4 border border-dashed border-neutral-200 dark:border-neutral-700">
@@ -1029,18 +1857,17 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                 </div>
               )}
               </div>
-            </div>
           </div>
-
         </>
+
       ) : (
-        <div className="py-24 text-center">
-          <div className="w-16 h-16 bg-neutral-50 dark:bg-neutral-900 rounded-full flex items-center justify-center mx-auto mb-4 border border-dashed border-neutral-200 dark:border-neutral-700">
-            <svg className="w-6 h-6 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-          </div>
+          <div className="py-24 text-center">
+            <div className="w-16 h-16 bg-neutral-50 dark:bg-neutral-900 rounded-full flex items-center justify-center mx-auto mb-4 border border-dashed border-neutral-200 dark:border-neutral-700">
+                <svg className="w-6 h-6 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            </div>
           <p className="text-sm font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">No issuer data found.</p>
-        </div>
-      )}
+          </div>
+        )}
 
       {/* Upload Toast Notification */}
       <Toast

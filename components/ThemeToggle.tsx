@@ -1,11 +1,12 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Theme } from '../lib/types';
 
 interface ThemeToggleProps {
   theme: Theme;
   toggleTheme: () => void;
+  isDraggable?: boolean;
 }
 
 const styles = `
@@ -42,6 +43,14 @@ const styles = `
     inset 0 0 4px rgba(0,0,0,0.2),
     0 2px 4px rgba(0,0,0,0.1);
   transition: all var(--transition-duration) cubic-bezier(0, -0.02, 0.4, 1.25);
+}
+
+.theme-toggle-btn.dragging {
+  opacity: 0.8;
+  transform: scale(1.1);
+  box-shadow: 
+    inset 0 0 4px rgba(0,0,0,0.2),
+    0 4px 8px rgba(0,0,0,0.2);
 }
 
 /* Decorative layers should never intercept clicks */
@@ -196,41 +205,172 @@ const styles = `
 }
 `;
 
-export const ThemeToggle: React.FC<ThemeToggleProps> = ({ theme, toggleTheme }) => {
+export const ThemeToggle: React.FC<ThemeToggleProps> = ({ theme, toggleTheme, isDraggable = false }) => {
   const isDark = theme === Theme.DARK;
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [hasMoved, setHasMoved] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Load position from localStorage on mount
+  useEffect(() => {
+    if (!isDraggable || typeof window === 'undefined') return;
+    
+    const setDefaultPosition = () => {
+      // Default to bottom right: 24px from right, 24px from bottom
+      const defaultX = window.innerWidth - 40 - 24; // button width (40px) + margin (24px)
+      const defaultY = window.innerHeight - 40 - 24; // button height (40px) + margin (24px)
+      setPosition({ x: defaultX, y: defaultY });
+    };
+    
+    const savedPosition = localStorage.getItem('themeTogglePosition');
+    if (savedPosition) {
+      try {
+        const { x, y } = JSON.parse(savedPosition);
+        // Validate that position is still within viewport
+        if (x >= 0 && y >= 0 && x <= window.innerWidth - 40 && y <= window.innerHeight - 40) {
+          setPosition({ x, y });
+        } else {
+          setDefaultPosition();
+        }
+      } catch (e) {
+        // Default to bottom right if parsing fails
+        setDefaultPosition();
+      }
+    } else {
+      setDefaultPosition();
+    }
+  }, [isDraggable]);
+
+  // Save position to localStorage
+  useEffect(() => {
+    if (!isDraggable || typeof window === 'undefined') return;
+    if (position.x !== 0 || position.y !== 0) {
+      localStorage.setItem('themeTogglePosition', JSON.stringify(position));
+    }
+  }, [position, isDraggable]);
+
+  // Handle window resize - adjust position if it goes out of bounds
+  useEffect(() => {
+    if (!isDraggable || typeof window === 'undefined') return;
+    
+    const handleResize = () => {
+      setPosition(prev => {
+        const maxX = window.innerWidth - 40;
+        const maxY = window.innerHeight - 40;
+        return {
+          x: Math.min(prev.x, maxX),
+          y: Math.min(prev.y, maxY)
+        };
+      });
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isDraggable]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!isDraggable || !buttonRef.current) return;
+    
+    e.preventDefault();
+    setIsDragging(true);
+    setHasMoved(false);
+    const rect = buttonRef.current.getBoundingClientRect();
+    setDragOffset({
+      x: e.clientX - rect.left - rect.width / 2,
+      y: e.clientY - rect.top - rect.height / 2
+    });
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDraggable) return;
+      
+      setHasMoved(true);
+      const newX = e.clientX - dragOffset.x;
+      const newY = e.clientY - dragOffset.y;
+      
+      // Constrain to viewport bounds
+      const maxX = window.innerWidth - 40;
+      const maxY = window.innerHeight - 40;
+      
+      setPosition({
+        x: Math.max(0, Math.min(newX, maxX)),
+        y: Math.max(0, Math.min(newY, maxY))
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      // Reset hasMoved after a short delay to allow click handler to check it
+      setTimeout(() => setHasMoved(false), 100);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, dragOffset, isDraggable]);
+
+  const handleClick = (e: React.MouseEvent) => {
+    // Only toggle if we didn't drag (or if not draggable)
+    if (!isDraggable || !hasMoved) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleTheme();
+    }
+  };
+
+  const containerStyle: React.CSSProperties = isDraggable ? {
+    position: 'fixed',
+    left: `${position.x}px`,
+    top: `${position.y}px`,
+    zIndex: 9999,
+    cursor: isDragging ? 'grabbing' : 'grab',
+    userSelect: 'none',
+    touchAction: 'none'
+  } : {};
 
   return (
     <>
       <style>{styles}</style>
-      <button
-        type="button"
-        className={`theme-toggle-btn ${isDark ? "dark" : ""}`}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          toggleTheme();
-        }}
-        aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
-        title={`Switch to ${isDark ? "light" : "dark"} mode`}
-      >
-        <div className="stars-container">
-          <div className="star star-1"></div>
-          <div className="star star-2"></div>
-          <div className="star star-3"></div>
-          <div className="star star-4"></div>
-          <div className="shooting-star"></div>
-        </div>
+      <div ref={containerRef} style={containerStyle}>
+        <button
+          ref={buttonRef}
+          type="button"
+          className={`theme-toggle-btn ${isDark ? "dark" : ""} ${isDragging ? 'dragging' : ''}`.trim()}
+          onClick={handleClick}
+          onMouseDown={handleMouseDown}
+          aria-label={`Switch to ${isDark ? "light" : "dark"} mode`}
+          title={`Switch to ${isDark ? "light" : "dark"} mode${isDraggable ? ' (drag to move)' : ''}`}
+          style={isDraggable ? { cursor: isDragging ? 'grabbing' : 'grab' } : undefined}
+        >
+          <div className="stars-container">
+            <div className="star star-1"></div>
+            <div className="star star-2"></div>
+            <div className="star star-3"></div>
+            <div className="star star-4"></div>
+            <div className="shooting-star"></div>
+          </div>
 
-        <div className="sun-moon">
-          <div className="spot spot-1"></div>
-          <div className="spot spot-2"></div>
-          <div className="spot spot-3"></div>
-        </div>
+          <div className="sun-moon">
+            <div className="spot spot-1"></div>
+            <div className="spot spot-2"></div>
+            <div className="spot spot-3"></div>
+          </div>
 
-        <div className="clouds-container">
-          <div className="cloud cloud-1"></div>
-        </div>
-      </button>
+          <div className="clouds-container">
+            <div className="cloud cloud-1"></div>
+          </div>
+        </button>
+      </div>
     </>
   );
 };

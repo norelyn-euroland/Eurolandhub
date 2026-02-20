@@ -181,10 +181,27 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
 
   // Shareholder match finder state
   const getRegistrationId = (): string => {
+    // Don't show registration ID for invalid/wrong holdings (RESUBMISSION_REQUIRED)
+    const internalStatus = getWorkflowStatusInternal(applicant);
+    if (internalStatus === 'RESUBMISSION_REQUIRED') {
+      // Return empty string to hide registration ID for invalid holdings
+      return '';
+    }
+    
     // Priority: shareholdingsId from step2 > registrationId > applicant.id
-    return applicant.shareholdingsVerification?.step2?.shareholdingsId || 
-           applicant.registrationId || 
-           applicant.id;
+    // Only show if holdings are valid (VERIFIED or AWAITING_IRO_REVIEW)
+    if (internalStatus === 'VERIFIED' || internalStatus === 'AWAITING_IRO_REVIEW') {
+      return applicant.shareholdingsVerification?.step2?.shareholdingsId || 
+             applicant.registrationId || 
+             applicant.id;
+    }
+    
+    // For other statuses, only show if pre-verified
+    if (applicant.isPreVerified && applicant.registrationId) {
+      return applicant.registrationId;
+    }
+    
+    return applicant.id;
   };
 
   const [registrationId, setRegistrationId] = useState('');
@@ -325,9 +342,19 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
                 ...(getCountryLabel() ? [{ label: 'Country', value: getCountryLabel(), copyable: false }] : []),
                 { 
                   label: 'Registration ID', 
-                  value: applicant.isPreVerified && applicant.registrationId 
-                    ? (applicant.registrationId.length > 6 ? applicant.registrationId.slice(-6) : applicant.registrationId)
-                    : applicant.id,
+                  value: (() => {
+                    const regId = getRegistrationId();
+                    // Don't show registration ID for invalid holdings
+                    if (!regId || regId === applicant.id) {
+                      // Only show applicant.id if it's not an invalid holdings case
+                      const internalStatus = getWorkflowStatusInternal(applicant);
+                      if (internalStatus === 'RESUBMISSION_REQUIRED') {
+                        return 'N/A'; // Hide for invalid holdings
+                      }
+                      return applicant.id;
+                    }
+                    return regId.length > 6 ? regId.slice(-6) : regId;
+                  })(),
                   copyable: false
                 },
                 { label: 'Submission date', value: applicant.submissionDate, copyable: false },
