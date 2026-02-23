@@ -1,8 +1,34 @@
 # How to Start All Services
 
-## Quick Start Guide
+## Match Vercel Deployment Locally (Production Build)
 
-To run the complete system, you need **2 services** running simultaneously:
+To see the **exact same UI** as the Vercel deployment (including the Registrations page), run the **production build** locally instead of dev mode:
+
+**Terminal 1 – API server:**
+```bash
+npm run dev:api
+```
+
+**Terminal 2 – Production build (matches Vercel):**
+```bash
+npm run preview:prod
+```
+
+Or in one command after building once:
+```bash
+npm run build
+npm run preview
+```
+
+Then open **http://localhost:3000**. This serves the same built output (`dist/`) that Vercel deploys.
+
+> **Why this matters:** `npm run dev` serves source files with hot reload and can show an older or different implementation. `npm run preview` serves the production build, which matches what Vercel deploys.
+
+---
+
+## Quick Start Guide (Development Mode)
+
+To run the complete system in **development mode**, you need **2 services** running simultaneously:
 
 ### 1. Node.js API Server (Port 3001)
 **Required for:** API endpoints and file handling
@@ -70,6 +96,10 @@ Open in browser: `http://localhost:3000`
 Should show the EurolandHUB dashboard.
 
 ## Troubleshooting
+
+### Registration page looks different on localhost vs Vercel
+**Cause:** `npm run dev` serves source files; Vercel serves the production build. They can differ.
+**Solution:** Use the production build locally: `npm run preview:prod` (with `npm run dev:api` in another terminal for API). See "Match Vercel Deployment Locally" above.
 
 ### Error: "Port 3001 already in use"
 **Solution:** Change port in `server.js`:

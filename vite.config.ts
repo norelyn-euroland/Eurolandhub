@@ -4,18 +4,24 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
+    // Proxy /api to Express (dev) or use same target for preview so local preview matches Vercel behavior
+    const apiProxy = {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
+      },
+    };
     return {
       server: {
         port: 3000,
         host: '0.0.0.0',
-        // Local dev: proxy Vercel-style /api/* calls to the Express API server (PORT 3001 by default)
-        proxy: {
-          '/api': {
-            target: 'http://localhost:3001',
-            changeOrigin: true,
-            secure: false,
-          },
-        },
+        proxy: apiProxy,
+      },
+      preview: {
+        port: 3000,
+        host: '0.0.0.0',
+        proxy: apiProxy,
       },
       plugins: [react()],
       define: {

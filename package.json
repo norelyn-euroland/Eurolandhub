@@ -8,7 +8,9 @@
     "dev:api": "tsx server.js",
     "dev:all": "concurrently \"npm run dev:api\" \"npm run dev\"",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "preview:prod": "npm run build && npm run preview",
+    "start": "npm run build && npm run preview"
   },
   "dependencies": {
     "@google/genai": "^1.38.0",

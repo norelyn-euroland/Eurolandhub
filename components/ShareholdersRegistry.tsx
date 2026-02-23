@@ -1036,26 +1036,47 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
               )}
             </div>
             {/* Profile data inline */}
-            <div className="grid grid-cols-4 gap-8 mt-6">
-              <div>
-                <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Email</p>
-                <p className="text-sm text-white">{selectedUser.email}</p>
-              </div>
-              <div>
-                <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Contact</p>
-                <p className="text-sm text-white">{selectedUser.phoneNumber || 'Not provided'}</p>
-              </div>
-              <div>
-                <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Network Origin</p>
-                <p className="text-sm text-white">{selectedUser.location || 'Global Hub'}</p>
-              </div>
-              <div>
-                <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Registry Date</p>
-                <p className="text-sm text-white">
-                  {selectedUser.submissionDate ? new Date(selectedUser.submissionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                </p>
-              </div>
-            </div>
+            {(() => {
+              const getRegistrationId = (): string => {
+                const internalStatus = getWorkflowStatusInternal(selectedUser);
+                if (internalStatus === 'RESUBMISSION_REQUIRED') return '';
+                if (internalStatus === 'VERIFIED' || internalStatus === 'AWAITING_IRO_REVIEW') {
+                  return selectedUser.shareholdingsVerification?.step2?.shareholdingsId ||
+                         selectedUser.registrationId ||
+                         selectedUser.id;
+                }
+                if (selectedUser.isPreVerified && selectedUser.registrationId) return selectedUser.registrationId;
+                return selectedUser.id;
+              };
+              const regId = getRegistrationId();
+              const displayRegId = !regId ? '—' : regId.length > 6 ? regId.slice(-6) : regId;
+              return (
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-6 md:gap-8 mt-6">
+                  <div>
+                    <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Registration ID</p>
+                    <p className="text-sm text-white">{displayRegId}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Email</p>
+                    <p className="text-sm text-white">{selectedUser.email}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Contact</p>
+                    <p className="text-sm text-white">{selectedUser.phoneNumber || 'Not provided'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Network Origin</p>
+                    <p className="text-sm text-white">{selectedUser.location || 'Global Hub'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Registry Date</p>
+                    <p className="text-sm text-white">
+                      {selectedUser.submissionDate ? new Date(selectedUser.submissionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
         

@@ -13,7 +13,6 @@ import ApplicantDetail from './components/ApplicantDetail';
 import ShareholdersRegistry from './components/ShareholdersRegistry';
 import OverviewDashboard from './components/OverviewDashboard';
 import LoginPage from './components/LoginPage';
-import InvestorProcessing from './components/InvestorProcessing';
 import EngagementPage from './components/EngagementPage';
 import DocumentsPage from './components/DocumentsPage';
 import ThemeToggle from './components/ThemeToggle';

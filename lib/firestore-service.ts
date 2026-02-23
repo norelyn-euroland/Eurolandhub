@@ -196,6 +196,28 @@ export const applicantService = {
   },
 
   /**
+   * Get applicant by registration ID (holdingId)
+   */
+  async getByRegistrationId(registrationId: string): Promise<Applicant | null> {
+    if (!registrationId || !registrationId.trim()) return null;
+    try {
+      const rid = registrationId.trim();
+      const q = query(
+        collection(db, COLLECTIONS.APPLICANTS),
+        where('registrationId', '==', rid)
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        return firestoreToApplicant(snap.docs[0] as QueryDocumentSnapshot<DocumentData>);
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting applicant by registrationId:', error);
+      return null;
+    }
+  },
+
+  /**
    * Get applicant by email address
    */
   async getByEmail(email: string): Promise<Applicant | null> {

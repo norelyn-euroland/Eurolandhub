@@ -3,8 +3,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { parseDocument } from '../lib/document-parser';
 import { extractInvestors, ExtractedInvestor } from '../lib/investor-extractor';
+import { classifyInvestors } from '../lib/investor-classifier';
 import { saveInvestors, SaveInvestorError } from '../lib/investor-service';
+import { shareholderService, applicantService } from '../lib/firestore-service';
 import Toast from './Toast';
+import InfoTooltip from './InfoTooltip';
+import {
+  isValidRegistrationId,
+  hasInvalidEmail,
+  hasInvalidPhone,
+  getPhoneDisplayPrefix,
+  formatPhoneForDisplay,
+} from '../lib/investor-validation';
 
 interface InvestorFormData {
   id: string;
@@ -18,9 +28,14 @@ interface InvestorFormData {
   accountType: string;
   holdings: string;
   stake: string;
+  classification?: 'new' | 'existing' | 'suspected';
+  existingId?: string;
+  suspectedReason?: string;
+  suspectedSimilarTo?: string;
+  suspectedExistingId?: string;
 }
 
-type Step = 'SELECTION' | 'UPLOAD' | 'PROCESSING' | 'REVIEW' | 'SEND_INVITATION' | 'CONFIRMATION';
+type Step = 'SELECTION' | 'UPLOAD' | 'PROCESSING' | 'VALIDATION_CLASSIFICATION' | 'REVIEW' | 'SEND_INVITATION' | 'CONFIRMATION';
 type UploadType = 'batch' | 'individual' | null;
 
 interface AddInvestorModalProps {
@@ -29,6 +44,118 @@ interface AddInvestorModalProps {
   onSave: (data: Omit<InvestorFormData, 'id'>) => void;
   sidebarCollapsed?: boolean;
 }
+
+/** Expandable row fields for Review & Confirm — strict validation for Registration ID, Email, Phone */
+const ReviewRowFields: React.FC<{
+  form: InvestorFormData;
+  onFieldChange: (id: string, field: keyof InvestorFormData, value: string) => void;
+  onHoldingIdChange: (id: string, value: string) => void;
+}> = ({ form, onFieldChange, onHoldingIdChange }) => {
+  const regIdValid = isValidRegistrationId(form.holdingId);
+  const regIdTouched = (form.holdingId || '').length > 0;
+  const regIdInvalid = regIdTouched && !regIdValid;
+  const emailInvalid = hasInvalidEmail(form.email);
+  const emailTouched = (form.email || '').trim().length > 0;
+  const emailInvalidShow = emailTouched && emailInvalid;
+  const phoneInvalid = hasInvalidPhone(form.phone);
+  const phoneTouched = (form.phone || '').trim().length > 0;
+  const phoneInvalidShow = phoneTouched && phoneInvalid;
+  const phonePrefix = getPhoneDisplayPrefix(form.country);
+
+  return (
+  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+    <div>
+      <label className="block text-xs font-bold text-neutral-600 dark:text-neutral-400 mb-1">Name</label>
+      <input type="text" value={form.investorName} onChange={(e) => onFieldChange(form.id, 'investorName', e.target.value)} className="w-full px-3 py-2 border rounded bg-white dark:bg-neutral-900" />
+    </div>
+    <div className={regIdInvalid ? 'rounded-lg p-2 -m-2 bg-red-50 dark:bg-red-900/20 border-2 border-red-400 dark:border-red-500' : ''}>
+      <label className="block text-xs font-bold text-neutral-600 dark:text-neutral-400 mb-1">Registration ID <span className="text-neutral-400">(6 digits only)</span></label>
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        maxLength={6}
+        value={form.holdingId}
+        onChange={(e) => onHoldingIdChange(form.id, e.target.value)}
+        placeholder="e.g. 130965"
+        className={`w-full px-3 py-2 border rounded bg-white dark:bg-neutral-900 ${regIdInvalid ? 'border-red-500 ring-red-500' : ''}`}
+      />
+      {regIdInvalid && (
+        <p className="text-[10px] text-red-600 dark:text-red-400 mt-0.5">Exactly 6 digits required (last 6 of registration)</p>
+      )}
+    </div>
+    <div className={emailInvalidShow ? 'rounded-lg p-2 -m-2 bg-red-50 dark:bg-red-900/20 border-2 border-red-400 dark:border-red-500' : ''}>
+      <label className="block text-xs font-bold text-neutral-600 dark:text-neutral-400 mb-1">Email</label>
+      <input
+        type="email"
+        value={form.email}
+        onChange={(e) => onFieldChange(form.id, 'email', e.target.value)}
+        placeholder="name@example.com"
+        maxLength={254}
+        className={`w-full px-3 py-2 border rounded bg-white dark:bg-neutral-900 ${emailInvalidShow ? 'border-red-500 ring-red-500' : ''}`}
+      />
+      {emailInvalidShow && (
+        <p className="text-[10px] text-red-600 dark:text-red-400 mt-0.5">Enter a valid email with @ and domain</p>
+      )}
+    </div>
+    <div className={phoneInvalidShow ? 'rounded-lg p-2 -m-2 bg-red-50 dark:bg-red-900/20 border-2 border-red-400 dark:border-red-500' : ''}>
+      <label className="block text-xs font-bold text-neutral-600 dark:text-neutral-400 mb-1">Phone</label>
+      <div className={`flex overflow-hidden rounded border bg-white dark:bg-neutral-900 ${phoneInvalidShow ? 'border-red-500' : ''}`}>
+        {phonePrefix ? (
+          <span className="px-2 py-2 bg-neutral-100 dark:bg-neutral-800 text-xs font-medium text-neutral-600 dark:text-neutral-400 flex items-center shrink-0">
+            {phonePrefix}
+          </span>
+        ) : (
+          <span className="px-2 py-2 bg-neutral-100 dark:bg-neutral-800 text-xs text-neutral-400 flex items-center shrink-0">+?</span>
+        )}
+        <input
+          type="tel"
+          inputMode="tel"
+          value={form.phone}
+          onChange={(e) => onFieldChange(form.id, 'phone', e.target.value)}
+          placeholder="912 345 6789"
+          className="flex-1 min-w-0 px-3 py-2 bg-transparent border-0 focus:ring-0 focus:outline-none"
+        />
+      </div>
+      {phoneInvalidShow && (
+        <p className="text-[10px] text-red-600 dark:text-red-400 mt-0.5">Phone should contain only numbers, + or spaces</p>
+      )}
+    </div>
+    <div>
+      <label className="block text-xs font-bold text-neutral-600 dark:text-neutral-400 mb-1">Country</label>
+      <input type="text" value={form.country} onChange={(e) => onFieldChange(form.id, 'country', e.target.value)} className="w-full px-3 py-2 border rounded bg-white dark:bg-neutral-900" />
+    </div>
+    <div className="col-span-2">
+      <label className="block text-xs font-bold text-neutral-600 dark:text-neutral-400 mb-1">Address</label>
+      <input type="text" value={form.coAddress} onChange={(e) => onFieldChange(form.id, 'coAddress', e.target.value)} className="w-full px-3 py-2 border rounded bg-white dark:bg-neutral-900" />
+    </div>
+    <div>
+      <label className="block text-xs font-bold text-neutral-600 dark:text-neutral-400 mb-1">Holdings</label>
+      <input type="text" inputMode="numeric" value={form.holdings} onChange={(e) => onFieldChange(form.id, 'holdings', e.target.value)} className="w-full px-3 py-2 border rounded bg-white dark:bg-neutral-900" />
+    </div>
+    <div>
+      <label className="block text-xs font-bold text-neutral-600 dark:text-neutral-400 mb-1">Stake %</label>
+      <input type="text" inputMode="numeric" value={form.stake} onChange={(e) => onFieldChange(form.id, 'stake', e.target.value)} className="w-full px-3 py-2 border rounded bg-white dark:bg-neutral-900" />
+    </div>
+    <div>
+      <label className="block text-xs font-bold text-neutral-600 dark:text-neutral-400 mb-1">Ownership %</label>
+      <input type="text" value={form.ownershipPercent} onChange={(e) => onFieldChange(form.id, 'ownershipPercent', e.target.value)} className="w-full px-3 py-2 border rounded bg-white dark:bg-neutral-900" />
+    </div>
+    <div>
+      <label className="block text-xs font-bold text-neutral-600 dark:text-neutral-400 mb-1">Account Type</label>
+      <select value={form.accountType} onChange={(e) => onFieldChange(form.id, 'accountType', e.target.value)} className="w-full px-3 py-2 border rounded bg-white dark:bg-neutral-900">
+        <option value="">Select</option>
+        <option value="INDIVIDUAL">Individual</option>
+        <option value="JOINT">Joint</option>
+        <option value="TRUST">Trust</option>
+        <option value="CORPORATE">Corporate</option>
+        <option value="ORDINARY">Ordinary</option>
+        <option value="NOMINEE">Nominee</option>
+      </select>
+    </div>
+  </div>
+  );
+};
 
 const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, onSave, sidebarCollapsed = false }) => {
   const [currentStep, setCurrentStep] = useState<Step>('SELECTION');
@@ -55,7 +182,8 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
   const [extractedInvestors, setExtractedInvestors] = useState<ExtractedInvestor[]>([]);
   const [currentInvestorIndex, setCurrentInvestorIndex] = useState<number>(0);
   const [extractionError, setExtractionError] = useState<string>('');
-  const [investorsAdded, setInvestorsAdded] = useState<boolean>(false); // Track if "Add All" has been clicked
+  const [investorsAdded, setInvestorsAdded] = useState<boolean>(false); // Track if "Add All" has been clicked (batch) or forms populated (individual)
+  const [classificationResult, setClassificationResult] = useState<{ newCount: number; existingCount: number; suspectedCount: number }>({ newCount: 0, existingCount: 0, suspectedCount: 0 });
   const [registrationIdErrors, setRegistrationIdErrors] = useState<Map<string, { hasInvalidChars: boolean; isIncomplete: boolean }>>(new Map()); // Track registration ID validation errors per form
   const [isSaving, setIsSaving] = useState(false);
   const [saveErrors, setSaveErrors] = useState<SaveInvestorError[]>([]);
@@ -77,7 +205,16 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
   const [toastVariant, setToastVariant] = useState<'success' | 'warning' | 'error' | 'info'>('success');
   const toastHideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [recipientPage, setRecipientPage] = useState(0); // Track which page of recipients we're viewing
+  const [emailRecipientTab, setEmailRecipientTab] = useState<'with-email' | 'no-email' | 'existing'>('with-email');
+  const [isFinalExecuting, setIsFinalExecuting] = useState(false);
+  const [finalExecutionStatus, setFinalExecutionStatus] = useState<string>('');
+  const [isVerifyingSuspected, setIsVerifyingSuspected] = useState(false);
+  const [expandedReviewRowId, setExpandedReviewRowId] = useState<string | null>(null);
+  const [showPotentialMatchesConfirm, setShowPotentialMatchesConfirm] = useState(false);
+  const [showEmailReminderModal, setShowEmailReminderModal] = useState(false);
   const [isNavigatingToReview, setIsNavigatingToReview] = useState(false); // Track if navigating to REVIEW with loading
+
+  const DRAFT_KEY = 'addInvestorModal_draft';
   const [navigationProgress, setNavigationProgress] = useState(0); // Progress for navigation loading
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messageBodyRef = useRef<HTMLDivElement>(null);
@@ -130,6 +267,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       setCurrentInvestorIndex(0);
       setExtractionError('');
       setInvestorsAdded(false); // Reset investors added flag
+      setClassificationResult({ newCount: 0, existingCount: 0, suspectedCount: 0 });
       setRegistrationIdErrors(new Map()); // Clear registration ID errors
       setSelectedInvestorsForEmail(new Set());
       setIsSelectionMode(false);
@@ -151,11 +289,33 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
         toastHideTimeoutRef.current = null;
       }
       setRecipientPage(0); // Reset recipient page
+      setEmailRecipientTab('with-email'); // Reset email recipient tab
+      setIsFinalExecuting(false);
+      setFinalExecutionStatus('');
+      setIsVerifyingSuspected(false);
+      setShowPotentialMatchesConfirm(false);
+      setShowEmailReminderModal(false);
+      setExpandedReviewRowId(null);
       setIsNavigatingToReview(false); // Reset navigation loading state
       setNavigationProgress(0); // Reset navigation progress
     }
   }, [isOpen]);
 
+  // Auto-populate suspectedExistingId from similarTo when missing (avoids "No match ID available")
+  useEffect(() => {
+    if (!isOpen || investorForms.length === 0) return;
+    const needsUpdate = investorForms.some(
+      f => f.classification === 'suspected' && !f.suspectedExistingId && f.suspectedSimilarTo
+    );
+    if (!needsUpdate) return;
+    const match = /\(ID:\s*([^)]+)\)/;
+    setInvestorForms(prev => prev.map(f => {
+      if (f.classification !== 'suspected' || f.suspectedExistingId) return f;
+      const m = (f.suspectedSimilarTo || '').match(match);
+      if (m) return { ...f, suspectedExistingId: m[1].trim() };
+      return f;
+    }));
+  }, [isOpen, investorForms]);
 
   // Check if current step is a processing step
   const isProcessingStep = isProcessing;
@@ -188,10 +348,11 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
   const handleSelectUploadType = (type: 'batch' | 'individual') => {
     setUploadType(type);
     if (type === 'individual') {
-      // For individual, create a single empty form and go straight to REVIEW
-      const newForm = createNewInvestorForm();
+      // For individual, create a single empty form (default classification: new) and go straight to REVIEW
+      const newForm: InvestorFormData = { ...createNewInvestorForm(), classification: 'new' };
       setInvestorForms([newForm]);
       setExpandedForms(new Set([newForm.id]));
+      setClassificationResult({ newCount: 1, existingCount: 0, suspectedCount: 0 });
       setCurrentStep('REVIEW');
     } else {
       // For batch, go to UPLOAD step
@@ -223,15 +384,19 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       return;
     }
     
-    // When going back to PROCESSING, show the success state if processing was already completed
+    // When going back from REVIEW (batch), go to VALIDATION_CLASSIFICATION
     if (currentStep === 'REVIEW' && uploadType === 'batch') {
-      // Going back to PROCESSING - show success state if already processed
+      setCurrentStep('VALIDATION_CLASSIFICATION');
+      return;
+    }
+    // When going back from VALIDATION_CLASSIFICATION, go to PROCESSING
+    if (currentStep === 'VALIDATION_CLASSIFICATION' && uploadType === 'batch') {
       setCurrentStep('PROCESSING');
       return;
     }
     
     const stepOrder: Step[] = uploadType === 'batch' 
-      ? ['SELECTION', 'UPLOAD', 'PROCESSING', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION']
+      ? ['SELECTION', 'UPLOAD', 'PROCESSING', 'VALIDATION_CLASSIFICATION', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION']
       : ['SELECTION', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION'];
     const currentIndex = stepOrder.indexOf(currentStep);
     if (currentIndex > 0) {
@@ -248,44 +413,23 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     }
     
     const stepOrder: Step[] = uploadType === 'batch'
-      ? ['SELECTION', 'UPLOAD', 'PROCESSING', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION']
+      ? ['SELECTION', 'UPLOAD', 'PROCESSING', 'VALIDATION_CLASSIFICATION', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION']
       : ['SELECTION', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION'];
     const currentIndex = stepOrder.indexOf(currentStep);
     if (currentIndex < stepOrder.length - 1) {
-      // If on UPLOAD and file is uploaded, allow manual navigation
+      // If on UPLOAD and file is uploaded, allow manual navigation to PROCESSING
       if (currentStep === 'UPLOAD' && uploadedFile) {
-        // Allow manual navigation to PROCESSING for preview
         setCurrentStep('PROCESSING');
         return;
       }
-      // If on PROCESSING and processing is complete, move to REVIEW with loading state
-      // Note: Investors are now automatically added, so we can move to REVIEW
-      if (currentStep === 'PROCESSING' && parseSuccess && extractedInvestors.length > 0 && investorsAdded) {
-        // Show loading state with progress line
-        setIsNavigatingToReview(true);
-        setNavigationProgress(0);
-        
-        // Animate progress bar
-        const progressInterval = setInterval(() => {
-          setNavigationProgress(prev => {
-            if (prev >= 100) {
-              clearInterval(progressInterval);
-              return 100;
-            }
-            return prev + 10;
-          });
-        }, 50);
-        
-        // Wait for progress animation, then navigate
-        setTimeout(() => {
-          clearInterval(progressInterval);
-          setNavigationProgress(100);
-          setTimeout(() => {
-            setIsNavigatingToReview(false);
-            setNavigationProgress(0);
-            setCurrentStep('REVIEW');
-          }, 200);
-        }, 500);
+      // PROCESSING auto-navigates to VALIDATION_CLASSIFICATION on completion (no manual Next)
+      // VALIDATION_CLASSIFICATION -> REVIEW (batch only) — show confirm if potential matches
+      if (currentStep === 'VALIDATION_CLASSIFICATION' && uploadType === 'batch') {
+        if (classificationResult.suspectedCount > 0) {
+          setShowPotentialMatchesConfirm(true);
+          return;
+        }
+        setCurrentStep('REVIEW');
         return;
       }
       if (currentStep === 'REVIEW') {
@@ -312,14 +456,9 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
           return;
         }
 
-        // Validate that all investor forms have a 6-digit registration ID
-        const formsWithInvalidIds = investorForms.filter(form => {
-          const holdingId = (form.holdingId || '').trim();
-          return holdingId.length !== 6 || !/^\d{6}$/.test(holdingId);
-        });
-        
+        // Validate Registration ID: exactly 6 digits only
+        const formsWithInvalidIds = investorForms.filter(form => !isValidRegistrationId(form.holdingId || ''));
         if (formsWithInvalidIds.length > 0) {
-          // Mark forms with incomplete IDs for red border display
           formsWithInvalidIds.forEach(form => {
             setRegistrationIdErrors(prev => {
               const newMap = new Map(prev);
@@ -331,35 +470,73 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
               return newMap;
             });
           });
-          
-          // Show toast notification
-          triggerToast(
-            'Please double-check and fill up the registration/investor ID field. Registration ID must be exactly 6 digits.',
-            'warning'
-          );
-          return; // Prevent navigation
+          triggerToast('Registration ID must be exactly 6 digits (last 6 of registration). Please correct and try again.', 'warning');
+          return;
+        }
+
+        // Validate Email: if provided, must be valid format (contains @ and domain)
+        const formsWithInvalidEmail = investorForms.filter(form => hasInvalidEmail(form.email || ''));
+        if (formsWithInvalidEmail.length > 0) {
+          triggerToast(`${formsWithInvalidEmail.length} investor(s) have invalid email. Enter a valid email with @ and domain.`, 'warning');
+          return;
         }
         
+        // For individual flow, run classification before proceeding
+        if (uploadType === 'individual' && investorForms.length === 1) {
+          const form = investorForms[0];
+          const holdingId = (form.holdingId || '').trim();
+          if (holdingId) {
+            const extracted: ExtractedInvestor = {
+              investorName: form.investorName || '',
+              holdingId,
+              email: form.email || '',
+              phone: form.phone || '',
+              ownershipPercent: form.ownershipPercent || '',
+              country: form.country || '',
+              coAddress: form.coAddress || '',
+              accountType: form.accountType || '',
+              holdings: form.holdings || '',
+              stake: form.stake || '',
+            };
+            const classified = await classifyInvestors([extracted]);
+            setClassificationResult({
+              newCount: classified.new.length,
+              existingCount: classified.existing.length,
+              suspectedCount: classified.suspected.length,
+            });
+            const newClass = classified.existing.length > 0 ? 'existing' : classified.suspected.length > 0 ? 'suspected' : 'new';
+            const sus = classified.suspected[0];
+            setInvestorForms(prev =>
+              prev.map(f =>
+                f.id === form.id
+                  ? {
+                      ...f,
+                      classification: newClass,
+                      existingId: classified.existing[0]?.existingId,
+                      suspectedReason: sus?.reason,
+                      suspectedSimilarTo: sus?.similarTo,
+                      suspectedExistingId: sus?.existingId,
+                    }
+                  : f
+              )
+            );
+          }
+        }
+
         // Move to SEND_INVITATION step
-        // Don't auto-select, let user click "Send To" to start selection
         setCurrentStep('SEND_INVITATION');
         return;
       }
       if (currentStep === 'SEND_INVITATION') {
-        // Guard: Save & Exit is always clickable.
-        // - If there are investors with emails that haven't been invited yet, show a confirmation prompt.
-        // - Investors with NO email are excluded from this check.
-        const investorsWithEmails = investorForms.filter(f => f.email && f.email.trim());
-        const remainingToInvite = investorsWithEmails.filter(f => !sentEmailsTo.has(f.id));
-
-        if (investorsWithEmails.length > 0 && remainingToInvite.length > 0) {
-          setSaveQuitPendingRemaining(remainingToInvite.length);
-          setShowSaveQuitConfirm(true);
+        const newWithEmail = investorForms.filter(
+          f => (f.classification === 'new' || f.classification === 'suspected') && f.email && f.email.trim()
+        );
+        const unsentCount = newWithEmail.filter(f => !sentEmailsTo.has(f.id)).length;
+        if (unsentCount > 0) {
+          setShowEmailReminderModal(true);
           return;
         }
-
-        // No remaining invitations (or no emails at all) — proceed with saving
-        await handleSubmit();
+        setCurrentStep('CONFIRMATION');
         return;
       }
       // Allow navigation to all steps for preview
@@ -367,7 +544,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     }
   };
 
-  // Handle exit confirmation
+  // Handle exit confirmation — X button always shows confirm modal
   const handleExitClick = () => {
     setShowExitConfirm(true);
   };
@@ -379,6 +556,26 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
   const handleCancelExit = () => {
     setShowExitConfirm(false);
+  };
+
+  const handleSaveAsDraft = () => {
+    try {
+      const draft = {
+        currentStep,
+        uploadType,
+        investorForms,
+        classificationResult,
+        parsedCSV,
+        extractedInvestors: extractedInvestors.slice(0, 500),
+        savedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      setShowExitConfirm(false);
+      triggerToast('Draft saved. You can resume later.', 'success');
+      onClose();
+    } catch (e) {
+      triggerToast('Could not save draft.', 'error');
+    }
   };
 
   // Handle template download
@@ -476,7 +673,15 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
         return;
       }
 
-      // Ensure minimum loading duration of 10 seconds
+      // Classify investors (New, Existing, Suspected) by holdingId and similarity
+      const classified = await classifyInvestors(extractionResult.investors);
+      setClassificationResult({
+        newCount: classified.new.length,
+        existingCount: classified.existing.length,
+        suspectedCount: classified.suspected.length,
+      });
+
+      // Ensure minimum loading duration so loader is visible
       const elapsed = Date.now() - startTime;
       if (elapsed < MIN_LOADING_DURATION) {
         await sleep(MIN_LOADING_DURATION - elapsed);
@@ -493,24 +698,56 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       setExtractedInvestors(extractionResult.investors);
       setCurrentInvestorIndex(0);
       setProcessingSuccessAt(Date.now());
-      
-      // Reset investorsAdded flag when processing a new file
-      setInvestorsAdded(false);
-      // Clear any existing forms
-      setInvestorForms([]);
-      setExpandedForms(new Set());
-      
+
+      // Populate forms from classified result (with classification per row)
+      const allClassified = [
+        ...classified.new.map(inv => ({ investor: inv, classification: 'new' as const, existingId: undefined, suspectedReason: undefined, suspectedSimilarTo: undefined, suspectedExistingId: undefined })),
+        ...classified.existing.map(({ investor, existingId }) => ({ investor, classification: 'existing' as const, existingId, suspectedReason: undefined, suspectedSimilarTo: undefined, suspectedExistingId: undefined })),
+        ...classified.suspected.map(({ investor, similarTo, reason, existingId: sid }) => ({ investor, classification: 'suspected' as const, existingId: undefined, suspectedReason: reason, suspectedSimilarTo: similarTo, suspectedExistingId: sid })),
+      ];
+      const newForms: InvestorFormData[] = allClassified.map(({ investor, classification, existingId, suspectedReason, suspectedSimilarTo, suspectedExistingId }) => {
+        const form = createNewInvestorForm();
+        const filteredHoldingId = (investor.holdingId || '').replace(/\D/g, '').slice(0, 6);
+        const displayHoldingId = (classification === 'existing' && existingId)
+          ? (existingId || '').replace(/\D/g, '').slice(-6)
+          : filteredHoldingId;
+        return {
+          ...form,
+          investorName: investor.investorName || '',
+          holdingId: displayHoldingId,
+          email: investor.email || '',
+          phone: investor.phone || '',
+          ownershipPercent: investor.ownershipPercent || '',
+          country: investor.country || '',
+          coAddress: investor.coAddress || '',
+          accountType: (() => {
+            const accountType = (investor.accountType || '').trim();
+            if (!accountType) return '';
+            const upperType = accountType.toUpperCase();
+            const typeMap: { [key: string]: string } = {
+              INDIVIDUAL: 'INDIVIDUAL', JOINT: 'JOINT', TRUST: 'TRUST',
+              CORPORATE: 'CORPORATE', ORDINARY: 'ORDINARY', NOMINEE: 'NOMINEE',
+            };
+            return typeMap[upperType] || accountType;
+          })(),
+          holdings: investor.holdings || '',
+          stake: investor.stake || '',
+          classification,
+          existingId,
+          suspectedReason,
+          suspectedSimilarTo,
+          suspectedExistingId,
+        };
+      });
+      setInvestorForms(newForms);
+      setExpandedForms(new Set(newForms.map(f => f.id)));
+      setInvestorsAdded(true);
+
       setIsProcessing(false);
       setParseSuccess(true);
-      setShowProcessingSuccess(true);
-      
-      // Show success message for 3 seconds
-      await sleep(3000);
-      
-      setShowProcessingSuccess(false);
-      
-      // Automatically trigger handleAddAllInvestors - NO AWAIT, runs synchronously
-      handleAddAllInvestors();
+
+      // Auto-navigate to Validation & Classification (no success preview)
+      setCurrentStep('VALIDATION_CLASSIFICATION');
       
     } catch (error: any) {
       clearInterval(loadingMessageInterval);
@@ -594,19 +831,34 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
   // Add a new investor form
   const handleAddInvestor = () => {
-    const newForm = createNewInvestorForm();
+    const newForm: InvestorFormData = { ...createNewInvestorForm(), classification: 'new' };
     setInvestorForms(prev => [...prev, newForm]);
     setExpandedForms(prev => new Set([...prev, newForm.id]));
+    setClassificationResult(prev => ({ ...prev, newCount: prev.newCount + 1 }));
   };
 
   // Remove an investor form
   const handleRemoveInvestor = (id: string) => {
+    const removed = investorForms.find(f => f.id === id);
     setInvestorForms(prev => prev.filter(form => form.id !== id));
     setExpandedForms(prev => {
       const newSet = new Set(prev);
       newSet.delete(id);
       return newSet;
     });
+    setSelectedInvestorsForEmail(prev => {
+      const s = new Set(prev);
+      s.delete(id);
+      return s;
+    });
+    if (removed?.classification) {
+      setClassificationResult(prev => ({
+        ...prev,
+        newCount: Math.max(0, prev.newCount - (removed.classification === 'new' ? 1 : 0)),
+        existingCount: Math.max(0, prev.existingCount - (removed.classification === 'existing' ? 1 : 0)),
+        suspectedCount: Math.max(0, prev.suspectedCount - (removed.classification === 'suspected' ? 1 : 0)),
+      }));
+    }
   };
 
   // Toggle form expansion
@@ -633,6 +885,115 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       }
       return newSet;
     });
+  };
+
+  // "Confirm match" — use existing record's name & ID, keep other data
+  const handleConfirmRightInvestor = async (formId: string) => {
+    const form = investorForms.find(f => f.id === formId);
+    if (!form || form.classification !== 'suspected') return;
+    let rawId = (form.suspectedExistingId || '').trim();
+    if (!rawId && form.suspectedSimilarTo) {
+      const match = form.suspectedSimilarTo.match(/\(ID:\s*([^)]+)\)/);
+      if (match) rawId = match[1].trim();
+    }
+    const normId = rawId.replace(/\D/g, '').slice(-6);
+    if (!normId) {
+      triggerToast('No match ID available. Try editing and saving manually.', 'warning');
+      return;
+    }
+    setIsVerifyingSuspected(true);
+    try {
+      let correctName = '';
+      let correctId = normId;
+      // Try shareholder by exact id, then normalized
+      let shareholder = await shareholderService.getById(rawId);
+      if (!shareholder && normId) shareholder = await shareholderService.getById(normId);
+      if (shareholder) {
+        correctName = shareholder.name || '';
+        correctId = shareholder.id;
+      } else {
+        // Try applicant by registrationId
+        let applicant = await applicantService.getByRegistrationId(rawId);
+        if (!applicant && normId) applicant = await applicantService.getByRegistrationId(normId);
+        if (applicant) {
+          correctName = applicant.fullName || '';
+          correctId = applicant.registrationId || normId;
+        }
+      }
+      if (!correctName) {
+        triggerToast('Could not load existing investor details.', 'error');
+        return;
+      }
+      setInvestorForms(prev => prev.map(f =>
+        f.id === formId
+          ? {
+              ...f,
+              investorName: correctName,
+              holdingId: correctId.replace(/\D/g, '').slice(-6),
+              classification: 'existing' as const,
+              existingId: correctId,
+              suspectedReason: undefined,
+              suspectedSimilarTo: undefined,
+              suspectedExistingId: undefined,
+            }
+          : f
+      ));
+      setClassificationResult(prev => ({
+        ...prev,
+        existingCount: prev.existingCount + 1,
+        suspectedCount: prev.suspectedCount - 1,
+      }));
+      setExpandedReviewRowId(null);
+      triggerToast('Updated name and Registration ID. Other data will be used for the update.', 'success');
+    } catch (e: any) {
+      triggerToast(`Failed: ${e?.message || 'Unknown error'}`, 'error');
+    } finally {
+      setIsVerifyingSuspected(false);
+    }
+  };
+
+  // Verify suspected investor: re-run classification and move to New or Existing
+  const handleVerifySuspected = async (formId: string) => {
+    const form = investorForms.find(f => f.id === formId);
+    if (!form || form.classification !== 'suspected') return;
+    const holdingId = (form.holdingId || '').trim();
+    if (holdingId.length !== 6 || !/^\d{6}$/.test(holdingId)) {
+      triggerToast('Registration ID must be exactly 6 digits before verifying.', 'warning');
+      return;
+    }
+    setIsVerifyingSuspected(true);
+    try {
+      const extracted: ExtractedInvestor = {
+        investorName: form.investorName || '',
+        holdingId,
+        email: form.email || '',
+        phone: form.phone || '',
+        ownershipPercent: form.ownershipPercent || '',
+        country: form.country || '',
+        coAddress: form.coAddress || '',
+        accountType: form.accountType || '',
+        holdings: form.holdings || '',
+        stake: form.stake || '',
+      };
+      const classified = await classifyInvestors([extracted]);
+      const newClass = classified.existing.length > 0 ? 'existing' : 'new';
+      const existingId = classified.existing[0]?.existingId;
+      setInvestorForms(prev => prev.map(f =>
+        f.id === formId
+          ? { ...f, classification: newClass, existingId, suspectedReason: undefined, suspectedSimilarTo: undefined }
+          : f
+      ));
+      setClassificationResult(prev => ({
+        newCount: prev.newCount + (newClass === 'new' ? 1 : 0),
+        existingCount: prev.existingCount + (newClass === 'existing' ? 1 : 0),
+        suspectedCount: prev.suspectedCount - 1,
+      }));
+      triggerToast(newClass === 'existing' ? 'Confirmed as existing investor.' : 'Confirmed as new investor.', 'success');
+    } catch (e: any) {
+      triggerToast(`Verification failed: ${e?.message || 'Unknown error'}`, 'error');
+    } finally {
+      setIsVerifyingSuspected(false);
+    }
   };
 
   // Fill form with investor data (with progressive animation)
@@ -856,17 +1217,20 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     setSelectedInvestorsForEmail(new Set());
   };
 
-  // Handle select all recipients
+  // Handle select all recipients (With Email tab - selection only, no send)
   const handleSelectAll = () => {
-    const investorsWithEmails = investorForms.filter(f => f.email && f.email.trim() && !sentEmailsTo.has(f.id));
-    setSelectedInvestorsForEmail(new Set(investorsWithEmails.map(f => f.id)));
+    const newInvestorsWithEmail = investorForms.filter(
+      f => (f.classification === 'new' || f.classification === 'suspected') && f.email && f.email.trim()
+    );
+    setSelectedInvestorsForEmail(new Set(newInvestorsWithEmail.map(f => f.id)));
   };
 
-  // Handle sending invitations to selected investors
+  // Handle sending invitations to selected NEW investors (real-time, no delay)
   const handleSendInvitations = async () => {
-    const investorsToSend = investorForms.filter(f => 
-      f.email && f.email.trim() && 
-      !sentEmailsTo.has(f.id) && 
+    const investorsToSend = investorForms.filter(f =>
+      (f.classification === 'new' || f.classification === 'suspected') &&
+      f.email && f.email.trim() &&
+      !sentEmailsTo.has(f.id) &&
       selectedInvestorsForEmail.has(f.id)
     );
 
@@ -1016,25 +1380,116 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     }
   };
 
+  // Final execution: add, update, send — triggered only from Summary "Confirm & Process"
+  const handleConfirmAndProcess = async () => {
+    const invalidForms = investorForms.filter(form => !form.investorName || !form.holdingId);
+    if (invalidForms.length > 0) {
+      triggerToast(`Please fill in Investor Name and Registration ID for all investors. ${invalidForms.length} form(s) incomplete.`, 'warning');
+      return;
+    }
+    const invalidRegId = investorForms.filter(f => !isValidRegistrationId(f.holdingId || ''));
+    if (invalidRegId.length > 0) {
+      triggerToast('Registration ID must be exactly 6 digits for all investors. Please correct and try again.', 'warning');
+      return;
+    }
+    const invalidEmailForms = investorForms.filter(f => hasInvalidEmail(f.email || ''));
+    if (invalidEmailForms.length > 0) {
+      triggerToast(`${invalidEmailForms.length} investor(s) have invalid email. Enter a valid email with @ and domain.`, 'warning');
+      return;
+    }
+    if (investorForms.length === 0) {
+      triggerToast('Please add at least one investor.', 'warning');
+      return;
+    }
+
+    setIsFinalExecuting(true);
+    setSaveErrors([]);
+    let totalSaved = 0;
+    const allErrors: SaveInvestorError[] = [];
+
+    const toExtracted = (f: InvestorFormData): ExtractedInvestor => ({
+      investorName: f.investorName,
+      holdingId: f.holdingId,
+      email: f.email || '',
+      phone: f.phone || '',
+      ownershipPercent: f.ownershipPercent || '',
+      country: f.country || '',
+      coAddress: f.coAddress || '',
+      accountType: f.accountType || '',
+      holdings: f.holdings || '',
+      stake: f.stake || '',
+    });
+
+    try {
+      setFinalExecutionStatus('Adding new investors...');
+      // Include 'suspected' as new — unverified suspected investors are added as new
+      const newInvestors = investorForms.filter(f => f.classification === 'new' || f.classification === 'suspected').map(toExtracted);
+      if (newInvestors.length > 0) {
+        const addResult = await saveInvestors(newInvestors);
+        totalSaved += addResult.success.length;
+        allErrors.push(...addResult.errors);
+      }
+
+      setFinalExecutionStatus('Updating existing investors...');
+      const existingInvestors = investorForms.filter(f => f.classification === 'existing').map(toExtracted);
+      if (existingInvestors.length > 0) {
+        const updateResult = await saveInvestors(existingInvestors);
+        totalSaved += updateResult.success.length;
+        allErrors.push(...updateResult.errors);
+      }
+
+      // Emails are sent in real time during Email Generation step — no batch send here
+      setSaveSuccessCount(totalSaved);
+      setSaveErrors(allErrors);
+      setFinalExecutionStatus('Complete');
+
+      if (onSave && totalSaved > 0) {
+        const allToSave = investorForms.map(toExtracted);
+        allToSave.slice(0, totalSaved).forEach(inv => {
+          onSave({
+            investorName: inv.investorName,
+            holdingId: inv.holdingId,
+            email: inv.email,
+            phone: inv.phone,
+            ownershipPercent: inv.ownershipPercent,
+            country: inv.country,
+            coAddress: inv.coAddress,
+            accountType: inv.accountType,
+            holdings: inv.holdings,
+            stake: inv.stake,
+          });
+        });
+      }
+      triggerToast('All operations completed successfully.', 'success');
+      await sleep(500);
+      onClose();
+    } catch (error: any) {
+      console.error('Final execution error:', error);
+      triggerToast(`Error: ${error?.message || 'Unknown error'}`, 'error');
+    } finally {
+      setIsFinalExecuting(false);
+      setFinalExecutionStatus('');
+    }
+  };
+
   // Steps configuration - dynamic based on upload type
-  // Show full batch process by default so users can see the whole workflow
   const getSteps = (): { id: Step; label: string }[] => {
     if (uploadType === 'individual') {
       return [
-        { id: 'SELECTION', label: 'SELECTION' },
-        { id: 'REVIEW', label: 'REVIEW' },
-        { id: 'SEND_INVITATION', label: 'SEND INVITATION' },
-        { id: 'CONFIRMATION', label: 'CONFIRMATION' },
+        { id: 'SELECTION', label: 'Selection' },
+        { id: 'REVIEW', label: 'Review & Confirm' },
+        { id: 'SEND_INVITATION', label: 'Email Generation' },
+        { id: 'CONFIRMATION', label: 'Summary' },
       ];
     } else {
-      // Show full batch process (default) so users can see all steps
       return [
-        { id: 'SELECTION', label: 'SELECTION' },
-        { id: 'UPLOAD', label: 'UPLOAD' },
-        { id: 'PROCESSING', label: 'PROCESSING' },
-        { id: 'REVIEW', label: 'REVIEW' },
-        { id: 'SEND_INVITATION', label: 'SEND INVITATION' },
-        { id: 'CONFIRMATION', label: 'CONFIRMATION' },
+        { id: 'SELECTION', label: 'Selection' },
+        { id: 'UPLOAD', label: 'Upload' },
+        { id: 'PROCESSING', label: 'Processing' },
+        { id: 'VALIDATION_CLASSIFICATION', label: 'Validation & Classification' },
+        { id: 'REVIEW', label: 'Review & Confirm' },
+        { id: 'SEND_INVITATION', label: 'Email Generation' },
+        { id: 'CONFIRMATION', label: 'Summary' },
       ];
     }
   };
@@ -1279,27 +1734,20 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       
       {/* Modal container - only show when privacy notice is accepted */}
       {privacyNoticeAccepted && (
-        <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col z-50">
+        <div className="relative bg-white dark:bg-neutral-900 rounded-xl shadow-2xl w-full max-w-6xl h-[85vh] mx-4 overflow-hidden flex flex-col z-50">
           {/* Header */}
           <div className="px-8 py-6 flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700">
-            <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100">Investor details</h2>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={onClose}
-              className="text-sm font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300"
-            >
-              Save as draft
-            </button>
+            <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100">Add/Update Investors</h2>
             <button
               onClick={handleExitClick}
-              className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded-full transition-colors"
+              className="p-2 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors"
+              aria-label="Close modal"
             >
-              <svg className="w-5 h-5 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
-        </div>
 
         {/* Progress Indicator */}
         <div className="px-8 py-6">
@@ -1538,25 +1986,6 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                     ></div>
                   </div>
                 </div>
-              ) : (parseSuccess && extractedInvestors.length > 0) || (showProcessingSuccess && parseSuccess && extractedInvestors.length > 0) ? (
-                <div className="flex flex-col items-center justify-center w-full py-12">
-                  <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-                    <svg className="w-6 h-6 text-green-700 dark:text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-                  <p className="text-sm font-black text-green-700 dark:text-green-400">
-                    CSV processed successfully!
-                  </p>
-                  <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-2">
-                    Found {extractedInvestors.length} investor{extractedInvestors.length !== 1 ? 's' : ''} in the file
-                  </p>
-                  {uploadedFile && (
-                    <p className="text-xs text-neutral-500 dark:text-neutral-500 mt-1">
-                      File: {uploadedFile.name}
-                    </p>
-                  )}
-                </div>
               ) : parseError ? (
                 <div className="flex flex-col items-center justify-center py-12">
                   <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
@@ -1595,450 +2024,381 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
             </div>
           )}
 
+          {currentStep === 'VALIDATION_CLASSIFICATION' && (
+            <div className="w-full min-h-[560px] flex items-center justify-center">
+              <div className="flex flex-col items-center justify-center w-full py-12 max-w-2xl mx-auto">
+                <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
+                  <svg className="w-6 h-6 text-green-700 dark:text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <p className="text-sm font-black text-green-700 dark:text-green-400 mb-6">Verification Complete!</p>
+                {classificationResult.suspectedCount > 0 && (
+                  <div className="w-full mb-4 p-4 rounded-lg bg-amber-100 dark:bg-amber-900/30 border-2 border-amber-400 dark:border-amber-600 flex items-start gap-3">
+                    <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div>
+                      <p className="text-sm font-bold text-amber-800 dark:text-amber-200">Attention needed before proceeding</p>
+                      <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                        You have {classificationResult.suspectedCount} potential match(es) that need verification in the Review step. Please confirm each one before continuing.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-4 w-full">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                    <div className="text-2xl font-black text-blue-700 dark:text-blue-400 mb-1">{classificationResult.newCount}</div>
+                    <div className="text-xs font-medium text-blue-600 dark:text-blue-400">New Investors to be Added</div>
+                  </div>
+                  <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                    <div className="text-2xl font-black text-amber-700 dark:text-amber-400 mb-1">{classificationResult.existingCount}</div>
+                    <div className="text-xs font-medium text-amber-600 dark:text-amber-400">Existing Investors to be Updated</div>
+                  </div>
+                  <div className={`rounded-lg p-4 border-2 ${classificationResult.suspectedCount > 0 ? 'bg-amber-100 dark:bg-amber-900/30 border-amber-400 dark:border-amber-600' : 'bg-neutral-100 dark:bg-neutral-800/50 border-neutral-200 dark:border-neutral-700'}`}>
+                    <div className="flex items-center gap-2">
+                      <div className="text-2xl font-black text-amber-700 dark:text-amber-400">{classificationResult.suspectedCount}</div>
+                      <InfoTooltip
+                        content="These investors may already exist in the system (similar name or Registration ID). Please verify each one in the Review step to avoid duplicates."
+                        className="inline-flex"
+                      >
+                        <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-neutral-400 dark:bg-neutral-600 text-neutral-100 cursor-help text-[10px] font-bold hover:bg-neutral-500 dark:hover:bg-neutral-500">
+                          ?
+                        </span>
+                      </InfoTooltip>
+                    </div>
+                    <div className="text-xs font-medium text-amber-600 dark:text-amber-400 mt-1">Potential Matches (verify in Review)</div>
+                    {classificationResult.suspectedCount > 0 && (
+                      <p className="text-[10px] text-amber-600 dark:text-amber-300 mt-1">Requires attention</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {currentStep === 'REVIEW' && (
-            <div className="space-y-6">
-              {/* Extraction Error */}
+            <div className="space-y-6 relative">
+              {/* Verifying overlay - blocks entire content */}
+              {isVerifyingSuspected && (
+                <div className="absolute inset-0 bg-white/90 dark:bg-neutral-900/90 z-50 flex flex-col items-center justify-center rounded-xl">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
+                  <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Verifying...</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Please wait. Do not touch anything.</p>
+                </div>
+              )}
+
               {extractionError && (
                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
                   <p className="text-sm font-medium text-red-900 dark:text-red-300">{extractionError}</p>
                 </div>
               )}
-              
-              {/* Batch flow: "Found X" + "Add All" now happens in PROCESSING step */}
 
-              {/* Investor Forms List */}
-              <div className="space-y-4">
-                {/* Summary when forms exist but are collapsed */}
-                {investorForms.length > 0 && expandedForms.size === 0 && (
-                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-bold text-blue-900 dark:text-blue-300">
-                          {investorForms.length} investor{investorForms.length !== 1 ? 's' : ''} ready for review
-                        </p>
-                        <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">
-                          Click on any investor card below to expand and review details
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => {
-                          // Expand all forms
-                          setExpandedForms(new Set(investorForms.map(f => f.id)));
-                        }}
-                        className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        Expand All
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Header with Add Investor Button - allow manual adding in both batch + individual */}
-                {(uploadType === 'batch' || uploadType === 'individual') && (
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-neutral-600 dark:text-neutral-400">
-                      {investorForms.length > 0 && (
-                        <span className="font-medium">
-                          {investorForms.length} investor{investorForms.length !== 1 ? 's' : ''} added
-                        </span>
-                      )}
-                    </div>
-                    <div className="relative group">
-                      <button
-                        onClick={handleAddInvestor}
-                        className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
-                      >
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                      </button>
-                      {/* Tooltip */}
-                      <div className="absolute right-0 top-full mt-2 px-3 py-2 bg-neutral-900 dark:bg-neutral-700 text-white text-xs font-medium rounded-lg shadow-xl whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
-                        Add investor
-                        <div className="absolute bottom-full right-4">
-                          <div className="border-4 border-transparent border-b-neutral-900 dark:border-b-neutral-700"></div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Empty state */}
-                {investorForms.length === 0 && (
-                  <div className="text-center py-12">
-                    <svg className="w-16 h-16 mx-auto text-neutral-400 dark:text-neutral-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              {/* Validation indicator — data needs attention */}
+              {investorForms.length > 0 && (() => {
+                const invalidRegId = investorForms.filter(f => (f.holdingId || '').length > 0 && !isValidRegistrationId(f.holdingId || ''));
+                const invalidEmail = investorForms.filter(f => hasInvalidEmail(f.email || ''));
+                if (invalidRegId.length === 0 && invalidEmail.length === 0) return null;
+                return (
+                  <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-400 dark:border-amber-600 flex items-start gap-3">
+                    <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
-                    <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400 mb-2">
-                      No investors added yet
-                    </p>
-                    <p className="text-xs text-neutral-500 dark:text-neutral-500">
-                      Click the + button above to add an investor manually
-                    </p>
+                    <div>
+                      <p className="text-sm font-bold text-amber-800 dark:text-amber-200">Please correct the following before proceeding:</p>
+                      <ul className="text-sm text-amber-700 dark:text-amber-300 mt-1 list-disc list-inside">
+                        {invalidRegId.length > 0 && <li>Registration ID: exactly 6 digits required ({invalidRegId.length} need correction)</li>}
+                        {invalidEmail.length > 0 && <li>Email: valid format with @ and domain required ({invalidEmail.length} need correction)</li>}
+                      </ul>
+                    </div>
                   </div>
-                )}
+                );
+              })()}
 
-                {investorForms.map((form, index) => {
-                  const isExpanded = expandedForms.has(form.id);
-                  const isEditable = editableForms.has(form.id);
-                  const displayName = form.investorName || `Investor ${index + 1}`;
-                  
-                  return (
-                    <div
-                      key={form.id}
-                      ref={(el) => { formContainerRefs.current[form.id] = el; }}
-                      className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden transition-colors"
-                    >
-                      {/* Collapsible Header */}
-                      <div 
-                        className="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors"
-                        onClick={() => handleToggleForm(form.id)}
-                      >
-                        <div className="flex items-center gap-3 flex-1">
-                          <svg 
-                            className={`w-5 h-5 text-neutral-400 dark:text-neutral-500 transition-transform ${isExpanded ? 'transform rotate-180' : ''}`}
-                            fill="none" 
-                            stroke="currentColor" 
-                            viewBox="0 0 24 24"
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              {/* Add investor button */}
+              <div className="flex justify-end">
+                <button
+                  onClick={handleAddInvestor}
+                  className="px-3 py-1.5 text-xs font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 border border-purple-300 dark:border-purple-700 rounded-lg flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Add investor
+                </button>
+              </div>
+
+              {investorForms.length === 0 ? (
+                <div className="text-center py-12 text-neutral-500 dark:text-neutral-400">
+                  No investors to review.
+                </div>
+              ) : (
+                <>
+                  {/* 1. New Investors - Table */}
+                  {investorForms.filter(f => f.classification === 'new').length > 0 && (
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider">New Investors</h3>
+                      <div className="overflow-x-auto border border-neutral-200 dark:border-neutral-700 rounded-lg">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-neutral-50 dark:bg-neutral-800/50">
+                              <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300">Name</th>
+                              <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300">Registration ID</th>
+                              <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300">Email</th>
+                              <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300">Phone</th>
+                              <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300 w-24">Edit</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {investorForms.filter(f => f.classification === 'new').map((form) => {
+                              const regIdErr = (form.holdingId || '').length > 0 && !isValidRegistrationId(form.holdingId || '');
+                              const emailErr = hasInvalidEmail(form.email || '');
+                              const phoneErr = hasInvalidPhone(form.phone || '');
+                              return (
+                              <React.Fragment key={form.id}>
+                                <tr className="border-t border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/30">
+                                  <td className="px-4 py-3">{form.investorName || '—'}</td>
+                                  <td className="px-4 py-3">
+                                    <span className="flex items-center gap-1.5">
+                                      {form.holdingId || '—'}
+                                      {regIdErr && <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex-shrink-0" title="Needs attention">!</span>}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="flex items-center gap-1.5">
+                                      {form.email || '—'}
+                                      {emailErr && <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex-shrink-0" title="Needs attention">!</span>}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="flex items-center gap-1.5">
+                                      {formatPhoneForDisplay(form.phone || '', form.country || '')}
+                                      {phoneErr && <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex-shrink-0" title="Needs attention">!</span>}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <button
+                                      onClick={() => setExpandedReviewRowId(expandedReviewRowId === form.id ? null : form.id)}
+                                      className="px-2 py-1 text-xs font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded"
+                                    >
+                                      {expandedReviewRowId === form.id ? 'Save' : 'Edit'}
+                                    </button>
+                                  </td>
+                                </tr>
+                                {expandedReviewRowId === form.id && (
+                                  <tr className="border-t border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
+                                    <td colSpan={5} className="px-4 py-4">
+                                      <ReviewRowFields form={form} onFieldChange={handleFieldChange} onHoldingIdChange={handleHoldingIdChange} />
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 2. Existing Investors - Table */}
+                  {investorForms.filter(f => f.classification === 'existing').length > 0 && (
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">Existing Investors</h3>
+                      <div className="overflow-x-auto border border-neutral-200 dark:border-neutral-700 rounded-lg">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-neutral-50 dark:bg-neutral-800/50">
+                              <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300">Name</th>
+                              <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300">Registration ID</th>
+                              <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300">Email</th>
+                              <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300">Phone</th>
+                              <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300 w-24">Edit</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {investorForms.filter(f => f.classification === 'existing').map((form) => {
+                              const regIdErr = (form.holdingId || '').length > 0 && !isValidRegistrationId(form.holdingId || '');
+                              const emailErr = hasInvalidEmail(form.email || '');
+                              const phoneErr = hasInvalidPhone(form.phone || '');
+                              return (
+                              <React.Fragment key={form.id}>
+                                <tr className="border-t border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800/30">
+                                  <td className="px-4 py-3">{form.investorName || '—'}</td>
+                                  <td className="px-4 py-3">
+                                    <span className="flex items-center gap-1.5">
+                                      {form.holdingId || '—'}
+                                      {regIdErr && <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex-shrink-0" title="Needs attention">!</span>}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="flex items-center gap-1.5">
+                                      {form.email || '—'}
+                                      {emailErr && <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex-shrink-0" title="Needs attention">!</span>}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="flex items-center gap-1.5">
+                                      {formatPhoneForDisplay(form.phone || '', form.country || '')}
+                                      {phoneErr && <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex-shrink-0" title="Needs attention">!</span>}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <button
+                                      onClick={() => setExpandedReviewRowId(expandedReviewRowId === form.id ? null : form.id)}
+                                      className="px-2 py-1 text-xs font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded"
+                                    >
+                                      {expandedReviewRowId === form.id ? 'Save' : 'Edit'}
+                                    </button>
+                                  </td>
+                                </tr>
+                                {expandedReviewRowId === form.id && (
+                                  <tr className="border-t border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
+                                    <td colSpan={5} className="px-4 py-4">
+                                      <ReviewRowFields form={form} onFieldChange={handleFieldChange} onHoldingIdChange={handleHoldingIdChange} />
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 3. Potential Matches - possible duplicates to verify */}
+                  {investorForms.filter(f => f.classification === 'suspected').length > 0 && (
+                    <div className="space-y-4">
+                      <div className="p-4 rounded-lg bg-amber-100 dark:bg-amber-900/30 border-2 border-amber-400 dark:border-amber-600">
+                        <div className="flex items-start gap-2">
+                          <svg className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                           </svg>
-                          <div className="flex-1">
-                            <h3 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{displayName}</h3>
-                            {form.holdingId && (
-                              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">ID: {form.holdingId.length > 6 ? form.holdingId.slice(-6) : form.holdingId}</p>
-                            )}
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-sm font-bold text-amber-900 dark:text-amber-100">Potential Matches — Needs attention</h3>
+                              <InfoTooltip
+                                content="These investors may already exist. Click &quot;Confirm match&quot; to use the correct name and ID from the system, or edit manually if it&apos;s a different person."
+                                className="inline-flex"
+                              >
+                                <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-neutral-400 dark:bg-neutral-600 text-neutral-100 cursor-help text-[10px] font-bold hover:bg-neutral-500 dark:hover:bg-neutral-500">
+                                  ?
+                                </span>
+                              </InfoTooltip>
+                            </div>
+                            <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
+                              Similar name or Registration ID found in the system. Confirm the match or edit details before proceeding.
+                            </p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleEdit(form.id);
-                            }}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                              isEditable
-                                ? 'bg-purple-600 text-white hover:bg-purple-700'
-                                : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-600'
-                            }`}
-                            title={isEditable ? 'Save changes' : 'Edit form'}
-                          >
-                            {isEditable ? 'Save' : 'Edit'}
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemoveInvestor(form.id);
-                            }}
-                            className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors group"
-                            title="Remove investor"
-                          >
-                            <svg className="w-4 h-4 text-neutral-400 dark:text-neutral-500 group-hover:text-red-600 dark:group-hover:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
-                        </div>
                       </div>
-
-                      {/* Form Content */}
-                      {isExpanded && (
-                        <div className="px-6 py-6 border-t border-neutral-100 dark:border-neutral-700">
-                          <div className="grid grid-cols-2 gap-6">
-                            {/* Investor Name */}
-                            <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                INVESTOR NAME <span className="text-red-500">*</span>
-                              </label>
-                              <input
-                                type="text"
-                                value={form.investorName}
-                                onChange={(e) => handleFieldChange(form.id, 'investorName', e.target.value)}
-                                disabled={!isEditable}
-                                readOnly={!isEditable}
-                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
-                                  isEditable
-                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
-                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
-                                }`}
-                                placeholder="Enter investor name"
-                              />
-                            </div>
-
-                            {/* Registration ID */}
-                            <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                REGISTRATION ID <span className="text-red-500">*</span>
-                              </label>
-                              <div className="relative">
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  pattern="[0-9]*"
-                                  maxLength={6}
-                                  value={form.holdingId}
-                                  onChange={(e) => handleHoldingIdChange(form.id, e.target.value)}
-                                  disabled={!isEditable}
-                                  readOnly={!isEditable}
-                                  className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
-                                    registrationIdErrors.has(form.id)
-                                      ? 'border-red-500 dark:border-red-500 focus:ring-red-500 focus:border-red-500 bg-red-50 dark:bg-red-900/20 text-neutral-900 dark:text-neutral-100'
-                                      : isEditable
-                                      ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
-                                      : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
-                                  }`}
-                                  placeholder="Enter last 6 digits of registration ID"
-                                />
-                                {/* Tooltip for invalid characters */}
-                                {registrationIdErrors.has(form.id) && registrationIdErrors.get(form.id)?.hasInvalidChars && (
-                                  <div className="absolute z-50 left-0 top-full mt-1 w-64 p-3 bg-neutral-900 dark:bg-neutral-800 text-white text-xs rounded-lg shadow-xl pointer-events-none">
-                                    <p className="font-bold mb-1">Letters and special characters are not allowed</p>
-                                    <p className="text-neutral-300 dark:text-neutral-400">
-                                      Examples of invalid characters: <span className="font-mono text-red-400">ABC, @#$%, !-+</span>
-                                    </p>
-                                    <p className="text-neutral-300 dark:text-neutral-400 mt-1">
-                                      Only numbers (0-9) are allowed. Registration ID must be exactly 6 digits.
-                                    </p>
-                                    {/* Tooltip arrow */}
-                                    <div className="absolute bottom-full left-4">
-                                      <div className="border-4 border-transparent border-b-neutral-900 dark:border-b-neutral-800"></div>
-                                    </div>
-                                  </div>
-                                )}
+                      <div className="space-y-4">
+                        {investorForms.filter(f => f.classification === 'suspected').map((form) => {
+                          const regIdErr = (form.holdingId || '').length > 0 && !isValidRegistrationId(form.holdingId || '');
+                          const emailErr = hasInvalidEmail(form.email || '');
+                          const phoneErr = hasInvalidPhone(form.phone || '');
+                          return (
+                          <div
+                            key={form.id}
+                            className="rounded-xl border border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-800/50 shadow-sm overflow-hidden"
+                          >
+                            <div className="flex flex-wrap items-center gap-4 p-5">
+                              <div className="flex-1 min-w-[200px] space-y-1">
+                                <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{form.investorName || '—'}</p>
+                                <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                                  ID: {form.holdingId || '—'}{regIdErr && <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[9px] font-bold align-middle ml-0.5" title="Needs attention">!</span>}
+                                  {' · '}Email: {form.email || 'No email'}{emailErr && <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[9px] font-bold align-middle ml-0.5" title="Needs attention">!</span>}
+                                  {' · '}Phone: {formatPhoneForDisplay(form.phone || '', form.country || '')}{phoneErr && <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[9px] font-bold align-middle ml-0.5" title="Needs attention">!</span>}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                                <svg className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <div>
+                                  <p className="text-xs font-medium text-blue-800 dark:text-blue-300">Possible match</p>
+                                  <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">{form.suspectedSimilarTo || '—'}</p>
+                                  {form.suspectedReason && (
+                                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">{form.suspectedReason}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedReviewRowId(expandedReviewRowId === form.id ? null : form.id)}
+                                  className="px-4 py-2 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-700 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded-lg transition-colors"
+                                >
+                                  {expandedReviewRowId === form.id ? 'Save' : 'View & edit'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleConfirmRightInvestor(form.id); }}
+                                  disabled={isVerifyingSuspected}
+                                  className="px-4 py-2 text-xs font-bold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors shadow-sm"
+                                >
+                                  Confirm match
+                                </button>
                               </div>
                             </div>
-
-                            {/* Email */}
-                            <div className="col-span-2 relative">
-                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                EMAIL {extractedInvestors.length === 0 && <span className="text-red-500">*</span>}
-                              </label>
-                              <input
-                                type="email"
-                                value={form.email}
-                                onChange={(e) => handleFieldChange(form.id, 'email', e.target.value)}
-                                disabled={!isEditable}
-                                readOnly={!isEditable}
-                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
-                                  isEditable
-                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
-                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
-                                }`}
-                                placeholder="Enter email address"
-                              />
-                            </div>
-
-                            {/* Phone */}
-                            <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                PHONE
-                              </label>
-                              <input
-                                type="tel"
-                                value={form.phone}
-                                onChange={(e) => handleFieldChange(form.id, 'phone', e.target.value)}
-                                disabled={!isEditable}
-                                readOnly={!isEditable}
-                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
-                                  isEditable
-                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
-                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
-                                }`}
-                                placeholder="Enter phone number"
-                              />
-                            </div>
-
-                            {/* Ownership %} */}
-                            <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                OWNERSHIP %
-                              </label>
-                              <input
-                                type="text"
-                                value={form.ownershipPercent}
-                                onChange={(e) => handleFieldChange(form.id, 'ownershipPercent', e.target.value)}
-                                disabled={!isEditable}
-                                readOnly={!isEditable}
-                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
-                                  isEditable
-                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
-                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
-                                }`}
-                                placeholder="Enter ownership percentage"
-                              />
-                            </div>
-
-                            {/* Country */}
-                            <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                COUNTRY
-                              </label>
-                              <input
-                                type="text"
-                                value={form.country}
-                                onChange={(e) => handleFieldChange(form.id, 'country', e.target.value)}
-                                disabled={!isEditable}
-                                readOnly={!isEditable}
-                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
-                                  isEditable
-                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
-                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
-                                }`}
-                                placeholder="Enter country"
-                              />
-                            </div>
-
-                            {/* CO Address */}
-                            <div className="col-span-2 relative">
-                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                CO ADDRESS
-                              </label>
-                              <input
-                                type="text"
-                                value={form.coAddress}
-                                onChange={(e) => handleFieldChange(form.id, 'coAddress', e.target.value)}
-                                disabled={!isEditable}
-                                readOnly={!isEditable}
-                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
-                                  isEditable
-                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
-                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
-                                }`}
-                                placeholder="Enter company address"
-                              />
-                            </div>
-
-                            {/* Account Type */}
-                            <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                TYPE OF ACCOUNT
-                              </label>
-                              <select
-                                value={form.accountType}
-                                onChange={(e) => handleFieldChange(form.id, 'accountType', e.target.value)}
-                                disabled={!isEditable}
-                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
-                                  isEditable
-                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
-                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
-                                }`}
-                              >
-                                <option value="">Select account type</option>
-                                <option value="INDIVIDUAL">Individual</option>
-                                <option value="JOINT">Joint</option>
-                                <option value="TRUST">Trust</option>
-                                <option value="CORPORATE">Corporate</option>
-                                <option value="ORDINARY">Ordinary</option>
-                                <option value="NOMINEE">Nominee</option>
-                                {/* Show current value if it's not in the predefined list (case-insensitive check) */}
-                                {form.accountType && 
-                                 form.accountType.trim() !== '' &&
-                                 !['INDIVIDUAL', 'JOINT', 'TRUST', 'CORPORATE', 'ORDINARY', 'NOMINEE'].some(
-                                   opt => opt.toLowerCase() === form.accountType.trim().toUpperCase()
-                                 ) && (
-                                  <option value={form.accountType}>{form.accountType}</option>
-                                )}
-                              </select>
-                            </div>
-
-                            {/* Holdings */}
-                            <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                HOLDINGS
-                              </label>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                value={form.holdings}
-                                onChange={(e) => handleFieldChange(form.id, 'holdings', e.target.value)}
-                                disabled={!isEditable}
-                                readOnly={!isEditable}
-                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
-                                  isEditable
-                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
-                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
-                                }`}
-                                placeholder="Enter holdings"
-                              />
-                            </div>
-
-                            {/* Stake */}
-                            <div className="relative">
-                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                STAKE %
-                              </label>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                value={form.stake}
-                                onChange={(e) => handleFieldChange(form.id, 'stake', e.target.value)}
-                                disabled={!isEditable}
-                                readOnly={!isEditable}
-                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
-                                  isEditable
-                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
-                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
-                                }`}
-                                placeholder="Enter stake percentage"
-                              />
-                            </div>
+                            {expandedReviewRowId === form.id && (
+                              <div className="px-5 pb-5 pt-0 border-t border-neutral-100 dark:border-neutral-700">
+                                <div className="mt-4 pt-4">
+                                  <ReviewRowFields form={form} onFieldChange={handleFieldChange} onHoldingIdChange={handleHoldingIdChange} />
+                                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-4">
+                                    Click &quot;Confirm match&quot; to use the correct name and Registration ID from the system. Your other data (country, address, email, etc.) will be kept for the update.
+                                  </p>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      )}
+                        );
+                        })}
+                      </div>
                     </div>
-                  );
-                })}
-              </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 
           {currentStep === 'SEND_INVITATION' && (
             <div className="grid" style={{ gridTemplateColumns: '40% 60%', gap: '1.5rem' }}>
-              {/* Left Panel: Recipient List */}
+              {/* Left Panel: Recipient List with Tabs */}
               <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg flex flex-col overflow-hidden">
-                {/* Header */}
-                <div className="px-6 py-4 border-b border-neutral-200 dark:border-neutral-700">
-                  <div className="flex items-center justify-between mb-2">
+                {/* Tabs */}
+                <div className="flex border-b border-neutral-200 dark:border-neutral-700">
+                  {(['with-email', 'no-email', 'existing'] as const).map((tab) => {
+                    const isNewOrSuspected = (f: InvestorFormData) => f.classification === 'new' || f.classification === 'suspected';
+                    const withEmailCount = investorForms.filter(f => isNewOrSuspected(f) && f.email && f.email.trim()).length;
+                    const noEmailCount = investorForms.filter(f => isNewOrSuspected(f) && !(f.email && f.email.trim())).length;
+                    const existingCount = investorForms.filter(f => f.classification === 'existing').length;
+                    const label = tab === 'with-email' ? `With Email (${withEmailCount})` : tab === 'no-email' ? `No Email (${noEmailCount})` : `Existing Investors (${existingCount})`;
+                    return (
+                      <button
+                        key={tab}
+                        onClick={() => setEmailRecipientTab(tab)}
+                        className={`flex-1 px-4 py-3 text-xs font-bold uppercase tracking-wider transition-colors ${
+                          emailRecipientTab === tab
+                            ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border-b-2 border-purple-600'
+                            : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-700/50'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Header: Select All for With Email tab */}
+                {emailRecipientTab === 'with-email' && (
+                  <div className="px-6 py-3 border-b border-neutral-200 dark:border-neutral-700 flex flex-wrap items-center justify-between gap-2">
                     <h3 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
-                      Recipients {Array.from(selectedInvestorsForEmail).filter(id => {
-                        const inv = investorForms.find(f => f.id === id);
-                        return !!(inv && inv.email && inv.email.trim() && !sentEmailsTo.has(inv.id));
-                      }).length} of {investorForms.filter(f => f.email && f.email.trim() && !sentEmailsTo.has(f.id)).length}
+                      Selected {selectedInvestorsForEmail.size} of {investorForms.filter(f => (f.classification === 'new' || f.classification === 'suspected') && f.email && f.email.trim()).length}
                     </h3>
-                    {(() => {
-                      const allRecipients = investorForms;
-                      const totalPages = Math.ceil(allRecipients.length / 10);
-                      const hasMoreThan10 = allRecipients.length > 10;
-                      
-                      if (!hasMoreThan10) return null;
-                      
-                      return (
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => setRecipientPage(prev => Math.max(0, prev - 1))}
-                            disabled={recipientPage === 0}
-                            className="p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                            title="Previous"
-                          >
-                            <svg className="w-4 h-4 text-neutral-600 dark:text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                            </svg>
-                          </button>
-                          <button
-                            onClick={() => setRecipientPage(prev => Math.min(totalPages - 1, prev + 1))}
-                            disabled={recipientPage >= totalPages - 1}
-                            className="p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                            title="Next"
-                          >
-                            <svg className="w-4 h-4 text-neutral-600 dark:text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                            </svg>
-                          </button>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                  {isSelectionMode && (
-                    <div className="flex items-center justify-end gap-3 mt-2">
+                    <div className="flex items-center gap-2">
                       <button
                         onClick={handleSelectAll}
                         className="text-xs text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 font-bold"
@@ -2046,120 +2406,120 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                         Select All
                       </button>
                       <button
-                        onClick={handleCancelSelection}
-                        className="text-xs text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 font-medium"
+                        onClick={handleSendInvitations}
+                        disabled={isSendingEmails || selectedInvestorsForEmail.size === 0 || !generatedSubject.trim() || !generatedMessage.trim()}
+                        className="px-3 py-1.5 text-xs font-bold bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                       >
-                        Cancel
+                        {isSendingEmails ? (
+                          <>
+                            <svg className="w-3.5 h-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Sending...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                            </svg>
+                            Send to Selected
+                          </>
+                        )}
                       </button>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
 
-                {/* Recipient List - Limited to 10 items per page */}
-                <div className="overflow-y-auto p-4 space-y-2" style={{ maxHeight: 'calc(10 * (3.5rem + 0.5rem))' }}>
+                {/* Recipient List filtered by tab — With Email & No Email = NEW investors only */}
+                <div className="overflow-y-auto p-4 space-y-2 flex-1" style={{ maxHeight: 'calc(10 * (3.5rem + 0.5rem))' }}>
                   {(() => {
-                    const allRecipients = investorForms; // include those without email (they'll be disabled)
-                    const startIndex = recipientPage * 10;
-                    const endIndex = startIndex + 10;
-                    const currentPageInvestors = allRecipients.slice(startIndex, endIndex);
+                    const isNewOrSuspected = (f: InvestorFormData) => f.classification === 'new' || f.classification === 'suspected';
+                    const withEmail = investorForms.filter(f => isNewOrSuspected(f) && f.email && f.email.trim());
+                    const noEmail = investorForms.filter(f => isNewOrSuspected(f) && !(f.email && f.email.trim()));
+                    const existing = investorForms.filter(f => f.classification === 'existing');
+                    const tabInvestors = emailRecipientTab === 'with-email' ? withEmail : emailRecipientTab === 'no-email' ? noEmail : existing;
+                    const isSelectable = emailRecipientTab === 'with-email';
                     
-                    return currentPageInvestors.map((investor) => {
-                      const hasEmail = !!(investor.email && investor.email.trim());
-                      const isSelected = selectedInvestorsForEmail.has(investor.id);
-                      const isSent = sentEmailsTo.has(investor.id);
-                      const isDisabled = isSent || !hasEmail;
+                    return tabInvestors.length === 0 ? (
+                      <div className="text-center py-8 text-sm text-neutral-500 dark:text-neutral-400">
+                        {emailRecipientTab === 'with-email' && 'No new investors with email addresses.'}
+                        {emailRecipientTab === 'no-email' && 'No new investors without email.'}
+                        {emailRecipientTab === 'existing' && 'No existing investors.'}
+                      </div>
+                    ) : (
+                      tabInvestors.map((investor) => {
+                        const hasEmail = !!(investor.email && investor.email.trim());
+                        const isSelected = selectedInvestorsForEmail.has(investor.id);
 
-                      const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-                        e.stopPropagation();
-                        if (isDisabled) return;
-                        setSelectedInvestorsForEmail(prev => {
-                          const newSet = new Set(prev);
-                          if (isSelected) {
-                            newSet.delete(investor.id);
-                          } else {
-                            newSet.add(investor.id);
-                          }
-                          return newSet;
-                        });
-                      };
-
-                      const handleRowClick = () => {
-                        if (isDisabled) return;
-                        
-                        if (isSelectionMode) {
-                          // Multiple selection mode: toggle this investor
+                        const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+                          e.stopPropagation();
+                          if (!isSelectable) return;
                           setSelectedInvestorsForEmail(prev => {
                             const newSet = new Set(prev);
-                            if (isSelected) {
-                              newSet.delete(investor.id);
-                            } else {
-                              newSet.add(investor.id);
-                            }
+                            if (isSelected) newSet.delete(investor.id);
+                            else newSet.add(investor.id);
                             return newSet;
                           });
-                        } else {
-                          // Single selection mode: select only this investor
-                          setSelectedInvestorsForEmail(isSelected ? new Set() : new Set([investor.id]));
-                        }
-                      };
+                        };
 
-                      return (
-                        <div
-                          key={investor.id}
-                          onClick={handleRowClick}
-                          className={`p-3 rounded-lg border transition-all ${
-                            isDisabled
-                              ? 'bg-neutral-100 dark:bg-neutral-700 border-neutral-300 dark:border-neutral-600 opacity-60 cursor-not-allowed'
-                              : isSelected
-                              ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-300 dark:border-purple-700 cursor-pointer hover:border-purple-400 dark:hover:border-purple-600'
-                              : 'bg-neutral-50 dark:bg-neutral-700/50 border-neutral-200 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer'
-                          }`}
-                        >
-                          <div className="flex items-center gap-3">
-                            {isSelectionMode && hasEmail && (
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={handleCheckboxChange}
-                                disabled={isDisabled}
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-4 h-4 text-purple-600 border-neutral-300 rounded focus:ring-purple-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                              />
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 truncate">
-                                  {investor.investorName || 'Unnamed Investor'}
+                        const handleRowClick = () => {
+                          if (!isSelectable) return;
+                          setSelectedInvestorsForEmail(prev => {
+                            const newSet = new Set(prev);
+                            if (isSelected) newSet.delete(investor.id);
+                            else newSet.add(investor.id);
+                            return newSet;
+                          });
+                        };
+
+                        return (
+                          <div
+                            key={investor.id}
+                            onClick={handleRowClick}
+                            className={`p-3 rounded-lg border transition-all ${
+                              !isSelectable
+                                ? 'bg-neutral-50 dark:bg-neutral-700/50 border-neutral-200 dark:border-neutral-600 cursor-default opacity-90'
+                                : isSelected
+                                ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-300 dark:border-purple-700 cursor-pointer hover:border-purple-400 dark:hover:border-purple-600'
+                                : 'bg-neutral-50 dark:bg-neutral-700/50 border-neutral-200 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              {isSelectable && (
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={handleCheckboxChange}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-4 h-4 text-purple-600 border-neutral-300 rounded focus:ring-purple-500 cursor-pointer"
+                                />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 truncate">
+                                    {investor.investorName || 'Unnamed Investor'}
+                                  </p>
+                                  {sentEmailsTo.has(investor.id) && (
+                                    <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-[10px] font-bold uppercase tracking-wider rounded-full flex-shrink-0">
+                                      Sent
+                                    </span>
+                                  )}
+                                  {!hasEmail && emailRecipientTab === 'with-email' && (
+                                    <span className="px-2 py-0.5 bg-neutral-200 dark:bg-neutral-600 text-neutral-700 dark:text-neutral-200 text-xs font-bold rounded-full flex-shrink-0">
+                                      No email
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5 truncate">
+                                  {hasEmail ? investor.email : 'No email address provided'}
                                 </p>
-                                {isSent && (
-                                  <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-bold rounded-full flex-shrink-0 flex items-center gap-1">
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                    Email sent
-                                  </span>
-                                )}
-                                {!hasEmail && (
-                                  <span className="px-2 py-0.5 bg-neutral-200 dark:bg-neutral-600 text-neutral-700 dark:text-neutral-200 text-xs font-bold rounded-full flex-shrink-0">
-                                    No email
-                                  </span>
-                                )}
                               </div>
-                              <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5 truncate">
-                                {hasEmail ? investor.email : 'No email address provided'}
-                              </p>
                             </div>
                           </div>
-                        </div>
-                      );
-                    });
+                        );
+                      })
+                    );
                   })()}
-                  
-                  {investorForms.filter(f => f.email && f.email.trim() && !sentEmailsTo.has(f.id)).length === 0 && (
-                    <div className="text-center py-8 text-sm text-neutral-500 dark:text-neutral-400">
-                      No investors with email addresses found.
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -2309,7 +2669,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                 <div className="px-6 py-4 border-t border-neutral-200 dark:border-neutral-700 flex items-center justify-between gap-3">
                   <button
                     onClick={handleGenerateMessage}
-                    disabled={isGeneratingMessage || isSelectionMode}
+                    disabled={isGeneratingMessage}
                     className="px-4 py-2.5 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
                   >
                     {isGeneratingMessage ? (
@@ -2328,97 +2688,83 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                       </>
                     )}
                   </button>
-                  {!isSelectionMode ? (
-                    <button
-                      onClick={handleSendToClick}
-                      disabled={!generatedSubject.trim() || !generatedMessage.trim()}
-                      className="px-4 py-2.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                      </svg>
-                      Send To
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleSendInvitations}
-                      disabled={isSendingEmails || selectedInvestorsForEmail.size === 0 || !generatedSubject.trim() || !generatedMessage.trim()}
-                      className="px-4 py-2.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
-                    >
-                      {isSendingEmails ? (
-                        <>
-                          <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                          </svg>
-                          Sending...
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                          </svg>
-                          Send Invitation
-                        </>
-                      )}
-                    </button>
-                  )}
                 </div>
               </div>
             </div>
           )}
 
-          {currentStep === 'CONFIRMATION' && (
-            <div className="flex flex-col items-center justify-center py-12">
-              {saveSuccessCount > 0 && (
-                <>
-                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-                    <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-                  <h3 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
-                    {saveSuccessCount > 1 
-                      ? `${saveSuccessCount} Investors Saved Successfully`
-                      : 'Investor Saved Successfully'}
-                  </h3>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400 text-center max-w-md mb-4">
-                    {saveSuccessCount > 1
-                      ? `${saveSuccessCount} investors have been saved to the system.`
-                      : 'The investor information has been saved to the system.'}
-                    {investorForms.some(f => f.email) && ' Investors with email addresses have been added to the pre-verified queue.'}
-                  </p>
-                </>
-              )}
-              
-              {saveErrors.length > 0 && (
-                <div className="w-full max-w-md mt-4">
-                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-                    <h4 className="text-sm font-bold text-red-900 dark:text-red-300 mb-2">
-                      {saveErrors.length} Error{saveErrors.length > 1 ? 's' : ''} Occurred
-                    </h4>
-                    <div className="space-y-2">
-                      {saveErrors.map((error, index) => (
-                        <div key={index} className="text-xs text-red-700 dark:text-red-400">
-                          <span className="font-medium">{error.investorName}</span>
-                          {error.holdingId && <span className="text-red-600 dark:text-red-500"> ({error.holdingId.length > 6 ? error.holdingId.slice(-6) : error.holdingId})</span>}
-                          : {error.error}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+          {currentStep === 'CONFIRMATION' && isFinalExecuting && (
+            <div className="w-full min-h-[400px] flex flex-col items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-14 w-14 border-b-2 border-purple-600 mb-6"></div>
+              <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
+                {finalExecutionStatus}
+              </p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
+                Please wait. Do not close this window.
+              </p>
+            </div>
+          )}
+          {currentStep === 'CONFIRMATION' && !isFinalExecuting && (
+            <div className="flex flex-col items-center justify-center py-12 max-w-lg mx-auto">
+              <h3 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-6">Summary</h3>
+              <div className="w-full space-y-3">
+                <div className="flex justify-between items-center py-2 border-b border-neutral-200 dark:border-neutral-700">
+                  <span className="text-sm text-neutral-600 dark:text-neutral-400">Investors to be added</span>
+                  <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{classificationResult.newCount}</span>
                 </div>
-              )}
-              
-              {saveSuccessCount === 0 && saveErrors.length === 0 && (
-                <div className="text-center">
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400">No investors were saved.</p>
+                <div className="flex justify-between items-center py-2 border-b border-neutral-200 dark:border-neutral-700">
+                  <span className="text-sm text-neutral-600 dark:text-neutral-400">Investors to be updated</span>
+                  <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{classificationResult.existingCount}</span>
                 </div>
-              )}
+                <div className="flex justify-between items-center py-2 border-b border-neutral-200 dark:border-neutral-700">
+                  <span className="text-sm text-neutral-600 dark:text-neutral-400">Invitations sent</span>
+                  <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{sentEmailsTo.size}</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-neutral-200 dark:border-neutral-700">
+                  <span className="text-sm text-neutral-600 dark:text-neutral-400">New investors without email</span>
+                  <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{investorForms.filter(f => (f.classification === 'new' || f.classification === 'suspected') && !(f.email && f.email.trim())).length}</span>
+                </div>
+              </div>
+              {(() => {
+                const newWithEmail = investorForms.filter(f => (f.classification === 'new' || f.classification === 'suspected') && f.email && f.email.trim());
+                const unsentCount = newWithEmail.filter(f => !sentEmailsTo.has(f.id)).length;
+                return unsentCount > 0 ? (
+                  <div className="mt-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg w-full">
+                    <p className="text-sm text-amber-800 dark:text-amber-300">
+                      {unsentCount} investor{unsentCount !== 1 ? 's' : ''} with email {unsentCount !== 1 ? 'have' : 'has'} not received invitation{unsentCount !== 1 ? 's' : ''} yet.
+                    </p>
+                  </div>
+                ) : null;
+              })()}
             </div>
           )}
         </div>
 
         {/* Footer Actions */}
+        {currentStep === 'CONFIRMATION' && !isFinalExecuting && (
+          <div className="px-8 py-6 border-t border-neutral-200 dark:border-neutral-700 flex items-center justify-end gap-3">
+            <button
+              onClick={handlePrevious}
+              disabled={isProcessingStep}
+              className="px-6 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Previous
+            </button>
+            <button
+              onClick={handleConfirmAndProcess}
+              disabled={isProcessingStep}
+              className="px-6 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 bg-purple-600 text-white hover:bg-purple-700"
+            >
+              Confirm & Process
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </button>
+          </div>
+        )}
         {currentStep !== 'CONFIRMATION' && currentStep !== 'SELECTION' && (
           <div className="px-8 py-6 flex items-center justify-end">
             <div className="flex items-center gap-3">
@@ -2439,23 +2785,13 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
               {currentStep === 'SEND_INVITATION' ? (
                 <button
                   onClick={handleNext}
-                  disabled={isProcessingStep || isSaving}
-                  className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 ${
-                    isProcessingStep || isSaving
-                      ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-400 dark:text-neutral-500 cursor-not-allowed'
-                      : 'bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700'
-                  }`}
+                  disabled={isProcessingStep}
+                  className="px-6 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 bg-purple-600 text-white hover:bg-purple-700 disabled:bg-neutral-100 dark:disabled:bg-neutral-700 disabled:text-neutral-400 dark:disabled:text-neutral-500 disabled:cursor-not-allowed"
                 >
-                  {isSaving ? (
-                    <>
-                      <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                      Saving...
-                    </>
-                  ) : (
-                    'Save & Exit'
-                  )}
+                  Continue
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
                 </button>
               ) : (
                 <button
@@ -2514,52 +2850,122 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
           </div>
         )}
 
-        {currentStep === 'CONFIRMATION' && (
-          <div className="px-8 py-6 border-t border-neutral-200 dark:border-neutral-700 flex items-center justify-end">
-            <button
-              onClick={() => {
-                onClose();
-                // Reset state when closing
-                setSaveSuccessCount(0);
-                setSaveErrors([]);
-              }}
-              className="px-6 py-2 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition-colors"
-            >
-              Close
-            </button>
-          </div>
-        )}
         </div>
       )}
 
-      {/* Exit Confirmation Dialog */}
+      {/* Exit Confirmation Dialog — X button does not close without confirmation */}
       {showExitConfirm && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center">
-          <div className="absolute inset-0 bg-neutral-900/20 dark:bg-black/20" onClick={handleCancelExit} />
+          <div className="absolute inset-0 bg-neutral-900/30 dark:bg-black/30" onClick={handleCancelExit} />
           <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl max-w-md w-full mx-4 z-50">
-            <div className="px-6 py-4 border-b border-neutral-200 dark:border-neutral-700">
-              <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">Confirm Exit</h3>
+            <div className="px-6 pt-4 pb-2 flex items-start justify-between">
+              <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">Leave without saving?</h3>
+              <button
+                onClick={handleCancelExit}
+                className="p-1.5 -m-1.5 text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded-lg transition-colors"
+                aria-label="Close"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
             <div className="px-6 py-4">
-              <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-1">
-                Are you sure you want to exit?
+              <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-2">
+                If you close this modal, all changes and updates you made will be lost.
               </p>
               <p className="text-sm text-neutral-500 dark:text-neutral-500">
-                Exiting will cancel the entire process and all progress will be lost.
+                You can save your progress as a draft and resume later, or exit and discard everything.
+              </p>
+            </div>
+            <div className="px-6 pb-6 pt-2 flex flex-wrap items-center justify-end gap-3">
+              <button
+                onClick={handleSaveAsDraft}
+                className="px-4 py-2 text-sm font-bold bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                Save as draft
+              </button>
+              <button
+                onClick={handleConfirmExit}
+                className="px-4 py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors"
+              >
+                Exit and discard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Potential Matches — Confirm before proceeding to Review */}
+      {showPotentialMatchesConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          <div className="absolute inset-0 bg-neutral-900/30 dark:bg-black/30" onClick={() => setShowPotentialMatchesConfirm(false)} />
+          <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl max-w-md w-full mx-4 z-50">
+            <div className="px-6 py-4 border-b border-neutral-200 dark:border-neutral-700">
+              <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">Verify before proceeding</h3>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-2">
+                You have <span className="font-bold">{classificationResult.suspectedCount}</span> potential match(es) that need verification.
+              </p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-500">
+                Please make sure every piece of information is correct and true before proceeding. Review and confirm each potential match in the next step.
               </p>
             </div>
             <div className="px-6 py-4 flex items-center justify-end gap-3 border-t border-neutral-200 dark:border-neutral-700">
               <button
-                onClick={handleCancelExit}
+                onClick={() => setShowPotentialMatchesConfirm(false)}
                 className="px-4 py-2 text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
               >
-                Cancel
+                Go back
               </button>
               <button
-                onClick={handleConfirmExit}
-                className="px-4 py-2 text-sm font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                onClick={() => {
+                  setShowPotentialMatchesConfirm(false);
+                  setCurrentStep('REVIEW');
+                }}
+                className="px-4 py-2 text-sm font-bold bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
               >
-                Exit
+                Continue to Review
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Email reminder — warn before Continue to Summary if not all invitations sent */}
+      {showEmailReminderModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          <div className="absolute inset-0 bg-neutral-900/30 dark:bg-black/30" onClick={() => setShowEmailReminderModal(false)} />
+          <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl max-w-md w-full mx-4 z-50">
+            <div className="px-6 py-4 border-b border-neutral-200 dark:border-neutral-700">
+              <h3 className="text-lg font-bold text-amber-700 dark:text-amber-400">Send all invitations first?</h3>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-2">
+                You have <span className="font-bold text-amber-700 dark:text-amber-400">
+                  {investorForms.filter(f => (f.classification === 'new' || f.classification === 'suspected') && f.email && f.email.trim() && !sentEmailsTo.has(f.id)).length}
+                </span> new investor{investorForms.filter(f => (f.classification === 'new' || f.classification === 'suspected') && f.email && f.email.trim() && !sentEmailsTo.has(f.id)).length !== 1 ? 's' : ''} with email who haven&apos;t received invitations yet.
+              </p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-500">
+                Invitations are sent in real time. Please send to all investors with email before proceeding to the Summary step.
+              </p>
+            </div>
+            <div className="px-6 py-4 flex items-center justify-end gap-3 border-t border-neutral-200 dark:border-neutral-700">
+              <button
+                onClick={() => setShowEmailReminderModal(false)}
+                className="px-4 py-2 text-sm font-bold bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                Go back &amp; send
+              </button>
+              <button
+                onClick={() => {
+                  setShowEmailReminderModal(false);
+                  setCurrentStep('CONFIRMATION');
+                }}
+                className="px-4 py-2 text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
+              >
+                Continue anyway
               </button>
             </div>
           </div>
