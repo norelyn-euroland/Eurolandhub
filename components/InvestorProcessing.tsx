@@ -3,10 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { parseDocument } from '../lib/document-parser';
 import { extractInvestors, ExtractedInvestor } from '../lib/investor-extractor';
-import { saveInvestors, SaveInvestorError, saveInvestor, parseNumeric, updateExistingInvestor } from '../lib/investor-service';
-import { verifyInvestors, VerificationResult } from '../lib/investor-verification-service';
-import { applicantService } from '../lib/firestore-service';
-import { Shareholder } from '../lib/types';
+import { saveInvestors, SaveInvestorError } from '../lib/investor-service';
 import Toast from './Toast';
 
 interface InvestorFormData {
@@ -21,39 +18,19 @@ interface InvestorFormData {
   accountType: string;
   holdings: string;
   stake: string;
-  isExisting?: boolean;
-  existingData?: Shareholder;
-  emailSent?: boolean;
-  emailSentAt?: string;
 }
 
-interface PendingInvestorData {
-  investor: ExtractedInvestor;
-  isExisting: boolean;
-  existingData?: Shareholder;
-  emailSent: boolean;
-  emailSentAt?: string;
-  hasEmail: boolean;
-}
-
-interface ProcessingProgressState {
-  currentStep: string;
-  currentItem: number;
-  totalItems: number;
-  percentage: number;
-  status: 'idle' | 'updating-existing' | 'saving-new' | 'updating-emails' | 'finalizing' | 'complete' | 'error';
-  message: string;
-}
-
-type Step = 'SELECTION' | 'UPLOAD' | 'PROCESSING' | 'VALIDATION' | 'REVIEW' | 'SEND_INVITATION' | 'CONFIRMATION';
+type Step = 'SELECTION' | 'UPLOAD' | 'PROCESSING' | 'REVIEW' | 'SEND_INVITATION' | 'CONFIRMATION';
 type UploadType = 'batch' | 'individual' | null;
 
-interface InvestorProcessingProps {
+interface AddInvestorModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (data: Omit<InvestorFormData, 'id'>) => void;
   sidebarCollapsed?: boolean;
-  onClose?: () => void;
 }
 
-const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapsed = false, onClose }) => {
+const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, onSave, sidebarCollapsed = false }) => {
   const [currentStep, setCurrentStep] = useState<Step>('SELECTION');
   const [uploadType, setUploadType] = useState<UploadType>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -69,7 +46,6 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [showSaveQuitConfirm, setShowSaveQuitConfirm] = useState(false);
   const [saveQuitPendingRemaining, setSaveQuitPendingRemaining] = useState<number>(0);
-  const [showBackFromSummaryWarning, setShowBackFromSummaryWarning] = useState(false);
   const [parsedCSV, setParsedCSV] = useState<string>('');
   const [parseError, setParseError] = useState<string>('');
   const [parseSuccess, setParseSuccess] = useState(false);
@@ -92,19 +68,9 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
   const [generatedSubject, setGeneratedSubject] = useState<string>('');
   const [generatedMessage, setGeneratedMessage] = useState<string>('');
   const [messageStyle, setMessageStyle] = useState<string>('default');
-  const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [pendingInvestors, setPendingInvestors] = useState<PendingInvestorData[]>([]);
-  const [emailTab, setEmailTab] = useState<'with-email' | 'no-email'>('with-email');
-  const [isConfirmProcessing, setIsConfirmProcessing] = useState(false);
-  const [confirmProcessingProgress, setConfirmProcessingProgress] = useState<ProcessingProgressState>({
-    currentStep: '',
-    currentItem: 0,
-    totalItems: 0,
-    percentage: 0,
-    status: 'idle',
-    message: '',
-  });
+  const [privacyNoticeAccepted, setPrivacyNoticeAccepted] = useState<boolean>(false);
+  const [privacyCheckboxChecked, setPrivacyCheckboxChecked] = useState<boolean>(false);
+  const [showPrivacyDetails, setShowPrivacyDetails] = useState<boolean>(false);
   const [isMessageExpanded, setIsMessageExpanded] = useState<boolean>(true);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -132,25 +98,91 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
     'Organizing records...'
   ];
 
-  // Verification messages for Validation & Classification step
-  const verificationMessages = [
-    'Scanning database...',
-    'Checking investor records...',
-    'Validating data...',
-    'Cross-referencing records...',
-    'Classifying investors...',
-    'Processing verification...',
-    'Analyzing results...'
-  ];
-
   // Note: Removed contentEditable sync effect since we're now using textarea with processed placeholders
 
-  // Component initialization - no reset needed for page component
+  // Reset modal when closed
+  useEffect(() => {
+    if (!isOpen) {
+      setCurrentStep('SELECTION');
+      setUploadType(null);
+      setUploadedFile(null);
+      setIsProcessing(false);
+      setIsAutofilling(false);
+      setProcessingSuccessAt(null);
+      setProcessingProgress(0);
+      setAutofillProgress(null);
+      setAutofillActiveFormId(null);
+      setAutofillActiveField(null);
+      autofillRunIdRef.current += 1; // cancel any in-flight autofill
+      setIsSaving(false);
+      setSaveErrors([]);
+      setSaveSuccessCount(0);
+      setShowExitConfirm(false);
+      setShowSaveQuitConfirm(false);
+      setSaveQuitPendingRemaining(0);
+      setParsedCSV('');
+      setParseError('');
+      setParseSuccess(false);
+      setInvestorForms([]);
+      setExpandedForms(new Set());
+      setEditableForms(new Set()); // Reset editable forms
+      setExtractedInvestors([]);
+      setCurrentInvestorIndex(0);
+      setExtractionError('');
+      setInvestorsAdded(false); // Reset investors added flag
+      setRegistrationIdErrors(new Map()); // Clear registration ID errors
+      setSelectedInvestorsForEmail(new Set());
+      setIsSelectionMode(false);
+      setSentEmailsTo(new Set());
+      setIsGeneratingMessage(false);
+      setIsSendingEmails(false);
+      setGeneratedSubject('');
+      setGeneratedMessage('');
+      setMessageStyle('default');
+      setPrivacyNoticeAccepted(false);
+      setPrivacyCheckboxChecked(false);
+      setShowPrivacyDetails(false);
+      setIsMessageExpanded(true);
+      setShowToast(false); // Reset toast state
+      setToastMessage(''); // Reset toast message
+      setToastVariant('success');
+      if (toastHideTimeoutRef.current) {
+        clearTimeout(toastHideTimeoutRef.current);
+        toastHideTimeoutRef.current = null;
+      }
+      setRecipientPage(0); // Reset recipient page
+      setIsNavigatingToReview(false); // Reset navigation loading state
+      setNavigationProgress(0); // Reset navigation progress
+    }
+  }, [isOpen]);
 
 
   // Check if current step is a processing step
   const isProcessingStep = isProcessing;
 
+  // Handle privacy notice acceptance
+  const handlePrivacyNoticeAccept = () => {
+    setPrivacyNoticeAccepted(true);
+    // Optional: Log privacy notice acceptance (operational logging)
+    try {
+      const timestamp = new Date().toISOString();
+      const userId = typeof window !== 'undefined' && window.localStorage 
+        ? localStorage.getItem('eurolandhub_user_id') || 'unknown'
+        : 'unknown';
+      console.log('Privacy notice accepted:', {
+        timestamp,
+        userId,
+        action: 'add_investor_attempt'
+      });
+    } catch (error) {
+      // Silently fail if logging fails
+    }
+  };
+
+  // Toggle privacy details visibility
+  const togglePrivacyDetails = () => {
+    setShowPrivacyDetails(prev => !prev);
+  };
 
   // Handle upload type selection
   const handleSelectUploadType = (type: 'batch' | 'individual') => {
@@ -164,76 +196,6 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
     } else {
       // For batch, go to UPLOAD step
       setCurrentStep('UPLOAD');
-    }
-  };
-
-  // Handle database verification
-  const handleVerification = async (investors: ExtractedInvestor[]) => {
-    setIsVerifying(true);
-    setProcessingProgress(0);
-    setLoadingMessageIndex(0);
-
-    // Start rotating loading messages
-    const loadingMessageInterval = setInterval(() => {
-      setLoadingMessageIndex(prev => (prev + 1) % verificationMessages.length);
-    }, 1500);
-
-    // Update progress bar smoothly
-    const progressInterval = setInterval(() => {
-      setProcessingProgress(prev => {
-        if (prev >= 95) return 95;
-        return prev + 2;
-      });
-    }, 100);
-
-    try {
-      const result = await verifyInvestors(investors);
-      setVerificationResult(result);
-
-      // Build pending investors data structure
-      const pending: PendingInvestorData[] = investors.map(inv => {
-        const existing = result.existing.find(e => e.investor.holdingId === inv.holdingId);
-        return {
-          investor: inv,
-          isExisting: !!existing,
-          existingData: existing?.existingData,
-          emailSent: false,
-          hasEmail: !!(inv.email && inv.email.trim()),
-        };
-      });
-
-      setPendingInvestors(pending);
-
-      // Update investor forms with existing status and existing data
-      setInvestorForms(prev => prev.map(form => {
-        const matchingPending = pending.find(p => p.investor.holdingId === form.holdingId);
-        if (matchingPending && matchingPending.isExisting && matchingPending.existingData) {
-          return {
-            ...form,
-            isExisting: true,
-            existingData: matchingPending.existingData,
-            // Pre-fill editable fields with existing data if form fields are empty
-            ownershipPercent: form.ownershipPercent || '',
-            holdings: form.holdings || (matchingPending.existingData.holdings ? String(matchingPending.existingData.holdings) : ''),
-            stake: form.stake || (matchingPending.existingData.stake ? String(matchingPending.existingData.stake) : ''),
-          };
-        }
-        return form;
-      }));
-
-      // Complete progress
-      setProcessingProgress(100);
-      clearInterval(loadingMessageInterval);
-      clearInterval(progressInterval);
-      setProcessingSuccessAt(Date.now());
-      setShowProcessingSuccess(true);
-    } catch (error: any) {
-      clearInterval(loadingMessageInterval);
-      clearInterval(progressInterval);
-      setProcessingProgress(0);
-      setExtractionError(error.message || 'Failed to verify investors');
-    } finally {
-      setIsVerifying(false);
     }
   };
 
@@ -261,22 +223,16 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
       return;
     }
     
-    // When going back to VALIDATION, show the success state if verification was already completed
+    // When going back to PROCESSING, show the success state if processing was already completed
     if (currentStep === 'REVIEW' && uploadType === 'batch') {
-      // Going back to VALIDATION - show success state if already verified
-      setCurrentStep('VALIDATION');
-      return;
-    }
-
-    if (currentStep === 'VALIDATION' && uploadType === 'batch') {
-      // Going back to PROCESSING
+      // Going back to PROCESSING - show success state if already processed
       setCurrentStep('PROCESSING');
       return;
     }
     
     const stepOrder: Step[] = uploadType === 'batch' 
-      ? ['SELECTION', 'UPLOAD', 'PROCESSING', 'VALIDATION', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION']
-      : ['SELECTION', 'REVIEW', 'VALIDATION', 'SEND_INVITATION', 'CONFIRMATION'];
+      ? ['SELECTION', 'UPLOAD', 'PROCESSING', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION']
+      : ['SELECTION', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION'];
     const currentIndex = stepOrder.indexOf(currentStep);
     if (currentIndex > 0) {
       setCurrentStep(stepOrder[currentIndex - 1]);
@@ -284,37 +240,16 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
   };
 
   const handleNext = async () => {
-    if (isProcessingStep || isSaving || isVerifying) return;
+    if (isProcessingStep || isSaving) return;
     
     if (currentStep === 'SELECTION') {
       // Should not happen - selection is handled by handleSelectUploadType
       return;
     }
-
-    // For individual entry, trigger verification after REVIEW
-    if (currentStep === 'REVIEW' && uploadType === 'individual') {
-      // Convert forms to ExtractedInvestor format
-      const investors: ExtractedInvestor[] = investorForms.map(form => ({
-        investorName: form.investorName,
-        holdingId: form.holdingId,
-        email: form.email || '',
-        phone: form.phone || '',
-        ownershipPercent: form.ownershipPercent || '',
-        country: form.country || '',
-        coAddress: form.coAddress || '',
-        accountType: form.accountType || '',
-        holdings: form.holdings || '',
-        stake: form.stake || '',
-      }));
-
-      setCurrentStep('VALIDATION');
-      await handleVerification(investors);
-      return;
-    }
     
     const stepOrder: Step[] = uploadType === 'batch'
-      ? ['SELECTION', 'UPLOAD', 'PROCESSING', 'VALIDATION', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION']
-      : ['SELECTION', 'REVIEW', 'VALIDATION', 'SEND_INVITATION', 'CONFIRMATION'];
+      ? ['SELECTION', 'UPLOAD', 'PROCESSING', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION']
+      : ['SELECTION', 'REVIEW', 'SEND_INVITATION', 'CONFIRMATION'];
     const currentIndex = stepOrder.indexOf(currentStep);
     if (currentIndex < stepOrder.length - 1) {
       // If on UPLOAD and file is uploaded, allow manual navigation
@@ -381,8 +316,20 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
         return;
       }
       if (currentStep === 'SEND_INVITATION') {
-        // Navigate to CONFIRMATION step
-        setCurrentStep('CONFIRMATION');
+        // Guard: Save & Exit is always clickable.
+        // - If there are investors with emails that haven't been invited yet, show a confirmation prompt.
+        // - Investors with NO email are excluded from this check.
+        const investorsWithEmails = investorForms.filter(f => f.email && f.email.trim());
+        const remainingToInvite = investorsWithEmails.filter(f => !sentEmailsTo.has(f.id));
+
+        if (investorsWithEmails.length > 0 && remainingToInvite.length > 0) {
+          setSaveQuitPendingRemaining(remainingToInvite.length);
+          setShowSaveQuitConfirm(true);
+          return;
+        }
+
+        // No remaining invitations (or no emails at all) — proceed with saving
+        await handleSubmit();
         return;
       }
       // Allow navigation to all steps for preview
@@ -390,7 +337,19 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
     }
   };
 
-  // Handle exit confirmation - removed for page component
+  // Handle exit confirmation
+  const handleExitClick = () => {
+    setShowExitConfirm(true);
+  };
+
+  const handleConfirmExit = () => {
+    setShowExitConfirm(false);
+    onClose();
+  };
+
+  const handleCancelExit = () => {
+    setShowExitConfirm(false);
+  };
 
   // Handle template download
   const handleDownloadTemplate = () => {
@@ -549,10 +508,6 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
       setIsProcessing(false);
       setParseSuccess(true);
       setShowProcessingSuccess(true);
-      
-      // Move to VALIDATION step and perform database verification
-      setCurrentStep('VALIDATION');
-      await handleVerification(extractionResult.investors);
       
     } catch (error: any) {
       clearInterval(loadingMessageInterval);
@@ -959,35 +914,9 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
       const results = await Promise.all(sendPromises);
       const successful = results.filter(r => r.success);
       
-      // Update local state only - NO database writes
+      // Mark successfully sent investors
       const sentIds = new Set(successful.map(r => r.investorId));
       setSentEmailsTo(prev => new Set([...prev, ...sentIds]));
-      
-      // Update pending investors state with email sent status
-      setPendingInvestors(prev => prev.map(pending => {
-        const form = investorForms.find(f => f.id === pending.investor.holdingId || 
-          (f.email && pending.investor.email && f.email.toLowerCase() === pending.investor.email.toLowerCase()));
-        if (form && sentIds.has(form.id)) {
-          return {
-            ...pending,
-            emailSent: true,
-            emailSentAt: new Date().toISOString(),
-          };
-        }
-        return pending;
-      }));
-      
-      // Update investor forms with email sent status
-      setInvestorForms(prev => prev.map(form => {
-        if (sentIds.has(form.id)) {
-          return {
-            ...form,
-            emailSent: true,
-            emailSentAt: new Date().toISOString(),
-          };
-        }
-        return form;
-      }));
       
       // Clear selection and exit selection mode
       setSelectedInvestorsForEmail(new Set());
@@ -1007,204 +936,76 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
     }
   };
 
-  // Handle form submission - DEPRECATED: This is no longer used
-  // Data is now saved only when "Confirm and Process" is clicked
+  // Handle form submission
   const handleSubmit = async () => {
-    // This function is kept for backward compatibility but should not be called
-    // All saving now happens in handleConfirmAndProcess
-    console.warn('handleSubmit called - this should not happen. Use handleConfirmAndProcess instead.');
-  };
+    // Validate all forms
+    const invalidForms = investorForms.filter(form => !form.investorName || !form.holdingId);
+    if (invalidForms.length > 0) {
+      alert(`Please fill in Investor Name and Registration ID (required fields) for all investors. ${invalidForms.length} form(s) incomplete.`);
+      return;
+    }
 
-  // Handle Confirm and Process - Final database commit
-  const handleConfirmAndProcess = async () => {
-    setIsConfirmProcessing(true);
-    
-    // Build investors from forms (use latest form data)
-    const investorsFromForms: ExtractedInvestor[] = investorForms.map(form => ({
-      investorName: form.investorName,
-      holdingId: form.holdingId,
-      email: form.email || '',
-      phone: form.phone || '',
-      ownershipPercent: form.ownershipPercent || '',
-      country: form.country || '',
-      coAddress: form.coAddress || '',
-      accountType: form.accountType || '',
-      holdings: form.holdings || '',
-      stake: form.stake || '',
-    }));
+    if (investorForms.length === 0) {
+      alert('Please add at least one investor.');
+      return;
+    }
 
-    // Update pending investors with latest form data
-    const updatedPending: PendingInvestorData[] = investorsFromForms.map(inv => {
-      const existingPending = pendingInvestors.find(p => p.investor.holdingId === inv.holdingId);
-      const form = investorForms.find(f => f.holdingId === inv.holdingId);
-      return {
-        investor: inv,
-        isExisting: form?.isExisting || existingPending?.isExisting || false,
-        existingData: form?.existingData || existingPending?.existingData,
-        emailSent: form?.emailSent || existingPending?.emailSent || false,
-        emailSentAt: form?.emailSentAt || existingPending?.emailSentAt,
-        hasEmail: !!(inv.email && inv.email.trim()),
-      };
-    });
-    setPendingInvestors(updatedPending);
-    
-    const existingInvestors = updatedPending.filter(p => p.isExisting);
-    const newInvestors = updatedPending.filter(p => !p.isExisting);
-    const investorsWithEmailSent = updatedPending.filter(p => p.emailSent && p.hasEmail);
-    
-    const saveErrors: SaveInvestorError[] = [];
-    let saveSuccessCount = 0;
-    
+    setIsSaving(true);
+    setSaveErrors([]);
+    setSaveSuccessCount(0);
+
     try {
-      // Step 1: Update Existing Investors
-      setConfirmProcessingProgress({
-        currentStep: 'updating-existing',
-        currentItem: 0,
-        totalItems: existingInvestors.length,
-        percentage: 0,
-        status: 'updating-existing',
-        message: `Updating ${existingInvestors.length} existing investors...`
-      });
+      // Convert InvestorFormData to ExtractedInvestor format
+      const investorsToSave: ExtractedInvestor[] = investorForms.map(form => ({
+        investorName: form.investorName,
+        holdingId: form.holdingId,
+        email: form.email || '',
+        phone: form.phone || '',
+        ownershipPercent: form.ownershipPercent || '',
+        country: form.country || '',
+        coAddress: form.coAddress || '',
+        accountType: form.accountType || '',
+        holdings: form.holdings || '',
+        stake: form.stake || '',
+      }));
+
+      // Save all investors to Firebase
+      const result = await saveInvestors(investorsToSave);
       
-      for (let i = 0; i < existingInvestors.length; i++) {
-        const pending = existingInvestors[i];
-        try {
-          await updateExistingInvestor(pending.investor.holdingId, {
-            ownershipPercent: pending.investor.ownershipPercent,
-            holdings: pending.investor.holdings,
-            stake: pending.investor.stake,
+      setSaveSuccessCount(result.success.length);
+      setSaveErrors(result.errors);
+
+      // Call onSave callback for backward compatibility (if provided)
+      if (onSave && result.success.length > 0) {
+        // Call onSave for each successfully saved investor
+        result.success.forEach((successResult, index) => {
+          const investor = investorsToSave[index];
+          onSave({
+            investorName: investor.investorName,
+            holdingId: investor.holdingId,
+            email: investor.email,
+            phone: investor.phone,
+            ownershipPercent: investor.ownershipPercent,
+            country: investor.country,
+            coAddress: investor.coAddress,
+            accountType: investor.accountType,
+            holdings: investor.holdings,
+            stake: investor.stake,
           });
-          saveSuccessCount++;
-        } catch (error: any) {
-          saveErrors.push({
-            investorName: pending.investor.investorName,
-            holdingId: pending.investor.holdingId,
-            error: error.message || 'Failed to update investor',
-          });
-        }
-        
-        setConfirmProcessingProgress({
-          currentStep: 'updating-existing',
-          currentItem: i + 1,
-          totalItems: existingInvestors.length,
-          percentage: Math.round(((i + 1) / existingInvestors.length) * 25),
-          status: 'updating-existing',
-          message: `Updating existing investor ${i + 1} of ${existingInvestors.length}...`
         });
       }
-      
-      // Step 2: Save New Investors
-      setConfirmProcessingProgress({
-        currentStep: 'saving-new',
-        currentItem: 0,
-        totalItems: newInvestors.length,
-        percentage: 25,
-        status: 'saving-new',
-        message: `Saving ${newInvestors.length} new investors...`
-      });
-      
-      for (let i = 0; i < newInvestors.length; i++) {
-        const pending = newInvestors[i];
-        try {
-          await saveInvestor(pending.investor);
-          saveSuccessCount++;
-        } catch (error: any) {
-          saveErrors.push({
-            investorName: pending.investor.investorName,
-            holdingId: pending.investor.holdingId,
-            error: error.message || 'Failed to save investor',
-          });
-        }
-        
-        setConfirmProcessingProgress({
-          currentStep: 'saving-new',
-          currentItem: i + 1,
-          totalItems: newInvestors.length,
-          percentage: 25 + Math.round(((i + 1) / newInvestors.length) * 50),
-          status: 'saving-new',
-          message: `Saving new investor ${i + 1} of ${newInvestors.length}...`
-        });
-      }
-      
-      // Step 3: Update Email Status
-      setConfirmProcessingProgress({
-        currentStep: 'updating-emails',
-        currentItem: 0,
-        totalItems: investorsWithEmailSent.length,
-        percentage: 75,
-        status: 'updating-emails',
-        message: `Updating email tracking for ${investorsWithEmailSent.length} investors...`
-      });
-      
-      for (let i = 0; i < investorsWithEmailSent.length; i++) {
-        const pending = investorsWithEmailSent[i];
-        try {
-          const applicant = await applicantService.getByEmail(pending.investor.email);
-          if (applicant) {
-            await applicantService.update(applicant.id, {
-              emailSentAt: pending.emailSentAt,
-              emailSentCount: 1,
-              workflowStage: 'SENT_EMAIL',
-              accountStatus: 'PENDING',
-              systemStatus: 'ACTIVE',
-            });
-          }
-        } catch (error: any) {
-          console.error(`Error updating email status for ${pending.investor.email}:`, error);
-          // Don't add to errors - email status update is not critical
-        }
-        
-        setConfirmProcessingProgress({
-          currentStep: 'updating-emails',
-          currentItem: i + 1,
-          totalItems: investorsWithEmailSent.length,
-          percentage: 75 + Math.round(((i + 1) / investorsWithEmailSent.length) * 20),
-          status: 'updating-emails',
-          message: `Updating email status ${i + 1} of ${investorsWithEmailSent.length}...`
-        });
-      }
-      
-      // Step 4: Finalizing
-      setConfirmProcessingProgress({
-        currentStep: 'finalizing',
-        currentItem: 0,
-        totalItems: 1,
-        percentage: 95,
-        status: 'finalizing',
-        message: 'Finalizing database updates...'
-      });
-      
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Step 5: Complete
-      setConfirmProcessingProgress({
-        currentStep: 'complete',
-        currentItem: 1,
-        totalItems: 1,
-        percentage: 100,
-        status: 'complete',
-        message: 'Processing complete!'
-      });
-      
-      setSaveSuccessCount(saveSuccessCount);
-      setSaveErrors(saveErrors);
-      
-      setTimeout(() => {
-        setIsConfirmProcessing(false);
-        triggerToast(`Successfully processed ${saveSuccessCount} investor${saveSuccessCount !== 1 ? 's' : ''}.`, 'success');
-      }, 2000);
-      
+
+      // Move to confirmation step
+      setCurrentStep('CONFIRMATION');
     } catch (error: any) {
-      setConfirmProcessingProgress({
-        currentStep: 'error',
-        currentItem: 0,
-        totalItems: 0,
-        percentage: 0,
-        status: 'error',
-        message: `Error: ${error.message}`
-      });
-      setIsConfirmProcessing(false);
-      triggerToast(`Error processing investors: ${error.message}`, 'error');
+      console.error('Error saving investors:', error);
+      setSaveErrors([{
+        investorName: 'Multiple investors',
+        holdingId: '',
+        error: error.message || 'Failed to save investors',
+      }]);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -1213,22 +1014,20 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
   const getSteps = (): { id: Step; label: string }[] => {
     if (uploadType === 'individual') {
       return [
-        { id: 'SELECTION', label: 'Selection' },
-        { id: 'REVIEW', label: 'Review & Confirm' },
-        { id: 'VALIDATION', label: 'Validation & Classification' },
-        { id: 'SEND_INVITATION', label: 'Email Generation' },
-        { id: 'CONFIRMATION', label: 'Summary' },
+        { id: 'SELECTION', label: 'SELECTION' },
+        { id: 'REVIEW', label: 'REVIEW' },
+        { id: 'SEND_INVITATION', label: 'SEND INVITATION' },
+        { id: 'CONFIRMATION', label: 'CONFIRMATION' },
       ];
     } else {
       // Show full batch process (default) so users can see all steps
       return [
-        { id: 'SELECTION', label: 'Selection' },
-        { id: 'UPLOAD', label: 'Upload' },
-        { id: 'PROCESSING', label: 'Processing' },
-        { id: 'VALIDATION', label: 'Validation & Classification' },
-        { id: 'REVIEW', label: 'Review & Confirm' },
-        { id: 'SEND_INVITATION', label: 'Email Generation' },
-        { id: 'CONFIRMATION', label: 'Summary' },
+        { id: 'SELECTION', label: 'SELECTION' },
+        { id: 'UPLOAD', label: 'UPLOAD' },
+        { id: 'PROCESSING', label: 'PROCESSING' },
+        { id: 'REVIEW', label: 'REVIEW' },
+        { id: 'SEND_INVITATION', label: 'SEND INVITATION' },
+        { id: 'CONFIRMATION', label: 'CONFIRMATION' },
       ];
     }
   };
@@ -1248,10 +1047,253 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
     return 'pending';
   };
 
+  if (!isOpen) return null;
+
+  const sidebarWidth = sidebarCollapsed ? '80px' : '256px';
+  const sidebarWidthClass = sidebarCollapsed ? 'left-20' : 'left-64';
+
   return (
-    <div className="w-full">
-      {/* Main content - always show (privacy notice is now handled in parent modal) */}
-      <div className="w-full max-w-7xl mx-auto">
+    <div className={`fixed inset-0 z-50 flex items-center justify-center ${sidebarWidthClass} transition-all duration-300`}>
+      {/* Blurred background - covers only content area, not sidebar */}
+      <div 
+        className={`fixed top-0 right-0 bottom-0 ${sidebarWidthClass} bg-neutral-900/40 dark:bg-black/40 backdrop-blur-sm z-40 transition-all duration-300`}
+      />
+      
+      {/* Privacy Notice Overlay - shown before modal content if not accepted */}
+      {!privacyNoticeAccepted && (
+        <div 
+          className={`fixed inset-0 z-[60] flex items-center justify-center ${sidebarWidthClass} transition-all duration-300`}
+          onClick={(e) => {
+            // Close when clicking outside the modal
+            if (e.target === e.currentTarget) {
+              onClose();
+            }
+          }}
+        >
+          <div 
+            className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Privacy Notice Header */}
+            <div className="px-8 py-6 border-b border-neutral-200 dark:border-neutral-700">
+              <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100">
+                Investor Privacy & Data Use Notice
+              </h2>
+            </div>
+
+            {/* Privacy Notice Content */}
+            <div className="flex-1 overflow-y-auto px-8 py-6">
+              {/* One-line summary */}
+              <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-6">
+                We take investor data seriously. This information is used only for verification and official investor communications.
+              </p>
+
+              {/* View details link */}
+              <div className="mb-4">
+                <button
+                  onClick={togglePrivacyDetails}
+                  className="text-sm font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors flex items-center gap-2"
+                >
+                  {showPrivacyDetails ? 'Hide details' : 'View details'}
+                  <svg 
+                    className={`w-4 h-4 transition-transform ${showPrivacyDetails ? 'rotate-180' : ''}`}
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Expandable details section */}
+              {showPrivacyDetails && (
+                <div className="mt-4 p-6 bg-neutral-50 dark:bg-neutral-900/50 rounded-lg border border-neutral-200 dark:border-neutral-700 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="prose prose-sm dark:prose-invert max-w-none">
+                    <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-4">
+                      Investor Data Use & Consent
+                    </h3>
+                    
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-4">
+                      When adding an investor to the platform, you confirm that you are authorized to provide the investor's information for investor-relations purposes.
+                    </p>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      What Data Is Collected
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
+                      The information collected may include (depending on what is provided):
+                    </p>
+                    <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
+                      <li>Investor's name</li>
+                      <li>Email address</li>
+                      <li>Shareholder or registration identifiers</li>
+                      <li>Investment-related metadata required for verification and investor access</li>
+                    </ul>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      Why It Is Collected
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-4">
+                      This data is collected to support investor-relations operations and facilitate secure investor onboarding and communication.
+                    </p>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      How It Is Used
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
+                      The investor's information is used <strong>solely</strong> for the following purposes:
+                    </p>
+                    <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
+                      <li>Verifying investor identity and shareholder status</li>
+                      <li>Sending account invitations and onboarding communications</li>
+                      <li>Delivering important investor-related notifications, disclosures, and updates</li>
+                      <li>Supporting investor access to verified features within the platform</li>
+                      <li>Managing investor account status and workflow progression</li>
+                      <li>Operational tracking necessary to support investor onboarding, account access, and communication delivery</li>
+                    </ul>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      What It Is NOT Used For
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
+                      The investor's information will <strong>not</strong> be used for:
+                    </p>
+                    <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
+                      <li>Marketing or promotional communications unrelated to investor relations</li>
+                      <li>Advertising or third-party solicitations</li>
+                      <li>Sharing with third parties outside of authorized investor-relations operations</li>
+                      <li>Any purpose other than those explicitly stated above</li>
+                    </ul>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      Who Can Access It
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
+                      Investor data is stored securely and accessed only by:
+                    </p>
+                    <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-2 space-y-1 ml-2">
+                      <li>Authorized Investor Relations Officers (IROs) who are authenticated users of the platform</li>
+                      <li>Authorized personnel with proper authentication credentials</li>
+                      <li>System administrators for technical support and maintenance purposes</li>
+                    </ul>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-4">
+                      All access is logged and monitored to ensure data security and compliance.
+                    </p>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      How Long It Is Stored
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
+                      Investor data is stored for as long as necessary to fulfill investor-relations purposes and maintain accurate shareholder records. Data may be retained:
+                    </p>
+                    <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
+                      <li>For the duration of the investor's relationship with the company</li>
+                      <li>As required by applicable regulations and compliance standards</li>
+                      <li>Until the investor requests deletion (subject to legal and regulatory requirements)</li>
+                    </ul>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      Security & Confidentiality
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-2">
+                      All investor data is:
+                    </p>
+                    <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-4 space-y-1 ml-2">
+                      <li>Stored securely in encrypted cloud infrastructure using industry-standard security controls</li>
+                      <li>Protected by authentication and authorization controls</li>
+                      <li>Transmitted over secure, encrypted connections</li>
+                      <li>Subject to regular security audits and monitoring</li>
+                      <li>Handled in accordance with applicable data protection and confidentiality standards</li>
+                    </ul>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      Right to Ignore / Opt Out
+                    </h4>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 mb-4">
+                      If an investor receives an invitation or communication in error, they may safely disregard the message and no further action will be required. Investors who do not wish to proceed with account creation may simply ignore the invitation email.
+                    </p>
+
+                    <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mt-6 mb-2">
+                      By proceeding, you acknowledge that:
+                    </h4>
+                    <ul className="list-disc list-inside text-sm text-neutral-700 dark:text-neutral-300 mb-6 space-y-1 ml-2">
+                      <li>You are authorized to submit this investor's information</li>
+                      <li>The data will be used strictly for investor-relations purposes as described above</li>
+                      <li>The information will be handled securely and responsibly</li>
+                      <li>You understand the data collection, usage, and storage practices outlined in this notice</li>
+                    </ul>
+
+                    {/* Checkbox - at the end of the content */}
+                    <div className="mt-6 pt-6 border-t border-neutral-200 dark:border-neutral-700">
+                      <label className="flex items-start gap-3 cursor-pointer select-none group">
+                        <div
+                          className={`mt-0.5 w-5 h-5 rounded flex items-center justify-center transition-colors flex-shrink-0 ${
+                            privacyCheckboxChecked ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600 group-hover:bg-neutral-400 dark:group-hover:bg-neutral-500'
+                          }`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setPrivacyCheckboxChecked(!privacyCheckboxChecked);
+                          }}
+                        >
+                          {privacyCheckboxChecked && (
+                            <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                        <span className="text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed">
+                          I confirm that I am authorized to submit this investor's information and that it will be used in accordance with the Investor Data Use & Consent.
+                        </span>
+                      </label>
+                      
+                      {/* Continue button - only appears when checkbox is checked */}
+                      {privacyCheckboxChecked && (
+                        <div className="flex items-center justify-end mt-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                          <button
+                            onClick={handlePrivacyNoticeAccept}
+                            className="px-6 py-2.5 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 bg-purple-600 text-white hover:bg-purple-700"
+                          >
+                            Continue
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Modal container - only show when privacy notice is accepted */}
+      {privacyNoticeAccepted && (
+        <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl w-full max-w-7xl max-h-[90vh] overflow-hidden flex flex-col z-50">
+          {/* Header */}
+          <div className="px-8 py-6 flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700">
+            <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100">Investor details</h2>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={onClose}
+              className="text-sm font-medium text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300"
+            >
+              Save as draft
+            </button>
+            <button
+              onClick={handleExitClick}
+              className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded-full transition-colors"
+            >
+              <svg className="w-5 h-5 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
         {/* Progress Indicator */}
         <div className="px-8 py-6">
           <div className="flex items-center justify-between">
@@ -1284,7 +1326,7 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                       )}
                     </div>
                     <span
-                      className={`mt-2 text-[10px] font-bold tracking-wider ${
+                      className={`mt-2 text-[10px] font-bold uppercase tracking-wider ${
                         status === 'active'
                           ? 'text-purple-600 dark:text-purple-400'
                           : status === 'completed'
@@ -1546,68 +1588,6 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
             </div>
           )}
 
-          {currentStep === 'VALIDATION' && (
-            <div className="w-full min-h-[560px] flex items-center justify-center">
-              {isVerifying ? (
-                <div className="flex flex-col items-center justify-center w-full py-12">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mb-4"></div>
-                  <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
-                    {verificationMessages[loadingMessageIndex]}
-                  </p>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
-                    Please wait while we verify investors...
-                  </p>
-                  <div className="mt-4 w-64 bg-neutral-200 dark:bg-neutral-700 rounded-full h-1.5 overflow-hidden">
-                    <div 
-                      className="bg-purple-600 h-1.5 rounded-full transition-all duration-300 ease-out" 
-                      style={{ width: `${processingProgress}%` }}
-                    ></div>
-                  </div>
-                </div>
-              ) : verificationResult ? (
-                <div className="flex flex-col items-center justify-center w-full py-12 max-w-2xl mx-auto">
-                  <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-                    <svg className="w-6 h-6 text-green-700 dark:text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-                  <p className="text-sm font-black text-green-700 dark:text-green-400 mb-6">
-                    Verification Complete!
-                  </p>
-                  
-                  <div className="grid grid-cols-2 gap-4 w-full">
-                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                      <div className="text-2xl font-black text-blue-700 dark:text-blue-400 mb-1">
-                        {verificationResult.stats.newCount}
-                      </div>
-                      <div className="text-xs font-medium text-blue-600 dark:text-blue-400">
-                        New Investors Found
-                      </div>
-                    </div>
-                    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
-                      <div className="text-2xl font-black text-amber-700 dark:text-amber-400 mb-1">
-                        {verificationResult.stats.existingCount}
-                      </div>
-                      <div className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                        Existing Investors That Will Be Updated
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-12">
-                  <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mb-4">
-                    <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400">Validation & Classification</p>
-                  <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-2">This step verifies investors against the database</p>
-                </div>
-              )}
-            </div>
-          )}
-
           {currentStep === 'REVIEW' && (
             <div className="space-y-6">
               {/* Extraction Error */}
@@ -1708,7 +1688,7 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                             >
                               {/* Investor Name */}
                               <td className="px-6 py-4">
-                                {isEditable && !form.isExisting ? (
+                                {isEditable ? (
                                   <input
                                     type="text"
                                     value={form.investorName}
@@ -1716,15 +1696,6 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                                     className="w-full px-2 py-1.5 text-sm border rounded border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
                                     placeholder="Enter investor name"
                                   />
-                                ) : form.isExisting ? (
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                                      {form.existingData?.name || form.investorName || '-'}
-                                    </span>
-                                    <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-xs font-bold rounded">
-                                      Existing
-                                    </span>
-                                  </div>
                                 ) : (
                                   <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
                                     {form.investorName || '-'}
@@ -1794,22 +1765,13 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
 
                               {/* Ownership %} */}
                               <td className="px-6 py-4">
-                                {isEditable && !form.isExisting ? (
+                                {isEditable ? (
                                   <input
                                     type="text"
                                     value={form.ownershipPercent}
                                     onChange={(e) => handleFieldChange(form.id, 'ownershipPercent', e.target.value)}
                                     className="w-full px-2 py-1.5 text-sm border rounded border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
                                     placeholder="%"
-                                  />
-                                ) : form.isExisting && isEditable ? (
-                                  <input
-                                    type="text"
-                                    value={form.ownershipPercent}
-                                    onChange={(e) => handleFieldChange(form.id, 'ownershipPercent', e.target.value)}
-                                    className="w-full px-2 py-1.5 text-sm border rounded border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    placeholder="%"
-                                    title="Editable field for existing investor"
                                   />
                                 ) : (
                                   <span className="text-sm text-neutral-700 dark:text-neutral-300">
@@ -1950,9 +1912,9 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                               </div>
                               <div>
                                 <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                  HOLDINGS {form.isExisting && <span className="text-purple-600 dark:text-purple-400">(Editable)</span>}
+                                  HOLDINGS
                                 </label>
-                                {isEditable && !form.isExisting ? (
+                                {isEditable ? (
                                   <input
                                     type="text"
                                     inputMode="numeric"
@@ -1960,16 +1922,6 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                                     onChange={(e) => handleFieldChange(form.id, 'holdings', e.target.value)}
                                     className="w-full px-3 py-2 text-sm border rounded border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
                                     placeholder="Enter holdings"
-                                  />
-                                ) : form.isExisting && isEditable ? (
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={form.holdings}
-                                    onChange={(e) => handleFieldChange(form.id, 'holdings', e.target.value)}
-                                    className="w-full px-3 py-2 text-sm border rounded border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    placeholder="Enter holdings"
-                                    title="Editable field for existing investor"
                                   />
                                 ) : (
                                   <span className="text-sm text-neutral-700 dark:text-neutral-300">
@@ -1979,9 +1931,9 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                               </div>
                               <div>
                                 <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                  STAKE % {form.isExisting && <span className="text-purple-600 dark:text-purple-400">(Editable)</span>}
+                                  STAKE %
                                 </label>
-                                {isEditable && !form.isExisting ? (
+                                {isEditable ? (
                                   <input
                                     type="text"
                                     inputMode="numeric"
@@ -1989,16 +1941,6 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                                     onChange={(e) => handleFieldChange(form.id, 'stake', e.target.value)}
                                     className="w-full px-3 py-2 text-sm border rounded border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
                                     placeholder="Enter stake percentage"
-                                  />
-                                ) : form.isExisting && isEditable ? (
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={form.stake}
-                                    onChange={(e) => handleFieldChange(form.id, 'stake', e.target.value)}
-                                    className="w-full px-3 py-2 text-sm border rounded border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/20 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    placeholder="Enter stake percentage"
-                                    title="Editable field for existing investor"
                                   />
                                 ) : (
                                   <span className="text-sm text-neutral-700 dark:text-neutral-300">
@@ -2074,7 +2016,7 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                       );
                     })()}
                   </div>
-                  {isSelectionMode && emailTab === 'with-email' && (
+                  {isSelectionMode && (
                     <div className="flex items-center justify-end gap-3 mt-2">
                       <button
                         onClick={handleSelectAll}
@@ -2090,64 +2032,21 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                       </button>
                     </div>
                   )}
-                  {emailTab === 'no-email' && (
-                    <div className="mt-2">
-                      <p className="text-xs text-neutral-500 dark:text-neutral-400 italic">
-                        Investors without email addresses cannot be selected for sending invitations.
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Email Tabs */}
-                <div className="border-b border-neutral-200 dark:border-neutral-700 px-4 pt-4">
-                  <div className="flex gap-4">
-                    <button
-                      onClick={() => setEmailTab('with-email')}
-                      className={`px-4 py-2 text-sm font-bold rounded-t-lg transition-colors ${
-                        emailTab === 'with-email'
-                          ? 'bg-white dark:bg-neutral-800 text-purple-600 dark:text-purple-400 border-b-2 border-purple-600'
-                          : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100'
-                      }`}
-                    >
-                      With Email ({investorForms.filter(f => f.email && f.email.trim()).length})
-                    </button>
-                    <button
-                      onClick={() => setEmailTab('no-email')}
-                      className={`px-4 py-2 text-sm font-bold rounded-t-lg transition-colors ${
-                        emailTab === 'no-email'
-                          ? 'bg-white dark:bg-neutral-800 text-purple-600 dark:text-purple-400 border-b-2 border-purple-600'
-                          : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100'
-                      }`}
-                    >
-                      No Email ({investorForms.filter(f => !f.email || !f.email.trim()).length})
-                    </button>
-                  </div>
                 </div>
 
                 {/* Recipient List - Limited to 10 items per page */}
                 <div className="overflow-y-auto p-4 space-y-2" style={{ maxHeight: 'calc(10 * (3.5rem + 0.5rem))' }}>
                   {(() => {
-                    // Filter by tab
-                    const filteredRecipients = emailTab === 'with-email'
-                      ? investorForms.filter(f => f.email && f.email.trim())
-                      : investorForms.filter(f => !f.email || !f.email.trim());
-                    
-                    const allRecipients = filteredRecipients;
+                    const allRecipients = investorForms; // include those without email (they'll be disabled)
                     const startIndex = recipientPage * 10;
                     const endIndex = startIndex + 10;
                     const currentPageInvestors = allRecipients.slice(startIndex, endIndex);
-                    
-                    // Reset page if current page is beyond available items
-                    if (startIndex >= allRecipients.length && allRecipients.length > 0) {
-                      setRecipientPage(0);
-                    }
                     
                     return currentPageInvestors.map((investor) => {
                       const hasEmail = !!(investor.email && investor.email.trim());
                       const isSelected = selectedInvestorsForEmail.has(investor.id);
                       const isSent = sentEmailsTo.has(investor.id);
-                      const isDisabled = isSent || (emailTab === 'no-email' ? true : !hasEmail);
+                      const isDisabled = isSent || !hasEmail;
 
                       const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
                         e.stopPropagation();
@@ -2196,7 +2095,7 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                           }`}
                         >
                           <div className="flex items-center gap-3">
-                            {isSelectionMode && hasEmail && emailTab === 'with-email' && (
+                            {isSelectionMode && hasEmail && (
                               <input
                                 type="checkbox"
                                 checked={isSelected}
@@ -2205,13 +2104,6 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                                 onClick={(e) => e.stopPropagation()}
                                 className="w-4 h-4 text-purple-600 border-neutral-300 rounded focus:ring-purple-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                               />
-                            )}
-                            {emailTab === 'no-email' && (
-                              <div className="w-4 h-4 flex items-center justify-center">
-                                <svg className="w-3 h-3 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                                </svg>
-                              </div>
                             )}
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
@@ -2418,13 +2310,13 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                   {!isSelectionMode ? (
                     <button
                       onClick={handleSendToClick}
-                      disabled={!generatedSubject.trim() || !generatedMessage.trim() || investorForms.filter(f => f.email && f.email.trim() && !sentEmailsTo.has(f.id)).length === 0}
+                      disabled={!generatedSubject.trim() || !generatedMessage.trim()}
                       className="px-4 py-2.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                       </svg>
-                      Send To ({investorForms.filter(f => f.email && f.email.trim() && !sentEmailsTo.has(f.id)).length})
+                      Send To
                     </button>
                   ) : (
                     <button
@@ -2455,84 +2347,30 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
           )}
 
           {currentStep === 'CONFIRMATION' && (
-            <div className="w-full max-w-4xl mx-auto py-12">
-              <div className="text-center mb-8">
-                <h3 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
-                  Summary
-                </h3>
-                <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                  Review the summary before confirming and processing
-                </p>
-              </div>
-
-              {/* Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                {/* Existing Investors */}
-                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
-                  <div className="text-2xl font-black text-amber-700 dark:text-amber-400 mb-1">
-                    {pendingInvestors.filter(p => p.isExisting).length}
-                  </div>
-                  <div className="text-xs font-medium text-amber-600 dark:text-amber-400 mb-2">
-                    Existing Investors to Update
-                  </div>
-                  <div className="text-xs text-amber-700 dark:text-amber-300">
-                    Will have Ownership %, Holdings, and Stake % updated
-                  </div>
-                </div>
-
-                {/* New Investors with Email Sent */}
-                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="text-2xl font-black text-green-700 dark:text-green-400">
-                      {pendingInvestors.filter(p => !p.isExisting && p.hasEmail && p.emailSent).length}
-                    </div>
-                    <svg className="w-5 h-5 text-green-700 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-                  <div className="text-xs font-medium text-green-600 dark:text-green-400 mb-2">
-                    New Investors - Invitations Sent
-                  </div>
-                  <div className="text-xs text-green-700 dark:text-green-300">
-                    Have been sent invitation emails successfully
-                  </div>
-                </div>
-
-                {/* New Investors without Email */}
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                  <div className="text-2xl font-black text-blue-700 dark:text-blue-400 mb-1">
-                    {pendingInvestors.filter(p => !p.isExisting && !p.hasEmail).length}
-                  </div>
-                  <div className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-2">
-                    New Investors - No Email
-                  </div>
-                  <div className="text-xs text-blue-700 dark:text-blue-300">
-                    Will be saved to shareholders registry only
-                  </div>
-                </div>
-              </div>
-
-              {/* Success/Error Messages */}
-              {saveSuccessCount > 0 && !isConfirmProcessing && (
-                <div className="mt-8 text-center">
-                  <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4 mx-auto">
-                    <svg className="w-8 h-8 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex flex-col items-center justify-center py-12">
+              {saveSuccessCount > 0 && (
+                <>
+                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                    <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
                   <h3 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-2">
                     {saveSuccessCount > 1 
-                      ? `${saveSuccessCount} Investors Processed Successfully`
-                      : 'Investor Processed Successfully'}
+                      ? `${saveSuccessCount} Investors Saved Successfully`
+                      : 'Investor Saved Successfully'}
                   </h3>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400 text-center max-w-md mx-auto">
-                    All investors have been saved to the system and are now visible in dashboards and registries.
+                  <p className="text-sm text-neutral-600 dark:text-neutral-400 text-center max-w-md mb-4">
+                    {saveSuccessCount > 1
+                      ? `${saveSuccessCount} investors have been saved to the system.`
+                      : 'The investor information has been saved to the system.'}
+                    {investorForms.some(f => f.email) && ' Investors with email addresses have been added to the pre-verified queue.'}
                   </p>
-                </div>
+                </>
               )}
-
+              
               {saveErrors.length > 0 && (
-                <div className="w-full max-w-md mx-auto mt-8">
+                <div className="w-full max-w-md mt-4">
                   <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
                     <h4 className="text-sm font-bold text-red-900 dark:text-red-300 mb-2">
                       {saveErrors.length} Error{saveErrors.length > 1 ? 's' : ''} Occurred
@@ -2549,72 +2387,12 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                   </div>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* Processing Progress Overlay */}
-          {isConfirmProcessing && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/70">
-              <div className="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl max-w-md w-full mx-4 p-6">
-                <div className="text-center mb-6">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-                  <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-2">
-                    Processing Investors
-                  </h3>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-4">
-                    {confirmProcessingProgress.message}
-                  </p>
-                  
-                  {/* Progress Bar */}
-                  <div className="w-full bg-neutral-200 dark:bg-neutral-700 rounded-full h-2 mb-4">
-                    <div 
-                      className="bg-purple-600 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${confirmProcessingProgress.percentage}%` }}
-                    ></div>
-                  </div>
-                  
-                  {/* Progress Details */}
-                  {confirmProcessingProgress.totalItems > 0 && (
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                      {confirmProcessingProgress.currentItem} of {confirmProcessingProgress.totalItems} {confirmProcessingProgress.currentStep === 'updating-existing' ? 'investors updated' : confirmProcessingProgress.currentStep === 'saving-new' ? 'investors saved' : confirmProcessingProgress.currentStep === 'updating-emails' ? 'email statuses updated' : 'items processed'}
-                    </p>
-                  )}
-                  
-                  {/* Step Indicators */}
-                  <div className="mt-6 flex items-center justify-center gap-2">
-                    {['updating-existing', 'saving-new', 'updating-emails', 'finalizing'].map((step, index) => {
-                      const stepStatus = 
-                        confirmProcessingProgress.status === step ? 'current' :
-                        ['updating-existing', 'saving-new', 'updating-emails', 'finalizing'].indexOf(confirmProcessingProgress.status) > index ? 'completed' : 'pending';
-                      
-                      return (
-                        <div key={step} className="flex items-center">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                            stepStatus === 'completed' ? 'bg-green-500' :
-                            stepStatus === 'current' ? 'bg-purple-600' :
-                            'bg-neutral-300 dark:bg-neutral-600'
-                          }`}>
-                            {stepStatus === 'completed' ? (
-                              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                            ) : stepStatus === 'current' ? (
-                              <div className="w-2 h-2 rounded-full bg-white"></div>
-                            ) : (
-                              <div className="w-2 h-2 rounded-full bg-neutral-400"></div>
-                            )}
-                          </div>
-                          {index < 3 && (
-                            <div className={`w-8 h-0.5 ${
-                              stepStatus === 'completed' ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600'
-                            }`}></div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+              
+              {saveSuccessCount === 0 && saveErrors.length === 0 && (
+                <div className="text-center">
+                  <p className="text-sm text-neutral-600 dark:text-neutral-400">No investors were saved.</p>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>
@@ -2644,7 +2422,7 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                   className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 ${
                     isProcessingStep || isSaving
                       ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-400 dark:text-neutral-500 cursor-not-allowed'
-                      : 'bg-purple-600 text-white hover:bg-purple-700'
+                      : 'bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700'
                   }`}
                 >
                   {isSaving ? (
@@ -2655,12 +2433,7 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
                       Saving...
                     </>
                   ) : (
-                    <>
-                      Next
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                      </svg>
-                    </>
+                    'Save & Exit'
                   )}
                 </button>
               ) : (
@@ -2721,82 +2494,51 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
         )}
 
         {currentStep === 'CONFIRMATION' && (
-          <div className="px-8 py-6 border-t border-neutral-200 dark:border-neutral-700 flex items-center justify-between">
+          <div className="px-8 py-6 border-t border-neutral-200 dark:border-neutral-700 flex items-center justify-end">
             <button
-              onClick={() => setShowBackFromSummaryWarning(true)}
-              disabled={isConfirmProcessing}
-              className={`px-6 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 ${
-                isConfirmProcessing
-                  ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-400 dark:text-neutral-500 cursor-not-allowed'
-                  : 'bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700'
-              }`}
+              onClick={() => {
+                onClose();
+                // Reset state when closing
+                setSaveSuccessCount(0);
+                setSaveErrors([]);
+              }}
+              className="px-6 py-2 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition-colors"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
-              </svg>
-              Previous
-            </button>
-            <button
-              onClick={handleConfirmAndProcess}
-              disabled={isConfirmProcessing || pendingInvestors.length === 0}
-              className="px-8 py-3 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-            >
-              {isConfirmProcessing ? (
-                <>
-                  <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Confirm and Process
-                </>
-              )}
+              Close
             </button>
           </div>
         )}
-      </div>
+        </div>
+      )}
 
-      {/* Exit Confirmation Dialog - removed for page component */}
-
-      {/* Warning modal when going back from Summary */}
-      {showBackFromSummaryWarning && (
+      {/* Exit Confirmation Dialog */}
+      {showExitConfirm && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-neutral-900/20 dark:bg-black/20"
-            onClick={() => setShowBackFromSummaryWarning(false)}
-          />
+          <div className="absolute inset-0 bg-neutral-900/20 dark:bg-black/20" onClick={handleCancelExit} />
           <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl max-w-md w-full mx-4 z-50">
             <div className="px-6 py-4 border-b border-neutral-200 dark:border-neutral-700">
-              <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">Go back to previous step?</h3>
+              <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">Confirm Exit</h3>
             </div>
             <div className="px-6 py-4">
-              <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-2">
-                If you go back and make changes to investor data, email selections, or any other information, the summary results will be recalculated.
+              <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-1">
+                Are you sure you want to exit?
               </p>
               <p className="text-sm text-neutral-500 dark:text-neutral-500">
-                This may affect the counts of existing investors, new investors with emails, and new investors without emails shown in the summary.
+                Exiting will cancel the entire process and all progress will be lost.
               </p>
             </div>
             <div className="px-6 py-4 flex items-center justify-end gap-3 border-t border-neutral-200 dark:border-neutral-700">
               <button
-                onClick={() => setShowBackFromSummaryWarning(false)}
+                onClick={handleCancelExit}
                 className="px-4 py-2 text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
               >
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  setShowBackFromSummaryWarning(false);
-                  handlePrevious();
-                }}
-                className="px-4 py-2 text-sm font-bold bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                onClick={handleConfirmExit}
+                className="px-4 py-2 text-sm font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
               >
-                Go back
+                Exit
               </button>
             </div>
           </div>
@@ -2808,6 +2550,10 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
         <div className="fixed inset-0 z-[60] flex items-center justify-center">
           <div
             className="absolute inset-0 bg-neutral-900/20 dark:bg-black/20"
+            onClick={() => {
+              setShowSaveQuitConfirm(false);
+              setSaveQuitPendingRemaining(0);
+            }}
           />
           <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl max-w-md w-full mx-4 z-50">
             <div className="px-6 py-4 border-b border-neutral-200 dark:border-neutral-700">
@@ -2866,5 +2612,5 @@ const InvestorProcessing: React.FC<InvestorProcessingProps> = ({ sidebarCollapse
   );
 };
 
-export default InvestorProcessing;
+export default AddInvestorModal;
 

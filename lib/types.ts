@@ -112,7 +112,7 @@ export interface ShareholdingsVerificationState {
 }
 
 // @google/genai guidelines: Define a shared ViewType for navigation consistency
-export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders' | 'engagement' | 'documents';
+export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders';
 
 /**
  * Tab filter type for registrations page
@@ -228,48 +228,4 @@ export interface AIAnalysisResult {
   summary: string;
   discrepancies: string[];
   recommendation: string;
-}
-
-/**
- * Verification result for investor database checks
- */
-export interface VerificationResult {
-  existing: Array<{ investor: any; existingData: Shareholder }>;
-  new: any[];
-  stats: { existingCount: number; newCount: number; totalCount: number };
-}
-
-/**
- * Document types for IRO documents
- */
-export type DocumentType = 
-  | 'earnings'
-  | 'dividend'
-  | 'disclosure'
-  | 'press_release'
-  | 'agm'
-  | 'governance'
-  | 'esg'
-  | 'presentation'
-  | 'silent_period';
-
-/**
- * Document status
- */
-export type DocumentStatus = 'draft' | 'published' | 'archived';
-
-/**
- * Document metadata stored in Firestore
- * Minimal schema: only metadata + summary (no file storage, automation flags computed dynamically)
- */
-export interface Document {
-  id: string;
-  title: string;
-  type: DocumentType;
-  status: DocumentStatus;
-  publishDate: string; // ISO date string
-  createdAt: string; // ISO timestamp
-  updatedAt: string; // ISO timestamp
-  summary: string; // AI-generated summary
-  summaryRegenerationCount?: number; // Number of times summary was regenerated
 }

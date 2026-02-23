@@ -258,6 +258,36 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
         setCurrentStep('PROCESSING');
         return;
       }
+      // If on PROCESSING and processing is complete, move to REVIEW with loading state
+      // Note: Investors are now automatically added, so we can move to REVIEW
+      if (currentStep === 'PROCESSING' && parseSuccess && extractedInvestors.length > 0 && investorsAdded) {
+        // Show loading state with progress line
+        setIsNavigatingToReview(true);
+        setNavigationProgress(0);
+        
+        // Animate progress bar
+        const progressInterval = setInterval(() => {
+          setNavigationProgress(prev => {
+            if (prev >= 100) {
+              clearInterval(progressInterval);
+              return 100;
+            }
+            return prev + 10;
+          });
+        }, 50);
+        
+        // Wait for progress animation, then navigate
+        setTimeout(() => {
+          clearInterval(progressInterval);
+          setNavigationProgress(100);
+          setTimeout(() => {
+            setIsNavigatingToReview(false);
+            setNavigationProgress(0);
+            setCurrentStep('REVIEW');
+          }, 200);
+        }, 500);
+        return;
+      }
       if (currentStep === 'REVIEW') {
         // Allow previewing the next processes even if the review forms are still empty
         const isReviewEmpty =
@@ -399,13 +429,15 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       setLoadingMessageIndex(prev => (prev + 1) % loadingMessages.length);
     }, 1500); // Change message every 1.5 seconds
 
+    const startTime = Date.now();
+    const MIN_LOADING_DURATION = 10000; // 10 seconds minimum
+
     // Update progress bar smoothly
     const progressInterval = setInterval(() => {
-      setProcessingProgress(prev => {
-        if (prev >= 95) return 95; // Cap at 95% until processing completes
-        return prev + 2; // Increment progress
-      });
-    }, 100); // Update every 100ms
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(95, (elapsed / MIN_LOADING_DURATION) * 100); // Cap at 95% until processing completes
+      setProcessingProgress(progress);
+    }, 50); // Update every 50ms for smooth animation
 
     try {
       // Parse CSV file directly
@@ -444,8 +476,15 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
         return;
       }
 
+      // Ensure minimum loading duration of 10 seconds
+      const elapsed = Date.now() - startTime;
+      if (elapsed < MIN_LOADING_DURATION) {
+        await sleep(MIN_LOADING_DURATION - elapsed);
+      }
+
       // Complete the progress bar to 100%
       setProcessingProgress(100);
+      await sleep(200); // Brief pause to show 100%
 
       clearInterval(loadingMessageInterval);
       clearInterval(progressInterval);
@@ -461,53 +500,17 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       setInvestorForms([]);
       setExpandedForms(new Set());
       
-      // Create forms immediately with extracted data for preview
-      const newForms: InvestorFormData[] = extractionResult.investors.map((investor) => {
-        const form = createNewInvestorForm();
-        // Filter holding ID to numbers only, max 6 characters
-        const filteredHoldingId = (investor.holdingId || '').replace(/\D/g, '').slice(0, 6);
-        
-        return {
-          ...form,
-          investorName: investor.investorName || '',
-          holdingId: filteredHoldingId,
-          email: investor.email || '',
-          phone: investor.phone || '',
-          ownershipPercent: investor.ownershipPercent || '',
-          country: investor.country || '',
-          coAddress: investor.coAddress || '',
-          // Normalize account type to match dropdown options (case-insensitive)
-          accountType: (() => {
-            const accountType = (investor.accountType || '').trim();
-            if (!accountType) return '';
-            const upperType = accountType.toUpperCase();
-            // Map common variations to standard values
-            const typeMap: { [key: string]: string } = {
-              'INDIVIDUAL': 'INDIVIDUAL',
-              'JOINT': 'JOINT',
-              'TRUST': 'TRUST',
-              'CORPORATE': 'CORPORATE',
-              'ORDINARY': 'ORDINARY',
-              'NOMINEE': 'NOMINEE',
-            };
-            // Return mapped value if found, otherwise return original (will show as custom option)
-            return typeMap[upperType] || accountType;
-          })(),
-          holdings: investor.holdings || '',
-          stake: investor.stake || '',
-        };
-      });
-      
-      // Set all forms at once with data for preview
-      setInvestorForms(newForms);
-      // Forms are collapsed by default - user must expand to see details
-      setExpandedForms(new Set());
-      // Forms are read-only by default - user must click Edit to make changes
-      setEditableForms(new Set());
-      
       setIsProcessing(false);
       setParseSuccess(true);
       setShowProcessingSuccess(true);
+      
+      // Show success message for 3 seconds
+      await sleep(3000);
+      
+      setShowProcessingSuccess(false);
+      
+      // Automatically trigger handleAddAllInvestors - NO AWAIT, runs synchronously
+      handleAddAllInvestors();
       
     } catch (error: any) {
       clearInterval(loadingMessageInterval);
@@ -706,7 +709,6 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
   };
   
   // Handle adding all investors at once - immediately create forms with data (no animation)
-  // This is for preview only - does NOT save to database
   const handleAddAllInvestors = () => {
     // Ensure autofill state is false
     setIsAutofilling(false);
@@ -714,8 +716,13 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     setAutofillActiveFormId(null);
     setAutofillActiveField(null);
     
-    setInvestorsAdded(true); // Mark that investors have been added to forms
+    setInvestorsAdded(true); // Mark that investors have been added
     
+    // Move to REVIEW step
+    if (uploadType === 'batch') {
+      setCurrentStep('REVIEW');
+    }
+
     // Create forms immediately with all extracted data - NO ANIMATION, NO DELAYS
     const newForms: InvestorFormData[] = extractedInvestors.map((investor, index) => {
       const form = createNewInvestorForm();
@@ -1063,6 +1070,12 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       {!privacyNoticeAccepted && (
         <div 
           className={`fixed inset-0 z-[60] flex items-center justify-center ${sidebarWidthClass} transition-all duration-300`}
+          onClick={(e) => {
+            // Close when clicking outside the modal
+            if (e.target === e.currentTarget) {
+              onClose();
+            }
+          }}
         >
           <div 
             className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col"
@@ -1266,7 +1279,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       
       {/* Modal container - only show when privacy notice is accepted */}
       {privacyNoticeAccepted && (
-        <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl w-full max-w-7xl max-h-[90vh] overflow-hidden flex flex-col z-50">
+        <div className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col z-50">
           {/* Header */}
           <div className="px-8 py-6 flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700">
             <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100">Investor details</h2>
@@ -1591,376 +1604,390 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                 </div>
               )}
               
-              {/* Header with Add Investor Button */}
-              {(uploadType === 'batch' || uploadType === 'individual') && (
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-neutral-600 dark:text-neutral-400">
-                    {investorForms.length > 0 && (
-                      <span className="font-medium">
-                        {investorForms.length} investor{investorForms.length !== 1 ? 's' : ''} ready for review
-                      </span>
-                    )}
+              {/* Batch flow: "Found X" + "Add All" now happens in PROCESSING step */}
+
+              {/* Investor Forms List */}
+              <div className="space-y-4">
+                {/* Summary when forms exist but are collapsed */}
+                {investorForms.length > 0 && expandedForms.size === 0 && (
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-bold text-blue-900 dark:text-blue-300">
+                          {investorForms.length} investor{investorForms.length !== 1 ? 's' : ''} ready for review
+                        </p>
+                        <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">
+                          Click on any investor card below to expand and review details
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          // Expand all forms
+                          setExpandedForms(new Set(investorForms.map(f => f.id)));
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        Expand All
+                      </button>
+                    </div>
                   </div>
-                  <div className="relative group">
-                    <button
-                      onClick={handleAddInvestor}
-                      className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
-                    >
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                    </button>
-                    {/* Tooltip */}
-                    <div className="absolute right-0 top-full mt-2 px-3 py-2 bg-neutral-900 dark:bg-neutral-700 text-white text-xs font-medium rounded-lg shadow-xl whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
-                      Add investor
-                      <div className="absolute bottom-full right-4">
-                        <div className="border-4 border-transparent border-b-neutral-900 dark:border-b-neutral-700"></div>
+                )}
+
+                {/* Header with Add Investor Button - allow manual adding in both batch + individual */}
+                {(uploadType === 'batch' || uploadType === 'individual') && (
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-neutral-600 dark:text-neutral-400">
+                      {investorForms.length > 0 && (
+                        <span className="font-medium">
+                          {investorForms.length} investor{investorForms.length !== 1 ? 's' : ''} added
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative group">
+                      <button
+                        onClick={handleAddInvestor}
+                        className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
+                      >
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                      </button>
+                      {/* Tooltip */}
+                      <div className="absolute right-0 top-full mt-2 px-3 py-2 bg-neutral-900 dark:bg-neutral-700 text-white text-xs font-medium rounded-lg shadow-xl whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
+                        Add investor
+                        <div className="absolute bottom-full right-4">
+                          <div className="border-4 border-transparent border-b-neutral-900 dark:border-b-neutral-700"></div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Empty state */}
-              {investorForms.length === 0 && (
-                <div className="text-center py-12">
-                  <svg className="w-16 h-16 mx-auto text-neutral-400 dark:text-neutral-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400 mb-2">
-                    No investors added yet
-                  </p>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-500">
-                    Click the + button above to add an investor manually
-                  </p>
-                </div>
-              )}
-
-              {/* Investors Table */}
-              {investorForms.length > 0 && (
-                <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-neutral-50 dark:bg-neutral-900/50 border-b border-neutral-200 dark:border-neutral-700">
-                        <tr>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
-                            Investor Name <span className="text-red-500">*</span>
-                          </th>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
-                            Registration ID <span className="text-red-500">*</span>
-                          </th>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
-                            Email
-                          </th>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
-                            Phone
-                          </th>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
-                            Ownership %
-                          </th>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
-                            Country
-                          </th>
-                          <th className="px-6 py-4 text-left text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">
-                            Account Type
-                          </th>
-                          <th className="px-6 py-4 text-center text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider sticky right-0 bg-neutral-50 dark:bg-neutral-900/50">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-neutral-200 dark:divide-neutral-700">
-                        {investorForms.map((form, index) => {
-                          const isEditable = editableForms.has(form.id);
-                          
-                          return (
-                            <tr
-                              key={form.id}
-                              className={`hover:bg-neutral-50 dark:hover:bg-neutral-700/30 transition-colors ${
-                                isEditable ? 'bg-purple-50 dark:bg-purple-900/20' : ''
-                              }`}
-                            >
-                              {/* Investor Name */}
-                              <td className="px-6 py-4">
-                                {isEditable ? (
-                                  <input
-                                    type="text"
-                                    value={form.investorName}
-                                    onChange={(e) => handleFieldChange(form.id, 'investorName', e.target.value)}
-                                    className="w-full px-2 py-1.5 text-sm border rounded border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    placeholder="Enter investor name"
-                                  />
-                                ) : (
-                                  <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                                    {form.investorName || '-'}
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* Registration ID */}
-                              <td className="px-6 py-4">
-                                {isEditable ? (
-                                  <div className="relative">
-                                    <input
-                                      type="text"
-                                      inputMode="numeric"
-                                      pattern="[0-9]*"
-                                      maxLength={6}
-                                      value={form.holdingId}
-                                      onChange={(e) => handleHoldingIdChange(form.id, e.target.value)}
-                                      className={`w-full px-2 py-1.5 text-sm border rounded bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 ${
-                                        registrationIdErrors.has(form.id)
-                                          ? 'border-red-500 focus:ring-red-500'
-                                          : 'border-neutral-200 dark:border-neutral-600 focus:ring-purple-500'
-                                      }`}
-                                      placeholder="6 digits"
-                                    />
-                                  </div>
-                                ) : (
-                                  <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                                    {form.holdingId || '-'}
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* Email */}
-                              <td className="px-6 py-4">
-                                {isEditable ? (
-                                  <input
-                                    type="email"
-                                    value={form.email}
-                                    onChange={(e) => handleFieldChange(form.id, 'email', e.target.value)}
-                                    className="w-full px-2 py-1.5 text-sm border rounded border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    placeholder="Enter email"
-                                  />
-                                ) : (
-                                  <span className="text-sm text-neutral-700 dark:text-neutral-300">
-                                    {form.email || '-'}
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* Phone */}
-                              <td className="px-6 py-4">
-                                {isEditable ? (
-                                  <input
-                                    type="tel"
-                                    value={form.phone}
-                                    onChange={(e) => handleFieldChange(form.id, 'phone', e.target.value)}
-                                    className="w-full px-2 py-1.5 text-sm border rounded border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    placeholder="Enter phone"
-                                  />
-                                ) : (
-                                  <span className="text-sm text-neutral-700 dark:text-neutral-300">
-                                    {form.phone || '-'}
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* Ownership %} */}
-                              <td className="px-6 py-4">
-                                {isEditable ? (
-                                  <input
-                                    type="text"
-                                    value={form.ownershipPercent}
-                                    onChange={(e) => handleFieldChange(form.id, 'ownershipPercent', e.target.value)}
-                                    className="w-full px-2 py-1.5 text-sm border rounded border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    placeholder="%"
-                                  />
-                                ) : (
-                                  <span className="text-sm text-neutral-700 dark:text-neutral-300">
-                                    {form.ownershipPercent || '-'}
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* Country */}
-                              <td className="px-6 py-4">
-                                {isEditable ? (
-                                  <input
-                                    type="text"
-                                    value={form.country}
-                                    onChange={(e) => handleFieldChange(form.id, 'country', e.target.value)}
-                                    className="w-full px-2 py-1.5 text-sm border rounded border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    placeholder="Enter country"
-                                  />
-                                ) : (
-                                  <span className="text-sm text-neutral-700 dark:text-neutral-300">
-                                    {form.country || '-'}
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* Account Type */}
-                              <td className="px-6 py-4">
-                                {isEditable ? (
-                                  <select
-                                    value={form.accountType}
-                                    onChange={(e) => handleFieldChange(form.id, 'accountType', e.target.value)}
-                                    className="w-full px-2 py-1.5 text-sm border rounded border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                  >
-                                    <option value="">Select type</option>
-                                    <option value="INDIVIDUAL">Individual</option>
-                                    <option value="JOINT">Joint</option>
-                                    <option value="TRUST">Trust</option>
-                                    <option value="CORPORATE">Corporate</option>
-                                    <option value="ORDINARY">Ordinary</option>
-                                    <option value="NOMINEE">Nominee</option>
-                                    {form.accountType && 
-                                     form.accountType.trim() !== '' &&
-                                     !['INDIVIDUAL', 'JOINT', 'TRUST', 'CORPORATE', 'ORDINARY', 'NOMINEE'].some(
-                                       opt => opt.toLowerCase() === form.accountType.trim().toUpperCase()
-                                     ) && (
-                                      <option value={form.accountType}>{form.accountType}</option>
-                                    )}
-                                  </select>
-                                ) : (
-                                  <span className="text-sm text-neutral-700 dark:text-neutral-300">
-                                    {form.accountType || '-'}
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* Actions */}
-                              <td className="px-6 py-4 sticky right-0 bg-inherit">
-                                <div className="flex items-center justify-center gap-2">
-                                  <button
-                                    onClick={() => handleToggleEdit(form.id)}
-                                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                                      isEditable
-                                        ? 'bg-purple-600 text-white hover:bg-purple-700'
-                                        : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-600'
-                                    }`}
-                                    title={isEditable ? 'Save changes' : 'Edit row'}
-                                  >
-                                    {isEditable ? 'Save' : 'Edit'}
-                                  </button>
-                                  <button
-                                    onClick={() => handleRemoveInvestor(form.id)}
-                                    className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors group"
-                                    title="Remove investor"
-                                  >
-                                    <svg className="w-4 h-4 text-neutral-400 dark:text-neutral-500 group-hover:text-red-600 dark:group-hover:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      const newExpanded = new Set(expandedForms);
-                                      if (expandedForms.has(form.id)) {
-                                        newExpanded.delete(form.id);
-                                      } else {
-                                        newExpanded.add(form.id);
-                                      }
-                                      setExpandedForms(newExpanded);
-                                    }}
-                                    className="p-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-full transition-colors group"
-                                    title={expandedForms.has(form.id) ? 'Hide details' : 'Show details'}
-                                  >
-                                    <svg 
-                                      className={`w-4 h-4 text-neutral-400 dark:text-neutral-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-transform ${
-                                        expandedForms.has(form.id) ? 'rotate-180' : ''
-                                      }`}
-                                      fill="none" 
-                                      stroke="currentColor" 
-                                      viewBox="0 0 24 24"
-                                    >
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                {/* Empty state */}
+                {investorForms.length === 0 && (
+                  <div className="text-center py-12">
+                    <svg className="w-16 h-16 mx-auto text-neutral-400 dark:text-neutral-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400 mb-2">
+                      No investors added yet
+                    </p>
+                    <p className="text-xs text-neutral-500 dark:text-neutral-500">
+                      Click the + button above to add an investor manually
+                    </p>
                   </div>
+                )}
 
-                  {/* Additional fields in expandable section */}
-                  {investorForms.some(form => expandedForms.has(form.id)) && (
-                    <div className="border-t border-neutral-200 dark:border-neutral-700 p-6 space-y-4">
-                      {investorForms
-                        .filter(form => expandedForms.has(form.id))
-                        .map((form) => {
-                          const isEditable = editableForms.has(form.id);
-                          return (
-                            <div key={form.id} className="grid grid-cols-2 gap-4 p-4 bg-neutral-50 dark:bg-neutral-900/30 rounded-lg">
-                              <div>
-                                <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                  CO ADDRESS
-                                </label>
-                                {isEditable ? (
-                                  <input
-                                    type="text"
-                                    value={form.coAddress}
-                                    onChange={(e) => handleFieldChange(form.id, 'coAddress', e.target.value)}
-                                    className="w-full px-3 py-2 text-sm border rounded border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    placeholder="Enter company address"
-                                  />
-                                ) : (
-                                  <span className="text-sm text-neutral-700 dark:text-neutral-300">
-                                    {form.coAddress || '-'}
-                                  </span>
+                {investorForms.map((form, index) => {
+                  const isExpanded = expandedForms.has(form.id);
+                  const isEditable = editableForms.has(form.id);
+                  const displayName = form.investorName || `Investor ${index + 1}`;
+                  
+                  return (
+                    <div
+                      key={form.id}
+                      ref={(el) => { formContainerRefs.current[form.id] = el; }}
+                      className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden transition-colors"
+                    >
+                      {/* Collapsible Header */}
+                      <div 
+                        className="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors"
+                        onClick={() => handleToggleForm(form.id)}
+                      >
+                        <div className="flex items-center gap-3 flex-1">
+                          <svg 
+                            className={`w-5 h-5 text-neutral-400 dark:text-neutral-500 transition-transform ${isExpanded ? 'transform rotate-180' : ''}`}
+                            fill="none" 
+                            stroke="currentColor" 
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                          <div className="flex-1">
+                            <h3 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{displayName}</h3>
+                            {form.holdingId && (
+                              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">ID: {form.holdingId.length > 6 ? form.holdingId.slice(-6) : form.holdingId}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleEdit(form.id);
+                            }}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                              isEditable
+                                ? 'bg-purple-600 text-white hover:bg-purple-700'
+                                : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-600'
+                            }`}
+                            title={isEditable ? 'Save changes' : 'Edit form'}
+                          >
+                            {isEditable ? 'Save' : 'Edit'}
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveInvestor(form.id);
+                            }}
+                            className="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors group"
+                            title="Remove investor"
+                          >
+                            <svg className="w-4 h-4 text-neutral-400 dark:text-neutral-500 group-hover:text-red-600 dark:group-hover:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Form Content */}
+                      {isExpanded && (
+                        <div className="px-6 py-6 border-t border-neutral-100 dark:border-neutral-700">
+                          <div className="grid grid-cols-2 gap-6">
+                            {/* Investor Name */}
+                            <div className="relative">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
+                                INVESTOR NAME <span className="text-red-500">*</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={form.investorName}
+                                onChange={(e) => handleFieldChange(form.id, 'investorName', e.target.value)}
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                }`}
+                                placeholder="Enter investor name"
+                              />
+                            </div>
+
+                            {/* Registration ID */}
+                            <div className="relative">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
+                                REGISTRATION ID <span className="text-red-500">*</span>
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  maxLength={6}
+                                  value={form.holdingId}
+                                  onChange={(e) => handleHoldingIdChange(form.id, e.target.value)}
+                                  disabled={!isEditable}
+                                  readOnly={!isEditable}
+                                  className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                    registrationIdErrors.has(form.id)
+                                      ? 'border-red-500 dark:border-red-500 focus:ring-red-500 focus:border-red-500 bg-red-50 dark:bg-red-900/20 text-neutral-900 dark:text-neutral-100'
+                                      : isEditable
+                                      ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                      : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                  }`}
+                                  placeholder="Enter last 6 digits of registration ID"
+                                />
+                                {/* Tooltip for invalid characters */}
+                                {registrationIdErrors.has(form.id) && registrationIdErrors.get(form.id)?.hasInvalidChars && (
+                                  <div className="absolute z-50 left-0 top-full mt-1 w-64 p-3 bg-neutral-900 dark:bg-neutral-800 text-white text-xs rounded-lg shadow-xl pointer-events-none">
+                                    <p className="font-bold mb-1">Letters and special characters are not allowed</p>
+                                    <p className="text-neutral-300 dark:text-neutral-400">
+                                      Examples of invalid characters: <span className="font-mono text-red-400">ABC, @#$%, !-+</span>
+                                    </p>
+                                    <p className="text-neutral-300 dark:text-neutral-400 mt-1">
+                                      Only numbers (0-9) are allowed. Registration ID must be exactly 6 digits.
+                                    </p>
+                                    {/* Tooltip arrow */}
+                                    <div className="absolute bottom-full left-4">
+                                      <div className="border-4 border-transparent border-b-neutral-900 dark:border-b-neutral-800"></div>
+                                    </div>
+                                  </div>
                                 )}
-                              </div>
-                              <div>
-                                <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                  HOLDINGS
-                                </label>
-                                {isEditable ? (
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={form.holdings}
-                                    onChange={(e) => handleFieldChange(form.id, 'holdings', e.target.value)}
-                                    className="w-full px-3 py-2 text-sm border rounded border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    placeholder="Enter holdings"
-                                  />
-                                ) : (
-                                  <span className="text-sm text-neutral-700 dark:text-neutral-300">
-                                    {form.holdings || '-'}
-                                  </span>
-                                )}
-                              </div>
-                              <div>
-                                <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
-                                  STAKE %
-                                </label>
-                                {isEditable ? (
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={form.stake}
-                                    onChange={(e) => handleFieldChange(form.id, 'stake', e.target.value)}
-                                    className="w-full px-3 py-2 text-sm border rounded border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    placeholder="Enter stake percentage"
-                                  />
-                                ) : (
-                                  <span className="text-sm text-neutral-700 dark:text-neutral-300">
-                                    {form.stake || '-'}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-end">
-                                <button
-                                  onClick={() => {
-                                    const newExpanded = new Set(expandedForms);
-                                    newExpanded.delete(form.id);
-                                    setExpandedForms(newExpanded);
-                                  }}
-                                  className="text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300"
-                                >
-                                  Collapse details
-                                </button>
                               </div>
                             </div>
-                          );
-                        })}
+
+                            {/* Email */}
+                            <div className="col-span-2 relative">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
+                                EMAIL {extractedInvestors.length === 0 && <span className="text-red-500">*</span>}
+                              </label>
+                              <input
+                                type="email"
+                                value={form.email}
+                                onChange={(e) => handleFieldChange(form.id, 'email', e.target.value)}
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                }`}
+                                placeholder="Enter email address"
+                              />
+                            </div>
+
+                            {/* Phone */}
+                            <div className="relative">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
+                                PHONE
+                              </label>
+                              <input
+                                type="tel"
+                                value={form.phone}
+                                onChange={(e) => handleFieldChange(form.id, 'phone', e.target.value)}
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                }`}
+                                placeholder="Enter phone number"
+                              />
+                            </div>
+
+                            {/* Ownership %} */}
+                            <div className="relative">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
+                                OWNERSHIP %
+                              </label>
+                              <input
+                                type="text"
+                                value={form.ownershipPercent}
+                                onChange={(e) => handleFieldChange(form.id, 'ownershipPercent', e.target.value)}
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                }`}
+                                placeholder="Enter ownership percentage"
+                              />
+                            </div>
+
+                            {/* Country */}
+                            <div className="relative">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
+                                COUNTRY
+                              </label>
+                              <input
+                                type="text"
+                                value={form.country}
+                                onChange={(e) => handleFieldChange(form.id, 'country', e.target.value)}
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                }`}
+                                placeholder="Enter country"
+                              />
+                            </div>
+
+                            {/* CO Address */}
+                            <div className="col-span-2 relative">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
+                                CO ADDRESS
+                              </label>
+                              <input
+                                type="text"
+                                value={form.coAddress}
+                                onChange={(e) => handleFieldChange(form.id, 'coAddress', e.target.value)}
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                }`}
+                                placeholder="Enter company address"
+                              />
+                            </div>
+
+                            {/* Account Type */}
+                            <div className="relative">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
+                                TYPE OF ACCOUNT
+                              </label>
+                              <select
+                                value={form.accountType}
+                                onChange={(e) => handleFieldChange(form.id, 'accountType', e.target.value)}
+                                disabled={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                }`}
+                              >
+                                <option value="">Select account type</option>
+                                <option value="INDIVIDUAL">Individual</option>
+                                <option value="JOINT">Joint</option>
+                                <option value="TRUST">Trust</option>
+                                <option value="CORPORATE">Corporate</option>
+                                <option value="ORDINARY">Ordinary</option>
+                                <option value="NOMINEE">Nominee</option>
+                                {/* Show current value if it's not in the predefined list (case-insensitive check) */}
+                                {form.accountType && 
+                                 form.accountType.trim() !== '' &&
+                                 !['INDIVIDUAL', 'JOINT', 'TRUST', 'CORPORATE', 'ORDINARY', 'NOMINEE'].some(
+                                   opt => opt.toLowerCase() === form.accountType.trim().toUpperCase()
+                                 ) && (
+                                  <option value={form.accountType}>{form.accountType}</option>
+                                )}
+                              </select>
+                            </div>
+
+                            {/* Holdings */}
+                            <div className="relative">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
+                                HOLDINGS
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={form.holdings}
+                                onChange={(e) => handleFieldChange(form.id, 'holdings', e.target.value)}
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                }`}
+                                placeholder="Enter holdings"
+                              />
+                            </div>
+
+                            {/* Stake */}
+                            <div className="relative">
+                              <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
+                                STAKE %
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={form.stake}
+                                onChange={(e) => handleFieldChange(form.id, 'stake', e.target.value)}
+                                disabled={!isEditable}
+                                readOnly={!isEditable}
+                                className={`w-full px-4 py-3 border rounded-lg text-sm font-medium transition-all ${
+                                  isEditable
+                                    ? 'bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent border-neutral-200 dark:border-neutral-600'
+                                    : 'bg-neutral-50 dark:bg-neutral-900/30 text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700 cursor-default'
+                                }`}
+                                placeholder="Enter stake percentage"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              )}
+                  );
+                })}
+              </div>
             </div>
           )}
 
