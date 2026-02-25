@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { applicantService } from '../lib/firestore-service';
-import { RegistrationStatus } from '../lib/types';
+import { Applicant, RegistrationStatus } from '../lib/types';
 import Tooltip from './Tooltip';
 
 interface EngagementData {
@@ -14,7 +13,12 @@ interface EngagementData {
   notificationsEnabled: boolean;
 }
 
-const EngagementPage: React.FC = () => {
+interface EngagementPageProps {
+  applicants: Applicant[];
+  applicantsLoading: boolean;
+}
+
+const EngagementPage: React.FC<EngagementPageProps> = ({ applicants, applicantsLoading }) => {
   const [engagementData, setEngagementData] = useState<EngagementData[]>([]);
   const [loadingEngagement, setLoadingEngagement] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -25,11 +29,9 @@ const EngagementPage: React.FC = () => {
 
   // Fetch engagement data
   useEffect(() => {
-    const fetchEngagement = async () => {
+    const buildEngagement = () => {
       setLoadingEngagement(true);
       try {
-        const applicants = await applicantService.getAll();
-        
         const engagement = applicants.map((applicant) => {
           // Determine verification status
           let verificationStatus = 'Unverified';
@@ -83,8 +85,12 @@ const EngagementPage: React.FC = () => {
       }
     };
 
-    fetchEngagement();
-  }, []);
+    if (applicantsLoading) {
+      setLoadingEngagement(true);
+      return;
+    }
+    buildEngagement();
+  }, [applicants, applicantsLoading]);
 
   // Filter and sort function for engagement data
   const filterEngagementData = (data: EngagementData[]): EngagementData[] => {

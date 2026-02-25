@@ -113,29 +113,41 @@ const applicantToFirestore = (applicant: Applicant): DocumentData => {
 
 /**
  * Convert Firestore document to Applicant
- * Flexible conversion that handles whatever structure the frontend sends
+ * Flexible conversion that handles whatever structure the frontend sends.
+ * Supports field-name variations so documents created by different frontends
+ * (investor registration page, IRO dashboard, email workflow) all map correctly.
  */
 const firestoreToApplicant = (doc: QueryDocumentSnapshot<DocumentData>): Applicant => {
   const data = doc.data();
   
   // Handle submissionDate - can be Timestamp, Date, or string
+  // Also accept common alternatives: createdAt, created_at, registeredAt, signedUpAt
   let submissionDate = '';
-  if (data.submissionDate) {
-    submissionDate = timestampToString(data.submissionDate);
-  } else if (data.submissionDate === undefined) {
-    // If missing, use current date as fallback
+  const rawDate = data.submissionDate || data.createdAt || data.created_at
+    || data.registeredAt || data.signedUpAt;
+  if (rawDate) {
+    submissionDate = timestampToString(rawDate);
+  } else {
+    // If no date field at all, use current date as fallback
     submissionDate = new Date().toISOString().split('T')[0];
   }
+
+  // Build fullName from whatever fields are available
+  const fullName = data.fullName
+    || data.name
+    || data.displayName
+    || [data.firstName, data.lastName].filter(Boolean).join(' ')
+    || 'Unknown';
   
   // Return with all data from Firestore, ensuring required fields have defaults
   return {
     id: doc.id,
-    fullName: data.fullName || data.name || 'Unknown',
+    fullName,
     email: data.email || '',
-    phoneNumber: data.phoneNumber || data.phone || undefined,
-    location: data.location || undefined,
+    phoneNumber: data.phoneNumber || data.phone || data.mobile || undefined,
+    location: data.location || data.country || data.address || undefined,
     submissionDate,
-    lastActive: data.lastActive || 'Just now',
+    lastActive: data.lastActive || data.lastLogin || 'Just now',
     status: data.status || RegistrationStatus.PENDING,
     idDocumentUrl: data.idDocumentUrl || data.idDocument || '',
     taxDocumentUrl: data.taxDocumentUrl || data.taxDocument || '',
@@ -157,17 +169,19 @@ const firestoreToApplicant = (doc: QueryDocumentSnapshot<DocumentData>): Applica
     linkClickedAt: data.linkClickedAt || undefined,
     linkClickedCount: data.linkClickedCount || undefined,
     accountClaimedAt: data.accountClaimedAt || undefined,
-    profilePictureUrl: data.profilePictureUrl || undefined,
+    profilePictureUrl: data.profilePictureUrl || data.photoURL || undefined,
     // Include any additional fields the frontend might send
     ...Object.fromEntries(
       Object.entries(data).filter(([key]) => 
-        !['fullName', 'name', 'email', 'phoneNumber', 'phone', 'location', 
-          'submissionDate', 'lastActive', 'status', 'idDocumentUrl', 'idDocument',
+        !['fullName', 'name', 'displayName', 'firstName', 'lastName',
+          'email', 'phoneNumber', 'phone', 'mobile', 'location', 'country', 'address',
+          'submissionDate', 'createdAt', 'created_at', 'registeredAt', 'signedUpAt',
+          'lastActive', 'lastLogin', 'status', 'idDocumentUrl', 'idDocument',
           'taxDocumentUrl', 'taxDocument', 'holdingsRecord', 'emailOtpVerification',
           'shareholdingsVerification', 'workflowStage', 'accountStatus', 'systemStatus',
           'statusInFrontend', 'isPreVerified', 'registrationId', 'emailGeneratedAt',
           'emailSentAt', 'emailOpenedAt', 'emailOpenedCount', 'linkClickedAt',
-          'linkClickedCount', 'accountClaimedAt'].includes(key)
+          'linkClickedCount', 'accountClaimedAt', 'profilePictureUrl', 'photoURL'].includes(key)
       )
     ),
   } as Applicant;
@@ -241,6 +255,10 @@ export const applicantService = {
   /**
    * Get all applicants with optional filters
    * Flexible query that handles missing fields gracefully
+   * NOTE: We intentionally do NOT use orderBy('submissionDate') in the Firestore query
+   * because Firestore silently excludes documents that lack the ordered field.
+   * Frontend-registered applicants may not have submissionDate, so we fetch ALL docs
+   * and sort client-side to ensure no documents are missed.
    */
   async getAll(filters?: {
     status?: RegistrationStatus;
@@ -253,14 +271,8 @@ export const applicantService = {
         constraints.push(where('status', '==', filters.status));
       }
       
-      // Try to order by submissionDate, but don't fail if field is missing
-      // Firestore requires an index for orderBy, so we'll handle errors gracefully
-      try {
-        constraints.push(orderBy('submissionDate', 'desc'));
-      } catch (e) {
-        // If orderBy fails (e.g., missing index), continue without it
-        console.warn('Could not order by submissionDate, continuing without ordering:', e);
-      }
+      // DO NOT use orderBy('submissionDate') — Firestore silently drops docs
+      // that lack the ordered field. Sort client-side instead.
       
       if (filters?.limitCount) {
         constraints.push(limit(filters.limitCount));
@@ -269,9 +281,16 @@ export const applicantService = {
       const q = query(collection(db, COLLECTIONS.APPLICANTS), ...constraints);
       const querySnapshot = await getDocs(q);
       
-      const firestoreApplicants = querySnapshot.docs.map(firestoreToApplicant);
+      let firestoreApplicants = querySnapshot.docs.map(firestoreToApplicant);
       
-      // If Firestore is empty, use mock data as fallback
+      // Sort client-side by submissionDate descending (most recent first)
+      firestoreApplicants.sort((a, b) => {
+        const dateA = a.submissionDate ? new Date(a.submissionDate).getTime() : 0;
+        const dateB = b.submissionDate ? new Date(b.submissionDate).getTime() : 0;
+        return dateB - dateA;
+      });
+      
+      // Only use mock data if Firestore returned nothing (true empty collection)
       if (firestoreApplicants.length === 0) {
         console.log('No applicants in Firestore, using mock data as fallback');
         let mockData = MOCK_APPLICANTS;
@@ -499,6 +518,11 @@ export const applicantService = {
    * Subscribe to real-time updates for all applicants
    * Returns an unsubscribe function
    * Flexible subscription that handles whatever data structure the frontend sends
+   * 
+   * NOTE: We intentionally do NOT use orderBy('submissionDate') in the Firestore query
+   * because Firestore silently excludes documents that lack the ordered field.
+   * Frontend-registered applicants may not have submissionDate, so we fetch ALL docs
+   * and sort client-side to ensure every document is included in real-time updates.
    */
   subscribeToApplicants(
     callback: (applicants: Applicant[]) => void,
@@ -514,13 +538,9 @@ export const applicantService = {
         constraints.push(where('status', '==', filters.status));
       }
       
-      // Try to order by submissionDate, but handle gracefully if it fails
-      try {
-        constraints.push(orderBy('submissionDate', 'desc'));
-      } catch (e) {
-        // If orderBy fails (e.g., missing index or field), continue without it
-        console.warn('Could not order by submissionDate in subscription, continuing without ordering:', e);
-      }
+      // DO NOT use orderBy('submissionDate') — Firestore silently drops docs
+      // that lack the ordered field (e.g. frontend-registered applicants).
+      // We sort client-side instead after receiving the snapshot.
       
       if (filters?.limitCount) {
         constraints.push(limit(filters.limitCount));
@@ -534,7 +554,14 @@ export const applicantService = {
           // This means the callback will receive an updated array without deleted documents
           const applicants = snapshot.docs.map(firestoreToApplicant);
           
-          // If Firestore is empty, use mock data as fallback
+          // Sort client-side by submissionDate descending (most recent first)
+          applicants.sort((a, b) => {
+            const dateA = a.submissionDate ? new Date(a.submissionDate).getTime() : 0;
+            const dateB = b.submissionDate ? new Date(b.submissionDate).getTime() : 0;
+            return dateB - dateA;
+          });
+          
+          // Only use mock data if the Firestore collection is truly empty
           let finalApplicants = applicants;
           if (applicants.length === 0) {
             console.log('No applicants in Firestore subscription, using mock data as fallback');

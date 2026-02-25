@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MOCK_SHAREHOLDERS } from '../lib/mockShareholders';
 import { MOCK_APPLICANTS } from '../lib/mockApplicants';
-import { shareholderService, applicantService, batchService } from '../lib/firestore-service';
+import { shareholderService, batchService } from '../lib/firestore-service';
 import { Shareholder, Applicant, RegistrationStatus } from '../lib/types';
 import { getWorkflowStatusInternal, getGeneralAccountStatus } from '../lib/shareholdingsVerification';
 import MetricCard from './MetricCard';
@@ -181,12 +181,14 @@ const MOCK_AUDIT_LOGS = [
 
 interface ShareholdersRegistryProps {
   searchQuery: string;
+  applicants: Applicant[];
+  applicantsLoading: boolean;
 }
 
 
 type TabType = 'shareholder' | 'engagement' | 'all-users';
 
-const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery }) => {
+const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery, applicants, applicantsLoading }) => {
   const [isAuditOpen, setIsAuditOpen] = useState(false);
   const [issuer, setIssuer] = useState<Shareholder | null>(null);
   const [loading, setLoading] = useState(true);
@@ -474,8 +476,8 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     const fetchShareholdings = async () => {
       setLoadingShareholders(true);
       try {
-        // Fetch all applicants
-        const allApplicants = await applicantService.getAll();
+        // Use real-time applicants from App.tsx (Firestore subscription)
+        const allApplicants = applicants;
         
         // Shareholder Tab (Verification Actions):
         // - Include pre-verified accounts (pending actions)
@@ -507,9 +509,13 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     };
 
     if (displayTab === 'shareholder') {
+      if (applicantsLoading) {
+        setLoadingShareholders(true);
+        return;
+      }
       fetchShareholdings();
     }
-  }, [displayTab]);
+  }, [displayTab, applicants, applicantsLoading]);
 
 
   // Fetch all users (basic sign-ups without share claims) for All Users tab
@@ -517,8 +523,8 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     const fetchAllUsers = async () => {
       setLoadingAllUsers(true);
       try {
-        // Fetch all applicants
-        const allApplicants = await applicantService.getAll();
+        // Use real-time applicants from App.tsx (Firestore subscription)
+        const allApplicants = applicants;
         
         // All Users Tab: Include pre-verified accounts since they represent 
         // provisioned users ready for claiming/activation, providing a full registration overview.
@@ -552,18 +558,22 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     };
 
     if (displayTab === 'all-users') {
+      if (applicantsLoading) {
+        setLoadingAllUsers(true);
+        return;
+      }
       fetchAllUsers();
     }
-  }, [displayTab]);
+  }, [displayTab, applicants, applicantsLoading]);
 
   // Fetch engagement data for Engagement tab
   useEffect(() => {
     const fetchEngagement = async () => {
       setLoadingEngagement(true);
       try {
-        const applicants = await applicantService.getAll();
+        const applicantsList = applicants;
         
-        const engagement = applicants.map((applicant) => {
+        const engagement = applicantsList.map((applicant) => {
           // Generate detailed engagement activities for this user
           const activities = generateEngagementData(applicant);
           
@@ -647,9 +657,13 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     };
 
     if (displayTab === 'engagement') {
+      if (applicantsLoading) {
+        setLoadingEngagement(true);
+        return;
+      }
       fetchEngagement();
     }
-  }, [displayTab]);
+  }, [displayTab, applicants, applicantsLoading]);
 
   // Calculate issuer metrics
   const totalSharesOutstanding = 25381100; // Fixed value from issuer/registry source

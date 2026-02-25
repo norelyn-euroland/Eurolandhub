@@ -500,10 +500,14 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
             />
           )}
           {view === 'shareholders' && (
-            <ShareholdersRegistry searchQuery={searchQuery} />
+            <ShareholdersRegistry
+              searchQuery={searchQuery}
+              applicants={applicants}
+              applicantsLoading={applicantsLoading}
+            />
           )}
           {view === 'engagement' && (
-            <EngagementPage />
+            <EngagementPage applicants={applicants} applicantsLoading={applicantsLoading} />
           )}
           {view === 'documents' && (
             <DocumentsPage />
