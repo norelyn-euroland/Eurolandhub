@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { accountVerifiedTemplate, replaceTemplateVariables } from '../lib/email-templates.js';
+import { accountRejectedTemplate, replaceTemplateVariables } from '../lib/email-templates.js';
 import { sendEmail } from '../lib/resend-service.js';
 
 /**
- * Account Verified Email
+ * Account Rejected Email
  * Variables expected by template:
  * - {{ first_name }}
  */
@@ -33,12 +33,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  // Replace variables in account verified template
-  const htmlContent = replaceTemplateVariables(accountVerifiedTemplate.html, {
+  // Replace variables in account rejected template
+  const htmlContent = replaceTemplateVariables(accountRejectedTemplate.html, {
     first_name: firstName || '',
   });
 
-  const subject = replaceTemplateVariables(accountVerifiedTemplate.subject, {
+  const subject = replaceTemplateVariables(accountRejectedTemplate.subject, {
     first_name: firstName || '',
   });
 
@@ -47,6 +47,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       to: trimmedEmail,
       subject,
       html: htmlContent,
+      tags: [
+        { name: 'category', value: 'transactional' },
+        { name: 'type', value: 'account-rejected' }
+      ],
     });
 
     if (!result.success) {
@@ -68,9 +72,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 }
-
-
-
-
-
 

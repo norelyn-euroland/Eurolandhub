@@ -1698,6 +1698,426 @@ app.post('/api/send-email-otp', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/resend-email-otp
+ * Resend OTP email verification code (Step 2 of Investors - Holdings Verification Workflow)
+ * This is a convenience endpoint that calls the same logic as /api/send-email-otp
+ * Use this when a user requests to resend their verification code
+ */
+app.post('/api/resend-email-otp', async (req, res) => {
+  try {
+    const resendApiKey = process.env.RESEND_API_KEY;
+    if (!resendApiKey) {
+      res.status(500).json({ error: 'Missing RESEND_API_KEY on server' });
+      return;
+    }
+
+    const { toEmail, firstName } = req.body || {};
+    if (!toEmail) {
+      res.status(400).json({ error: 'toEmail is required' });
+      return;
+    }
+
+    // Generate 6-digit OTP code
+    const generate6DigitCode = () => {
+      const n = Math.floor(Math.random() * 1_000_000);
+      return String(n).padStart(6, '0');
+    };
+
+    const addHoursIso = (fromIso, hours) => {
+      const t = new Date(fromIso).getTime();
+      return new Date(t + hours * 60 * 60 * 1000).toISOString();
+    };
+
+    const issuedAt = new Date().toISOString();
+    const expiresAt = addHoursIso(issuedAt, 1); // 1 hour validity
+    const code = generate6DigitCode();
+
+    // OTP template
+    const otpTemplate = {
+      subject: 'Verify your email address - New Code',
+      html: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <p>Hello {{ first_name }},</p>
+  <p>Your new email verification code is: {{ otp_code }}</p>
+  <p>This code will expire in 1 hour.</p>
+  <p>If you did not request this verification, please ignore this email.</p>
+  <p>Thanks,<br>Euroland Team</p>
+</body>
+</html>`,
+    };
+
+    // Replace variables in template
+    const replaceVariables = (template, vars) => {
+      let result = template;
+      for (const [key, value] of Object.entries(vars)) {
+        result = result.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'gi'), value);
+        result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'gi'), value);
+      }
+      return result;
+    };
+
+    const htmlContent = replaceVariables(otpTemplate.html, {
+      first_name: firstName || '',
+      otp_code: code,
+    });
+
+    const subject = replaceVariables(otpTemplate.subject, {
+      first_name: firstName || '',
+    });
+
+    // Create plain text version
+    const textContent = `Hello ${firstName || ''},\n\nYour new email verification code is: ${code}\n\nThis code will expire in 1 hour.\n\nIf you did not request this verification, please ignore this email.\n\nThanks,\nEuroland Team`;
+
+    // Get sender from environment
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'norelyn.golingan@eirl.ink';
+    const fromName = process.env.RESEND_FROM_NAME || 'EurolandHUB';
+    const from = `${fromName} <${fromEmail}>`;
+
+    // Initialize Resend
+    const resend = new Resend(resendApiKey);
+
+    const { data, error } = await resend.emails.send({
+      from,
+      to: String(toEmail).trim(),
+      subject,
+      html: htmlContent,
+      text: textContent,
+      reply_to: fromEmail,
+      tags: [
+        { name: 'category', value: 'transactional' },
+        { name: 'type', value: 'otp-resend' }
+      ],
+      headers: {
+        'List-Unsubscribe': `<mailto:${fromEmail}?subject=unsubscribe>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
+      }
+    });
+
+    if (error) {
+      console.error('Resend OTP resend email failed:', error);
+      res.status(502).json({
+        error: 'Resend send failed',
+        details: typeof error === 'string' ? error : JSON.stringify(error)
+      });
+      return;
+    }
+
+    console.log('OTP resend email sent successfully:', {
+      messageId: data?.id,
+      toEmail: String(toEmail).trim(),
+      code: code // Log for testing purposes
+    });
+
+    res.status(200).json({
+      ok: true,
+      issuedAt,
+      expiresAt,
+      // NOTE: In production, do NOT return the code
+      code: code // Only for testing
+    });
+  } catch (e) {
+    console.error('Error resending OTP email:', e);
+    res.status(500).json({ error: 'Unexpected error sending email', detail: String(e?.message ?? e) });
+  }
+});
+
+/**
+ * POST /api/send-account-verified
+ * Local dev implementation of the Vercel serverless function in `api/send-account-verified.ts`.
+ * Sends email notification when IRO approves an applicant's holdings verification (Step 6: Verified Account).
+ */
+app.post('/api/send-account-verified', async (req, res) => {
+  try {
+    const resendApiKey = process.env.RESEND_API_KEY;
+    if (!resendApiKey) {
+      res.status(500).json({ error: 'Missing RESEND_API_KEY on server' });
+      return;
+    }
+
+    const { toEmail, firstName } = req.body || {};
+    if (!toEmail || !String(toEmail).trim()) {
+      res.status(400).json({ 
+        error: 'toEmail is required and must be a valid email address',
+        message: 'Email address is required'
+      });
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const trimmedEmail = String(toEmail).trim();
+    if (!emailRegex.test(trimmedEmail)) {
+      res.status(400).json({ 
+        error: 'Invalid email address format',
+        message: 'Invalid email address format'
+      });
+      return;
+    }
+
+    // Account verified template
+    const accountVerifiedTemplate = {
+      subject: 'Your account is now verified!',
+      html: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <p>Hello ${firstName || ''},</p>
+  <p>Your account has been successfully verified.</p>
+  <p>You can now access all features available to verified investors.</p>
+  <p>If you have any questions, feel free to contact us.</p>
+  <p>Best regards,<br>Euroland Team</p>
+</body>
+</html>`,
+    };
+
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'norelyn.golingan@eirl.ink';
+    const fromName = process.env.RESEND_FROM_NAME || 'EurolandHUB';
+    const from = `${fromName} <${fromEmail}>`;
+
+    const resend = new Resend(resendApiKey);
+
+    const { data, error } = await resend.emails.send({
+      from,
+      to: trimmedEmail,
+      subject: accountVerifiedTemplate.subject,
+      html: accountVerifiedTemplate.html,
+      reply_to: fromEmail,
+      tags: [
+        { name: 'category', value: 'transactional' },
+        { name: 'type', value: 'account-verified' }
+      ],
+    });
+
+    if (error) {
+      const errorMessage = typeof error === 'string' ? error : JSON.stringify(error);
+      console.error('Resend verified email failed:', errorMessage);
+      res.status(502).json({
+        error: 'Resend send failed',
+        details: errorMessage,
+        message: `Failed to send email: ${errorMessage}`
+      });
+      return;
+    }
+
+    console.log('Account verified email sent successfully:', {
+      messageId: data?.id,
+      toEmail: trimmedEmail,
+    });
+
+    res.status(200).json({ ok: true });
+  } catch (e) {
+    const errorMessage = e?.message || String(e) || 'Unknown error';
+    console.error('Error sending verified email:', errorMessage);
+    res.status(500).json({ 
+      error: 'Unexpected error sending email', 
+      details: errorMessage,
+      message: `Unexpected error: ${errorMessage}`
+    });
+  }
+});
+
+/**
+ * POST /api/send-account-rejected
+ * Local dev implementation of the Vercel serverless function in `api/send-account-rejected.ts`.
+ * Sends email notification when IRO rejects an applicant's holdings verification.
+ */
+app.post('/api/send-account-rejected', async (req, res) => {
+  try {
+    const resendApiKey = process.env.RESEND_API_KEY;
+    if (!resendApiKey) {
+      res.status(500).json({ error: 'Missing RESEND_API_KEY on server' });
+      return;
+    }
+
+    const { toEmail, firstName } = req.body || {};
+    if (!toEmail || !String(toEmail).trim()) {
+      res.status(400).json({ 
+        error: 'toEmail is required and must be a valid email address',
+        message: 'Email address is required'
+      });
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const trimmedEmail = String(toEmail).trim();
+    if (!emailRegex.test(trimmedEmail)) {
+      res.status(400).json({ 
+        error: 'Invalid email address format',
+        message: 'Invalid email address format'
+      });
+      return;
+    }
+
+    // Account rejected template
+    const accountRejectedTemplate = {
+      subject: 'Holdings Verification Update',
+      html: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <p>Hello ${firstName || ''},</p>
+  <p>Thank you for submitting your holdings verification request.</p>
+  <p>After reviewing your submission, we were unable to verify your holdings at this time. Please double-check the information you provided, including your Registration/Shareholdings ID and Company Name.</p>
+  <p>You may resubmit your verification request with corrected information. If you have any questions or need assistance, please contact our Investor Relations team.</p>
+  <p>Best regards,<br>Euroland Team</p>
+</body>
+</html>`,
+    };
+
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'norelyn.golingan@eirl.ink';
+    const fromName = process.env.RESEND_FROM_NAME || 'EurolandHUB';
+    const from = `${fromName} <${fromEmail}>`;
+
+    const resend = new Resend(resendApiKey);
+
+    const { data, error } = await resend.emails.send({
+      from,
+      to: trimmedEmail,
+      subject: accountRejectedTemplate.subject,
+      html: accountRejectedTemplate.html,
+      reply_to: fromEmail,
+      tags: [
+        { name: 'category', value: 'transactional' },
+        { name: 'type', value: 'account-rejected' }
+      ],
+    });
+
+    if (error) {
+      const errorMessage = typeof error === 'string' ? error : JSON.stringify(error);
+      console.error('Resend rejected email failed:', errorMessage);
+      res.status(502).json({
+        error: 'Resend send failed',
+        details: errorMessage,
+        message: `Failed to send email: ${errorMessage}`
+      });
+      return;
+    }
+
+    console.log('Account rejected email sent successfully:', {
+      messageId: data?.id,
+      toEmail: trimmedEmail,
+    });
+
+    res.status(200).json({ ok: true });
+  } catch (e) {
+    const errorMessage = e?.message || String(e) || 'Unknown error';
+    console.error('Error sending rejected email:', errorMessage);
+    res.status(500).json({ 
+      error: 'Unexpected error sending email', 
+      details: errorMessage,
+      message: `Unexpected error: ${errorMessage}`
+    });
+  }
+});
+
+/**
+ * POST /api/send-request-info
+ * Local dev implementation of the Vercel serverless function in `api/send-request-info.ts`.
+ * Sends email notification when IRO requests more information from an applicant.
+ */
+app.post('/api/send-request-info', async (req, res) => {
+  try {
+    const resendApiKey = process.env.RESEND_API_KEY;
+    if (!resendApiKey) {
+      res.status(500).json({ error: 'Missing RESEND_API_KEY on server' });
+      return;
+    }
+
+    const { toEmail, firstName } = req.body || {};
+    if (!toEmail || !String(toEmail).trim()) {
+      res.status(400).json({ 
+        error: 'toEmail is required and must be a valid email address',
+        message: 'Email address is required'
+      });
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const trimmedEmail = String(toEmail).trim();
+    if (!emailRegex.test(trimmedEmail)) {
+      res.status(400).json({ 
+        error: 'Invalid email address format',
+        message: 'Invalid email address format'
+      });
+      return;
+    }
+
+    // Request info template
+    const requestInfoTemplate = {
+      subject: 'Additional Information Required for Holdings Verification',
+      html: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <p>Hello ${firstName || ''},</p>
+  <p>Thank you for submitting your holdings verification request.</p>
+  <p>Our Investor Relations team has reviewed your submission and requires additional information to complete the verification process.</p>
+  <p>Please log in to your account and provide the requested information. Once you submit the additional details, we will continue with the verification process.</p>
+  <p>If you have any questions or need assistance, please contact our Investor Relations team.</p>
+  <p>Best regards,<br>Euroland Team</p>
+</body>
+</html>`,
+    };
+
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'norelyn.golingan@eirl.ink';
+    const fromName = process.env.RESEND_FROM_NAME || 'EurolandHUB';
+    const from = `${fromName} <${fromEmail}>`;
+
+    const resend = new Resend(resendApiKey);
+
+    const { data, error } = await resend.emails.send({
+      from,
+      to: trimmedEmail,
+      subject: requestInfoTemplate.subject,
+      html: requestInfoTemplate.html,
+      reply_to: fromEmail,
+      tags: [
+        { name: 'category', value: 'transactional' },
+        { name: 'type', value: 'request-info' }
+      ],
+    });
+
+    if (error) {
+      const errorMessage = typeof error === 'string' ? error : JSON.stringify(error);
+      console.error('Resend request info email failed:', errorMessage);
+      res.status(502).json({
+        error: 'Resend send failed',
+        details: errorMessage,
+        message: `Failed to send email: ${errorMessage}`
+      });
+      return;
+    }
+
+    console.log('Request info email sent successfully:', {
+      messageId: data?.id,
+      toEmail: trimmedEmail,
+    });
+
+    res.status(200).json({ ok: true });
+  } catch (e) {
+    const errorMessage = e?.message || String(e) || 'Unknown error';
+    console.error('Error sending request info email:', errorMessage);
+    res.status(500).json({ 
+      error: 'Unexpected error sending email', 
+      details: errorMessage,
+      message: `Unexpected error: ${errorMessage}`
+    });
+  }
+});
+
 // POST /api/generate-document-summary - AI summary of PDF / text / CSV documents
 // Uses unpdf (serverless-compatible, no @napi-rs/canvas needed)
 app.post('/api/generate-document-summary', (req, res) => {

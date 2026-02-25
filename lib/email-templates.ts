@@ -74,6 +74,51 @@ export const invitationTemplate: EmailTemplate = {
 };
 
 /**
+ * Account Rejected Email Template
+ * Variables: {{ first_name }}
+ * Sent when IRO rejects an applicant's holdings verification (Step 5: Manual IRO Verification)
+ */
+export const accountRejectedTemplate: EmailTemplate = {
+  subject: 'Holdings Verification Update',
+  html: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <p>Hello {{ first_name }},</p>
+  <p>Thank you for submitting your holdings verification request.</p>
+  <p>After reviewing your submission, we were unable to verify your holdings at this time. Please double-check the information you provided, including your Registration/Shareholdings ID and Company Name.</p>
+  <p>You may resubmit your verification request with corrected information. If you have any questions or need assistance, please contact our Investor Relations team.</p>
+  <p>Best regards,<br>Euroland Team</p>
+</body>
+</html>`,
+};
+
+/**
+ * Request Info Email Template
+ * Variables: {{ first_name }}
+ * Sent when IRO requests more information from an applicant (Step 5: Manual IRO Verification)
+ */
+export const requestInfoTemplate: EmailTemplate = {
+  subject: 'Additional Information Required for Holdings Verification',
+  html: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <p>Hello {{ first_name }},</p>
+  <p>Thank you for submitting your holdings verification request.</p>
+  <p>Our Investor Relations team has reviewed your submission and requires additional information to complete the verification process.</p>
+  <p>Please log in to your account and provide the requested information. Once you submit the additional details, we will continue with the verification process.</p>
+  <p>If you have any questions or need assistance, please contact our Investor Relations team.</p>
+  <p>Best regards,<br>Euroland Team</p>
+</body>
+</html>`,
+};
+
+/**
  * Replace variables in template HTML
  * Supports both {{ variable_name }} and {{variableName}} formats
  */

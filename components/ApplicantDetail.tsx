@@ -294,37 +294,64 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
           Return to Registry
         </button>
         {/* Action buttons - Only show for non-pre-verified accounts */}
-        {!applicant.isPreVerified && (
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={() => onUpdateStatus(applicant.id, RegistrationStatus.FURTHER_INFO)}
-              className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-200 bg-neutral-100 dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-600 hover:border-neutral-400 dark:hover:border-neutral-500 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Request Info
-            </button>
-            <button 
-              onClick={() => onUpdateStatus(applicant.id, RegistrationStatus.REJECTED)}
-              className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-red-600 dark:text-red-400 bg-neutral-100 dark:bg-neutral-700 border border-red-300 dark:border-red-800 rounded-md hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-400 dark:hover:border-red-700 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              Reject
-            </button>
-            <button 
-              onClick={() => onUpdateStatus(applicant.id, RegistrationStatus.APPROVED)}
-              className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white rounded-md transition-colors bg-[#082b4a] dark:bg-[#00adf0] hover:bg-[#061d33] dark:hover:bg-[#0099d6]"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              Approve
-            </button>
-          </div>
-        )}
+        {!applicant.isPreVerified && (() => {
+          // Check if user wants verification - disable buttons if they skipped verification
+          // Ensure workflow exists for the check
+          const workflow = applicant.shareholdingsVerification;
+          // If wantsVerification is explicitly false, disable buttons. Otherwise enable them (undefined or true)
+          const wantsVerification = workflow?.step1.wantsVerification !== false;
+          const isDisabled = workflow?.step1.wantsVerification === false;
+          
+          return (
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => onUpdateStatus(applicant.id, RegistrationStatus.FURTHER_INFO)}
+                disabled={isDisabled}
+                className={`flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-md transition-colors ${
+                  isDisabled 
+                    ? 'text-neutral-400 dark:text-neutral-600 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 cursor-not-allowed opacity-50' 
+                    : 'text-neutral-700 dark:text-neutral-200 bg-neutral-100 dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 hover:bg-neutral-200 dark:hover:bg-neutral-600 hover:border-neutral-400 dark:hover:border-neutral-500'
+                }`}
+                title={isDisabled ? 'This account skipped holdings verification' : 'Request additional information from the applicant'}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Request Info
+              </button>
+              <button 
+                onClick={() => onUpdateStatus(applicant.id, RegistrationStatus.REJECTED)}
+                disabled={isDisabled}
+                className={`flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-md transition-colors ${
+                  isDisabled 
+                    ? 'text-neutral-400 dark:text-neutral-600 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 cursor-not-allowed opacity-50' 
+                    : 'text-red-600 dark:text-red-400 bg-neutral-100 dark:bg-neutral-700 border border-red-300 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-400 dark:hover:border-red-700'
+                }`}
+                title={isDisabled ? 'This account skipped holdings verification' : 'Reject the applicant\'s holdings verification'}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Reject
+              </button>
+              <button 
+                onClick={() => onUpdateStatus(applicant.id, RegistrationStatus.APPROVED)}
+                disabled={isDisabled}
+                className={`flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-md transition-colors ${
+                  isDisabled 
+                    ? 'text-neutral-400 dark:text-neutral-600 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 cursor-not-allowed opacity-50' 
+                    : 'text-white bg-[#082b4a] dark:bg-[#00adf0] hover:bg-[#061d33] dark:hover:bg-[#0099d6]'
+                }`}
+                title={isDisabled ? 'This account skipped holdings verification' : 'Approve the applicant\'s holdings verification'}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Approve
+              </button>
+            </div>
+          );
+        })()}
       </div>
 
       <div className="space-y-10">

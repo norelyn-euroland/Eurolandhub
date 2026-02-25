@@ -16,6 +16,7 @@ import LoginPage from './components/LoginPage';
 import EngagementPage from './components/EngagementPage';
 import DocumentsPage from './components/DocumentsPage';
 import ThemeToggle from './components/ThemeToggle';
+import Toast from './components/Toast';
 
 const FADE_DURATION_MS = 300;
 
@@ -26,6 +27,9 @@ interface AuthedAppProps {
 
 const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastVariant, setToastVariant] = useState<'success' | 'warning' | 'error' | 'info'>('success');
+  const [showToast, setShowToast] = useState(false);
   
   // Restore view from localStorage on mount
   // Note: We don't restore 'detail' view as it requires applicant data
@@ -173,24 +177,50 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
   };
 
   const handleUpdateStatus = async (id: string, status: RegistrationStatus) => {
+    console.log('handleUpdateStatus called:', { id, status });
     const applicant = applicants.find(a => a.id === id);
-    if (!applicant) return;
+    if (!applicant) {
+      console.error('Applicant not found:', id);
+      setToastMessage(`Error: Applicant not found`);
+      setToastVariant('error');
+      setShowToast(true);
+      return;
+    }
 
     // Always carry the workflow state, even if the record didn't have it yet.
     const base = ensureWorkflow(applicant);
 
     let updatedApplicant: Applicant;
+    let shouldSendVerifiedEmail = false;
+    let shouldSendRejectedEmail = false;
+    let shouldSendRequestInfoEmail = false;
+
+    // Check if user wants verification - only send emails if they want verification
+    const wantsVerification = base.shareholdingsVerification?.step1.wantsVerification !== false;
 
     // Wire existing admin actions to Step 5 (Manual IRO Verification)
     if (status === RegistrationStatus.APPROVED) {
       // Step 5: Manual IRO match -> APPROVED
       updatedApplicant = recordManualReview(base, true);
+      // Check if this is a new verification (Step 6: Verified Account)
+      // Only send email if status changed from non-APPROVED to APPROVED and user wants verification
+      if (wantsVerification && applicant.status !== RegistrationStatus.APPROVED && updatedApplicant.shareholdingsVerification?.step6?.verifiedAt) {
+        shouldSendVerifiedEmail = true;
+      }
     } else if (status === RegistrationStatus.REJECTED) {
       // Step 5: Manual IRO no-match -> PENDING (for resubmission)
       updatedApplicant = recordManualReview(base, false);
+      // Only send email if user wants verification
+      if (wantsVerification) {
+        shouldSendRejectedEmail = true;
+      }
     } else if (status === RegistrationStatus.FURTHER_INFO) {
       // Step 5: IRO requests more information -> FURTHER_INFO (PENDING in frontend)
       updatedApplicant = recordRequestInfo(base);
+      // Only send email if user wants verification
+      if (wantsVerification) {
+        shouldSendRequestInfoEmail = true;
+      }
     } else {
       // For any other status, just update the status
       updatedApplicant = { ...base, status };
@@ -198,12 +228,149 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
 
     // Update in Firestore (real-time listener will update the UI automatically)
     try {
+      console.log('Updating applicant status:', { id, status, applicantName: applicant.fullName, wantsVerification });
       await applicantService.update(id, updatedApplicant);
+      console.log('Applicant status updated successfully:', { id, newStatus: updatedApplicant.status });
+      
+      // Helper function to send email and show toast
+      const sendEmailNotification = async (endpoint: string, emailType: string, toastMessage: string, toastVariant: 'success' | 'warning' | 'error' | 'info' = 'success') => {
+        // Validate email exists and is not empty
+        const email = updatedApplicant.email?.trim();
+        if (!email || email === '') {
+          console.warn(`Cannot send ${emailType} email: No email address for applicant ${updatedApplicant.fullName}`);
+          setToastMessage(`Cannot send email: No email address on file for ${updatedApplicant.fullName}`);
+          setToastVariant('warning');
+          setShowToast(true);
+          return;
+        }
+
+        // Basic email validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+          console.warn(`Cannot send ${emailType} email: Invalid email format for applicant ${updatedApplicant.fullName}`);
+          setToastMessage(`Cannot send email: Invalid email address format for ${updatedApplicant.fullName}`);
+          setToastVariant('warning');
+          setShowToast(true);
+          return;
+        }
+        
+        try {
+          // Extract first name from fullName
+          const nameParts = updatedApplicant.fullName.trim().split(/\s+/);
+          const firstName = nameParts[0] || updatedApplicant.fullName;
+
+          console.log(`Sending ${emailType} email to:`, email, 'via endpoint:', endpoint);
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              toEmail: email,
+              firstName,
+            }),
+          });
+
+          console.log(`Email API response status:`, response.status, response.statusText);
+          if (response.ok) {
+            const responseData = await response.json().catch(() => ({}));
+            console.log(`Sent ${emailType} email to:`, email);
+            // Show success toast
+            setToastMessage(toastMessage);
+            setToastVariant(toastVariant);
+            setShowToast(true);
+          } else {
+            // Try to parse error response
+            let errorMessage = 'Unknown error';
+            try {
+              const errorData = await response.json();
+              // Try multiple fields that might contain the error message
+              errorMessage = errorData.message || errorData.details || errorData.error || errorData.detail || `HTTP ${response.status}: ${response.statusText}`;
+            } catch (parseError) {
+              // If JSON parsing fails, use status text
+              errorMessage = `HTTP ${response.status}: ${response.statusText || 'Unknown error'}`;
+            }
+            
+            console.error(`Failed to send ${emailType} email to ${email}:`, errorMessage);
+            // Show error toast with specific error message
+            // Shorten message if it's too long
+            const displayMessage = errorMessage.length > 80 
+              ? `${errorMessage.substring(0, 77)}...` 
+              : errorMessage;
+            setToastMessage(`Failed to send email: ${displayMessage}`);
+            setToastVariant('error');
+            setShowToast(true);
+          }
+        } catch (emailError) {
+          console.error(`Error sending ${emailType} email to ${email}:`, emailError);
+          // Show error toast with more specific error message
+          const errorMsg = emailError instanceof Error 
+            ? emailError.message 
+            : typeof emailError === 'string' 
+              ? emailError 
+              : 'Network error or server unavailable';
+          setToastMessage(`Error sending email to ${email}: ${errorMsg}`);
+          setToastVariant('error');
+          setShowToast(true);
+        }
+      };
+
+      // Step 6: Send account verified email automatically when IRO approves (Investors - Holdings Verification Workflow)
+      if (shouldSendVerifiedEmail) {
+        await sendEmailNotification(
+          '/api/send-account-verified', 
+          'Step 6 verified account',
+          'Applicant approved and verification email sent successfully!',
+          'success'
+        );
+      } else if (status === RegistrationStatus.APPROVED) {
+        // Status updated but no email sent (e.g., user skipped verification)
+        setToastMessage('Applicant approved successfully!');
+        setToastVariant('success');
+        setShowToast(true);
+      }
+
+      // Send rejected email when IRO rejects
+      if (shouldSendRejectedEmail) {
+        await sendEmailNotification(
+          '/api/send-account-rejected', 
+          'account rejected',
+          'Applicant rejected and notification email sent successfully!',
+          'warning'
+        );
+      } else if (status === RegistrationStatus.REJECTED) {
+        // Status updated but no email sent
+        setToastMessage('Applicant rejected successfully!');
+        setToastVariant('warning');
+        setShowToast(true);
+      }
+
+      // Send request info email when IRO requests more information
+      if (shouldSendRequestInfoEmail) {
+        await sendEmailNotification(
+          '/api/send-request-info', 
+          'request info',
+          'Request info sent and email notification delivered successfully!',
+          'info'
+        );
+      } else if (status === RegistrationStatus.FURTHER_INFO) {
+        // Status updated but no email sent
+        setToastMessage('Request info action completed successfully!');
+        setToastVariant('info');
+        setShowToast(true);
+      }
     } catch (error) {
       console.error('Error updating applicant status:', error);
-      // Real-time listener will handle the update, but we log the error
+      // Show error toast
+      const errorMessage = error instanceof Error ? error.message : String(error) || 'Unknown error';
+      setToastMessage(`Failed to update applicant status: ${errorMessage}`);
+      setToastVariant('error');
+      setShowToast(true);
+      // Don't navigate away on error - let user see the error and try again
+      return;
     }
 
+    // Only navigate away if update was successful
     setView('registrations');
     setSelectedApplicantId(null);
     if (typeof window !== 'undefined') {
@@ -517,6 +684,15 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
       
       {/* Floating Theme Toggle */}
       <ThemeToggle theme={theme} toggleTheme={toggleTheme} isDraggable={true} />
+      
+      {/* Toast Notification */}
+      <Toast
+        message={toastMessage}
+        isVisible={showToast}
+        onClose={() => setShowToast(false)}
+        variant={toastVariant}
+        duration={5000}
+      />
     </div>
   );
 };
