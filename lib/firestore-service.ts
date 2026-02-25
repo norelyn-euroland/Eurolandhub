@@ -283,6 +283,67 @@ export const applicantService = {
       
       let firestoreApplicants = querySnapshot.docs.map(firestoreToApplicant);
       
+      // Remove duplicates: If multiple applicants have the same email or registrationId, keep the most recent one
+      const uniqueApplicants = new Map<string, Applicant>();
+      for (const applicant of firestoreApplicants) {
+        // Use email as primary key (most reliable identifier)
+        const key = applicant.email?.toLowerCase().trim() || applicant.id;
+        
+        if (uniqueApplicants.has(key)) {
+          // Compare submission dates - keep the more recent one
+          const existing = uniqueApplicants.get(key)!;
+          const existingDate = existing.submissionDate ? new Date(existing.submissionDate).getTime() : 0;
+          const newDate = applicant.submissionDate ? new Date(applicant.submissionDate).getTime() : 0;
+          
+          if (newDate > existingDate || (!newDate && existingDate === 0)) {
+            // New applicant is more recent or has same date, replace
+            uniqueApplicants.set(key, applicant);
+          }
+          // Otherwise keep the existing one
+        } else {
+          uniqueApplicants.set(key, applicant);
+        }
+      }
+      
+      // Also check for duplicates by registrationId (if email is missing)
+      const byRegistrationId = new Map<string, Applicant>();
+      for (const applicant of Array.from(uniqueApplicants.values())) {
+        if (applicant.registrationId) {
+          const regId = applicant.registrationId.trim();
+          if (byRegistrationId.has(regId)) {
+            // Duplicate by registrationId - keep the one with email or more recent
+            const existing = byRegistrationId.get(regId)!;
+            const existingDate = existing.submissionDate ? new Date(existing.submissionDate).getTime() : 0;
+            const newDate = applicant.submissionDate ? new Date(applicant.submissionDate).getTime() : 0;
+            
+            // Prefer applicant with email, or more recent if both have/don't have email
+            if ((applicant.email && !existing.email) || 
+                (newDate > existingDate && (applicant.email || !existing.email))) {
+              byRegistrationId.set(regId, applicant);
+              // Remove the old one from uniqueApplicants if it exists
+              if (existing.email) {
+                uniqueApplicants.delete(existing.email.toLowerCase().trim());
+              }
+            }
+          } else {
+            byRegistrationId.set(regId, applicant);
+          }
+        }
+      }
+      
+      // Final list: Use email-based map, but also include registrationId-based entries that don't have email matches
+      const finalApplicants = Array.from(uniqueApplicants.values());
+      for (const applicant of Array.from(byRegistrationId.values())) {
+        if (!applicant.email || !uniqueApplicants.has(applicant.email.toLowerCase().trim())) {
+          // This applicant is only in registrationId map and not in email map
+          if (!finalApplicants.find(a => a.id === applicant.id)) {
+            finalApplicants.push(applicant);
+          }
+        }
+      }
+      
+      firestoreApplicants = finalApplicants;
+      
       // Sort client-side by submissionDate descending (most recent first)
       firestoreApplicants.sort((a, b) => {
         const dateA = a.submissionDate ? new Date(a.submissionDate).getTime() : 0;
@@ -332,42 +393,24 @@ export const applicantService = {
   async checkDuplicateRegistration(
     email: string,
     phoneNumber?: string,
-    fullName?: string
-  ): Promise<void> {
+    fullName?: string,
+    registrationId?: string
+  ): Promise<{ isDuplicate: boolean; existingApplicant: Applicant | null }> {
     try {
-      const constraints: QueryConstraint[] = [];
-      
-      // Build query to check for duplicates by email, phone, or name
-      const conditions: QueryConstraint[] = [];
-      
-      if (email) {
-        conditions.push(where('email', '==', email.toLowerCase().trim()));
-      }
-      
-      if (phoneNumber && phoneNumber.trim()) {
-        conditions.push(where('phoneNumber', '==', phoneNumber.trim()));
-      }
-      
-      if (fullName && fullName.trim()) {
-        // Normalize name for comparison (case-insensitive, trim spaces)
-        const normalizedName = fullName.trim().toLowerCase();
-        conditions.push(where('fullName', '==', normalizedName));
-      }
-      
-      if (conditions.length === 0) {
-        return; // No fields to check
-      }
-      
-      // Use 'or' to check any of the conditions
-      // Note: Firestore 'or' requires all conditions to be on the same field or use array-contains
-      // For multiple fields, we'll need to query separately and combine results
       const allResults: Applicant[] = [];
       
-      // Query by email
-      if (email) {
+      // Query by email (primary identifier - most reliable)
+      if (email && email.trim()) {
         const emailQuery = query(collection(db, COLLECTIONS.APPLICANTS), where('email', '==', email.toLowerCase().trim()));
         const emailSnapshot = await getDocs(emailQuery);
         allResults.push(...emailSnapshot.docs.map(firestoreToApplicant));
+      }
+      
+      // Query by registrationId (important for preventing duplicates from frontend registrations)
+      if (registrationId && registrationId.trim()) {
+        const regIdQuery = query(collection(db, COLLECTIONS.APPLICANTS), where('registrationId', '==', registrationId.trim()));
+        const regIdSnapshot = await getDocs(regIdQuery);
+        allResults.push(...regIdSnapshot.docs.map(firestoreToApplicant));
       }
       
       // Query by phone number
@@ -378,10 +421,8 @@ export const applicantService = {
       }
       
       // Query by name - Firestore doesn't support case-insensitive queries natively
-      // So we'll fetch all and filter client-side, or query exact match and filter
-      // For now, we'll query exact match (case-sensitive) and also do client-side filtering
+      // So we'll query exact match and filter client-side
       if (fullName && fullName.trim()) {
-        // Try exact match first
         const nameQuery = query(collection(db, COLLECTIONS.APPLICANTS), where('fullName', '==', fullName.trim()));
         const nameSnapshot = await getDocs(nameQuery);
         allResults.push(...nameSnapshot.docs.map(firestoreToApplicant));
@@ -392,44 +433,64 @@ export const applicantService = {
         new Map(allResults.map(app => [app.id, app])).values()
       );
       
-      // Check if any duplicate is locked
+      // Check for matches (case-insensitive for email and name)
       for (const existingApplicant of uniqueResults) {
-        // Check if this is a match (case-insensitive for email and name)
         const emailMatch = email && existingApplicant.email && 
                           existingApplicant.email.toLowerCase().trim() === email.toLowerCase().trim();
         const phoneMatch = phoneNumber && existingApplicant.phoneNumber && 
                           existingApplicant.phoneNumber.trim() === phoneNumber.trim();
         const nameMatch = fullName && existingApplicant.fullName && 
                          existingApplicant.fullName.toLowerCase().trim() === fullName.trim().toLowerCase();
+        const regIdMatch = registrationId && existingApplicant.registrationId && 
+                          existingApplicant.registrationId.trim() === registrationId.trim();
         
-        // Only check lockout if there's an actual match
-        if ((emailMatch || phoneMatch || nameMatch) && isLocked(existingApplicant)) {
-          const lockedUntil = existingApplicant.shareholdingsVerification?.step3.lockedUntil;
-          if (lockedUntil) {
-            const remainingDays = calculateRemainingDays(lockedUntil);
-            
-            // Determine which field matched (prioritize email > phone > name)
-            let matchedField: 'email' | 'phone' | 'name' = 'email';
-            if (emailMatch) {
-              matchedField = 'email';
-            } else if (phoneMatch) {
-              matchedField = 'phone';
-            } else if (nameMatch) {
-              matchedField = 'name';
+        if (emailMatch || phoneMatch || nameMatch || regIdMatch) {
+          // Found a duplicate - check if locked first
+          if (isLocked(existingApplicant)) {
+            const lockedUntil = existingApplicant.shareholdingsVerification?.step3.lockedUntil;
+            if (lockedUntil) {
+              const remainingDays = calculateRemainingDays(lockedUntil);
+              
+              // Determine which field matched (prioritize email > registrationId > phone > name)
+              let matchedField: 'email' | 'phone' | 'name' | 'registrationId' = 'email';
+              if (emailMatch) {
+                matchedField = 'email';
+              } else if (regIdMatch) {
+                matchedField = 'registrationId';
+              } else if (phoneMatch) {
+                matchedField = 'phone';
+              } else if (nameMatch) {
+                matchedField = 'name';
+              }
+              
+              const fieldLabel = matchedField === 'email' ? 'email address' : 
+                                matchedField === 'registrationId' ? 'registration ID' :
+                                matchedField === 'phone' ? 'phone number' : 'name';
+              
+              throw new LockedAccountError(
+                `This ${fieldLabel} is associated with an account that is locked for 7 days. Please wait ${remainingDays} day${remainingDays !== 1 ? 's' : ''} before registering again.`,
+                remainingDays,
+                lockedUntil,
+                matchedField
+              );
             }
-            
-            const fieldLabel = matchedField === 'email' ? 'email address' : 
-                              matchedField === 'phone' ? 'phone number' : 'name';
-            
-            throw new LockedAccountError(
-              `This ${fieldLabel} is associated with an account that is locked for 7 days. Please wait ${remainingDays} day${remainingDays !== 1 ? 's' : ''} before registering again.`,
-              remainingDays,
-              lockedUntil,
-              matchedField
-            );
           }
+          
+          // Return the existing applicant (duplicate found, but not locked)
+          console.log('Duplicate registration detected:', {
+            email,
+            registrationId,
+            existingId: existingApplicant.id,
+            existingEmail: existingApplicant.email,
+            existingRegistrationId: existingApplicant.registrationId,
+            matchedBy: emailMatch ? 'email' : regIdMatch ? 'registrationId' : phoneMatch ? 'phone' : 'name'
+          });
+          return { isDuplicate: true, existingApplicant };
         }
       }
+      
+      // No duplicate found
+      return { isDuplicate: false, existingApplicant: null };
     } catch (error) {
       // Re-throw LockedAccountError as-is
       if (error instanceof LockedAccountError) {
@@ -443,17 +504,51 @@ export const applicantService = {
 
   /**
    * Create a new applicant
-   * Checks for duplicate registrations with locked accounts before creating
+   * Checks for duplicate registrations and updates existing applicant if found (prevents duplicates)
+   * Only creates new applicant if no duplicate exists
    */
   async create(applicant: Applicant): Promise<string> {
     try {
-      // Check for duplicate registrations with locked accounts
-      await this.checkDuplicateRegistration(
+      // Check for duplicate registrations (including by registrationId to catch frontend duplicates)
+      const duplicateCheck = await this.checkDuplicateRegistration(
         applicant.email,
         applicant.phoneNumber,
-        applicant.fullName
+        applicant.fullName,
+        applicant.registrationId
       );
       
+      // If duplicate exists, update the existing applicant instead of creating a new one
+      if (duplicateCheck.isDuplicate && duplicateCheck.existingApplicant) {
+        console.log(`Duplicate detected for ${applicant.email || applicant.fullName}. Updating existing applicant instead of creating duplicate.`, {
+          existingId: duplicateCheck.existingApplicant.id,
+          newId: applicant.id,
+          email: applicant.email
+        });
+        
+        // Merge new data with existing applicant (preserve existing data, update with new fields)
+        const mergedApplicant = {
+          ...duplicateCheck.existingApplicant,
+          ...applicant,
+          id: duplicateCheck.existingApplicant.id, // Keep existing ID
+          // Preserve important existing fields unless new data is provided
+          email: applicant.email || duplicateCheck.existingApplicant.email,
+          fullName: applicant.fullName || duplicateCheck.existingApplicant.fullName,
+          phoneNumber: applicant.phoneNumber || duplicateCheck.existingApplicant.phoneNumber,
+          // Preserve workflow state if it exists
+          shareholdingsVerification: applicant.shareholdingsVerification || duplicateCheck.existingApplicant.shareholdingsVerification,
+          emailOtpVerification: applicant.emailOtpVerification || duplicateCheck.existingApplicant.emailOtpVerification,
+          // Use most recent submission date
+          submissionDate: applicant.submissionDate && new Date(applicant.submissionDate) > new Date(duplicateCheck.existingApplicant.submissionDate || '1970-01-01')
+            ? applicant.submissionDate
+            : duplicateCheck.existingApplicant.submissionDate,
+        };
+        
+        // Update existing applicant
+        await this.update(duplicateCheck.existingApplicant.id, mergedApplicant);
+        return duplicateCheck.existingApplicant.id;
+      }
+      
+      // No duplicate found - create new applicant
       const docRef = doc(db, COLLECTIONS.APPLICANTS, applicant.id);
       await setDoc(docRef, applicantToFirestore(applicant));
       return docRef.id;
@@ -482,7 +577,27 @@ export const applicantService = {
         updateData.submissionDate = Timestamp.fromDate(new Date(updates.submissionDate));
       }
       
+      // Log what we're updating (especially for verification status)
+      if (updates.status === 'APPROVED' || updates.shareholdingsVerification?.step6?.verifiedAt) {
+        console.log('Saving verification status to Firestore:', {
+          applicantId,
+          status: updates.status,
+          step6VerifiedAt: updates.shareholdingsVerification?.step6?.verifiedAt,
+          step4LastResult: updates.shareholdingsVerification?.step4?.lastResult,
+          fullShareholdingsVerification: updates.shareholdingsVerification
+        });
+      }
+      
       await updateDoc(docRef, updateData);
+      
+      // Log successful update
+      if (updates.status === 'APPROVED' || updates.shareholdingsVerification?.step6?.verifiedAt) {
+        console.log('Successfully saved verification status to Firestore:', {
+          applicantId,
+          status: updateData.status,
+          hasStep6: !!updateData.shareholdingsVerification?.step6
+        });
+      }
     } catch (error) {
       console.error('Error updating applicant:', error);
       throw error;
@@ -552,7 +667,68 @@ export const applicantService = {
         try {
           // Firestore onSnapshot automatically handles deletions - deleted docs are removed from snapshot.docs
           // This means the callback will receive an updated array without deleted documents
-          const applicants = snapshot.docs.map(firestoreToApplicant);
+          let applicants = snapshot.docs.map(firestoreToApplicant);
+          
+          // Remove duplicates: If multiple applicants have the same email or registrationId, keep the most recent one
+          const uniqueApplicants = new Map<string, Applicant>();
+          for (const applicant of applicants) {
+            // Use email as primary key (most reliable identifier)
+            const key = applicant.email?.toLowerCase().trim() || applicant.id;
+            
+            if (uniqueApplicants.has(key)) {
+              // Compare submission dates - keep the more recent one
+              const existing = uniqueApplicants.get(key)!;
+              const existingDate = existing.submissionDate ? new Date(existing.submissionDate).getTime() : 0;
+              const newDate = applicant.submissionDate ? new Date(applicant.submissionDate).getTime() : 0;
+              
+              if (newDate > existingDate || (!newDate && existingDate === 0)) {
+                // New applicant is more recent or has same date, replace
+                uniqueApplicants.set(key, applicant);
+              }
+              // Otherwise keep the existing one
+            } else {
+              uniqueApplicants.set(key, applicant);
+            }
+          }
+          
+          // Also check for duplicates by registrationId (if email is missing)
+          const byRegistrationId = new Map<string, Applicant>();
+          for (const applicant of Array.from(uniqueApplicants.values())) {
+            if (applicant.registrationId) {
+              const regId = applicant.registrationId.trim();
+              if (byRegistrationId.has(regId)) {
+                // Duplicate by registrationId - keep the one with email or more recent
+                const existing = byRegistrationId.get(regId)!;
+                const existingDate = existing.submissionDate ? new Date(existing.submissionDate).getTime() : 0;
+                const newDate = applicant.submissionDate ? new Date(applicant.submissionDate).getTime() : 0;
+                
+                // Prefer applicant with email, or more recent if both have/don't have email
+                if ((applicant.email && !existing.email) || 
+                    (newDate > existingDate && (applicant.email || !existing.email))) {
+                  byRegistrationId.set(regId, applicant);
+                  // Remove the old one from uniqueApplicants if it exists
+                  if (existing.email) {
+                    uniqueApplicants.delete(existing.email.toLowerCase().trim());
+                  }
+                }
+              } else {
+                byRegistrationId.set(regId, applicant);
+              }
+            }
+          }
+          
+          // Final list: Use email-based map, but also include registrationId-based entries that don't have email matches
+          const finalApplicantsList = Array.from(uniqueApplicants.values());
+          for (const applicant of Array.from(byRegistrationId.values())) {
+            if (!applicant.email || !uniqueApplicants.has(applicant.email.toLowerCase().trim())) {
+              // This applicant is only in registrationId map and not in email map
+              if (!finalApplicantsList.find(a => a.id === applicant.id)) {
+                finalApplicantsList.push(applicant);
+              }
+            }
+          }
+          
+          applicants = finalApplicantsList;
           
           // Sort client-side by submissionDate descending (most recent first)
           applicants.sort((a, b) => {

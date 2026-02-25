@@ -431,14 +431,21 @@ export function getWorkflowStatusInternal(applicant: Applicant): WorkflowStatusI
     return 'EMAIL_VERIFICATION_PENDING';
   }
 
+  // VERIFIED: Status is APPROVED and Step 6 exists (completed verification)
+  // Check this FIRST before other status checks to ensure approved applicants show as VERIFIED
+  // Also check step4.lastResult === 'MATCH' as additional confirmation of IRO approval
+  if (applicant.status === RegistrationStatus.APPROVED && wf.step6?.verifiedAt) {
+    return 'VERIFIED';
+  }
+  
+  // Also check if step4 shows MATCH (IRO approved) even if step6 is missing (shouldn't happen, but safety check)
+  if (applicant.status === RegistrationStatus.APPROVED && wf.step4?.lastResult === 'MATCH' && wf.step4?.lastReviewedAt) {
+    return 'VERIFIED';
+  }
+
   // SHAREHOLDINGS_DECLINED: User declined shareholdings verification (after email was verified)
   if (wf.step1.wantsVerification === false) {
     return 'SHAREHOLDINGS_DECLINED';
-  }
-
-  // REGISTRATION_PENDING: User agreed to shareholdings verification but hasn't submitted Step 3 (Holdings Registration)
-  if (wf.step1.wantsVerification === true && !wf.step2) {
-    return 'REGISTRATION_PENDING';
   }
 
   // Check if locked (7-day lockout after 3 failed attempts)
@@ -450,9 +457,10 @@ export function getWorkflowStatusInternal(applicant: Applicant): WorkflowStatusI
     }
   }
 
-  // VERIFIED: Status is APPROVED and Step 6 exists (completed verification)
-  if (applicant.status === RegistrationStatus.APPROVED && wf.step6?.verifiedAt) {
-    return 'VERIFIED';
+  // REGISTRATION_PENDING: User agreed to shareholdings verification but hasn't submitted Step 3 (Holdings Registration)
+  // Only return this if NOT already verified
+  if (wf.step1.wantsVerification === true && !wf.step2) {
+    return 'REGISTRATION_PENDING';
   }
 
   // Handle resubmission scenario: Step 2 exists but Step 3 has no result (skipped auto check)

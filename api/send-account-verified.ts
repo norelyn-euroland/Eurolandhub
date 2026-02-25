@@ -42,6 +42,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     first_name: firstName || '',
   });
 
+  // Verify the link is included in the email
+  if (!htmlContent.includes('eurohub.eurolandir.net')) {
+    console.error('WARNING: Account verified email template is missing the investor portal link!');
+  } else {
+    console.log('Account verified email includes investor portal link');
+  }
+
   try {
     const result = await sendEmail({
       to: trimmedEmail,

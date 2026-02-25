@@ -228,9 +228,24 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
 
     // Update in Firestore (real-time listener will update the UI automatically)
     try {
-      console.log('Updating applicant status:', { id, status, applicantName: applicant.fullName, wantsVerification });
+      console.log('Updating applicant status:', { 
+        id, 
+        status, 
+        applicantName: applicant.fullName, 
+        wantsVerification,
+        previousStatus: applicant.status,
+        newStatus: updatedApplicant.status,
+        hasStep6: !!updatedApplicant.shareholdingsVerification?.step6?.verifiedAt,
+        step6VerifiedAt: updatedApplicant.shareholdingsVerification?.step6?.verifiedAt,
+        step4LastResult: updatedApplicant.shareholdingsVerification?.step4?.lastResult
+      });
       await applicantService.update(id, updatedApplicant);
-      console.log('Applicant status updated successfully:', { id, newStatus: updatedApplicant.status });
+      console.log('Applicant status updated successfully in Firestore:', { 
+        id, 
+        newStatus: updatedApplicant.status,
+        step6VerifiedAt: updatedApplicant.shareholdingsVerification?.step6?.verifiedAt,
+        fullShareholdingsVerification: updatedApplicant.shareholdingsVerification
+      });
 
       // Always show a status update toast (email sending is secondary and may fail independently).
       if (status === RegistrationStatus.APPROVED) {
@@ -288,32 +303,70 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
           const primaryUrl = buildUrl(endpoint);
           console.log(`Sending ${emailType} email to:`, email, 'via endpoint:', primaryUrl);
 
-          const doFetch = async (url: string) =>
-            fetch(url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              toEmail: email,
-              firstName,
-            }),
-            });
+          const doFetch = async (url: string): Promise<Response> => {
+            try {
+              const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  toEmail: email,
+                  firstName,
+                }),
+              });
+              return response;
+            } catch (fetchError) {
+              // Handle network errors (CORS, connection refused, etc.)
+              console.error('Fetch error:', fetchError);
+              // Create a fake response object to handle network errors
+              const errorMessage = fetchError instanceof Error ? fetchError.message : 'Network error';
+              return {
+                ok: false,
+                status: 0,
+                statusText: errorMessage,
+                json: async () => ({ 
+                  error: 'Network error', 
+                  message: errorMessage,
+                  details: 'Failed to connect to server. Please ensure the API server is running on port 3001.'
+                }),
+              } as Response;
+            }
+          };
 
           let response = await doFetch(primaryUrl);
 
-          // If we're on localhost and `/api/*` returns 404, it's very often because the current web server
-          // (e.g. `vite preview`) isn't proxying to the API server. Retry directly against the local API server.
+          // If we're on localhost and `/api/*` returns 404 or network error, 
+          // check if server is running and provide helpful error
           if (
-            response.status === 404 &&
+            (response.status === 404 || response.status === 0) &&
             !apiBase &&
             typeof window !== 'undefined' &&
             endpoint.startsWith('/api/') &&
             (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
           ) {
+            // Check if it's a network error (CORS, connection refused)
+            if (response.status === 0) {
+              console.error('Network error - API server may not be running on port 3001');
+              setToastMessage('Status updated, but email failed: API server is not running. Please start the server with "npm run dev" or "tsx server.js"');
+              setToastVariant('error');
+              setShowToast(true);
+              return; // Exit early - don't try fallback if it's a network error
+            }
+            
+            // Only try fallback if it's a 404 (endpoint not found)
             const fallbackUrl = `http://localhost:3001${endpoint}`;
             console.warn('Email API returned 404, retrying via fallback URL:', fallbackUrl);
             response = await doFetch(fallbackUrl);
+            
+            // If fallback also fails with network error, show helpful message
+            if (response.status === 0) {
+              console.error('Fallback also failed - CORS or server not running');
+              setToastMessage('Status updated, but email failed: Cannot connect to API server. Please ensure the server is running on port 3001 with "npm run dev" or "tsx server.js"');
+              setToastVariant('error');
+              setShowToast(true);
+              return;
+            }
           }
 
           console.log(`Email API response status:`, response.status, response.statusText);

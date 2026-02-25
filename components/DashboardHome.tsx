@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Applicant, RegistrationStatus } from '../lib/types';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
@@ -162,48 +162,52 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
     }
   };
 
-  const filteredData = applicants.filter((applicant) => {
-    // Search Filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      const matchesSearch = 
-        applicant.fullName.toLowerCase().includes(query) ||
-        applicant.email?.toLowerCase().includes(query) ||
-        applicant.id.toLowerCase().includes(query) ||
-        applicant.phoneNumber?.toLowerCase().includes(query);
-      if (!matchesSearch) return false;
-    }
-    
-    // Pre-verified: Only accounts created by IRO through Add Investors with email addresses
-    if (activeTab === 'PRE_VERIFIED') {
-      // Must be marked as pre-verified (created by IRO)
-      if (!applicant.isPreVerified) {
+  // Use useMemo to recalculate filteredData when applicants or filters change
+  // This ensures the queue updates automatically when status changes
+  const filteredData = useMemo(() => {
+    return applicants.filter((applicant) => {
+      // Search Filter
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        const matchesSearch = 
+          applicant.fullName.toLowerCase().includes(query) ||
+          applicant.email?.toLowerCase().includes(query) ||
+          applicant.id.toLowerCase().includes(query) ||
+          applicant.phoneNumber?.toLowerCase().includes(query);
+        if (!matchesSearch) return false;
+      }
+      
+      // Pre-verified: Only accounts created by IRO through Add Investors with email addresses
+      if (activeTab === 'PRE_VERIFIED') {
+        // Must be marked as pre-verified (created by IRO)
+        if (!applicant.isPreVerified) {
+          return false;
+        }
+        // Must have an email address
+        const hasEmail = applicant.email && applicant.email.trim().length > 0;
+        return hasEmail;
+      }
+      
+      // Exclude pre-verified accounts from all other categories (ALL, PENDING, VERIFIED, NON_VERIFIED)
+      // Pre-verified accounts use different status mapping and should only appear in PRE_VERIFIED tab
+      if (applicant.isPreVerified) {
         return false;
       }
-      // Must have an email address
-      const hasEmail = applicant.email && applicant.email.trim().length > 0;
-      return hasEmail;
-    }
-    
-    // Exclude pre-verified accounts from all other categories (ALL, PENDING, VERIFIED, NON_VERIFIED)
-    // Pre-verified accounts use different status mapping and should only appear in PRE_VERIFIED tab
-    if (applicant.isPreVerified) {
-      return false;
-    }
-    
-    // Tab Filter - Use General Account Status for categorization (only for non-pre-verified accounts)
-    if (activeTab === 'ALL') return true;
-    
-    const internalStatus = getWorkflowStatusInternal(applicant);
-    const generalStatus = getGeneralAccountStatus(internalStatus);
-    
-    const matchesTab = 
-      (activeTab === 'PENDING' && generalStatus === 'UNVERIFIED') ||
-      (activeTab === 'VERIFIED' && generalStatus === 'VERIFIED') ||
-      (activeTab === 'NON_VERIFIED' && generalStatus === 'PENDING');
+      
+      // Tab Filter - Use General Account Status for categorization (only for non-pre-verified accounts)
+      if (activeTab === 'ALL') return true;
+      
+      const internalStatus = getWorkflowStatusInternal(applicant);
+      const generalStatus = getGeneralAccountStatus(internalStatus);
+      
+      const matchesTab = 
+        (activeTab === 'PENDING' && generalStatus === 'UNVERIFIED') ||
+        (activeTab === 'VERIFIED' && generalStatus === 'VERIFIED') ||
+        (activeTab === 'NON_VERIFIED' && generalStatus === 'PENDING');
 
-    return matchesTab;
-  });
+      return matchesTab;
+    });
+  }, [applicants, searchQuery, activeTab]);
 
   const filterOptions: Array<{ id: TabType; label: string }> = [
     { id: 'ALL', label: 'All' },
@@ -688,8 +692,29 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
           </thead>
           <tbody className="divide-y divide-neutral-200 dark:divide-neutral-700">
             {filteredData.length > 0 ? (
-              filteredData.map((applicant) => (
-                <tr key={applicant.id} className="group hover:bg-neutral-50/50 dark:hover:bg-neutral-700/50 transition-colors">
+              filteredData.map((applicant) => {
+                // Calculate status for key to force re-render when status changes
+                const internalStatus = getWorkflowStatusInternal(applicant);
+                // Include all relevant status fields in key to ensure re-render on any status change
+                const statusKey = `${applicant.id}-${applicant.status}-${internalStatus}-${applicant.shareholdingsVerification?.step6?.verifiedAt || ''}-${applicant.shareholdingsVerification?.step4?.lastResult || ''}-${applicant.shareholdingsVerification?.step4?.lastReviewedAt || ''}`;
+                
+                // Debug log for status calculation (only in development)
+                if (process.env.NODE_ENV === 'development' && applicant.status === 'APPROVED' && internalStatus !== 'VERIFIED') {
+                  console.warn('Status mapping issue detected:', {
+                    applicantId: applicant.id,
+                    applicantName: applicant.fullName,
+                    registrationStatus: applicant.status,
+                    internalStatus,
+                    hasStep6: !!applicant.shareholdingsVerification?.step6?.verifiedAt,
+                    step6VerifiedAt: applicant.shareholdingsVerification?.step6?.verifiedAt,
+                    step4LastResult: applicant.shareholdingsVerification?.step4?.lastResult,
+                    step1WantsVerification: applicant.shareholdingsVerification?.step1.wantsVerification,
+                    hasStep2: !!applicant.shareholdingsVerification?.step2
+                  });
+                }
+                
+                return (
+                <tr key={statusKey} className="group hover:bg-neutral-50/50 dark:hover:bg-neutral-700/50 transition-colors">
                   {activeTab === 'PRE_VERIFIED' ? (
                     <>
                       <td className="px-8 py-5">
@@ -789,7 +814,8 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                     </>
                   )}
                 </tr>
-              ))
+                );
+              })
             ) : (
               <tr>
                 <td colSpan={activeTab === 'PRE_VERIFIED' ? 6 : 5} className="px-8 py-12 text-center text-xs font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest">

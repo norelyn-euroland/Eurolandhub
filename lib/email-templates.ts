@@ -43,6 +43,7 @@ export const accountVerifiedTemplate: EmailTemplate = {
   <p>Hello {{ first_name }},</p>
   <p>Your account has been successfully verified.</p>
   <p>You can now access all features available to verified investors.</p>
+  <p>To access your investor portal, please visit: <a href="https://eurohub.eurolandir.net/">https://eurohub.eurolandir.net/</a></p>
   <p>If you have any questions, feel free to contact us.</p>
   <p>Best regards,<br>Euroland Team</p>
 </body>

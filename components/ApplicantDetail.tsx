@@ -295,24 +295,98 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
         </button>
         {/* Action buttons - Only show for non-pre-verified accounts */}
         {!applicant.isPreVerified && (() => {
-          // Check if user wants verification - disable buttons if they skipped verification
-          // Ensure workflow exists for the check
+          // Determine application status for button control
           const workflow = applicant.shareholdingsVerification;
-          // If wantsVerification is explicitly false, disable buttons. Otherwise enable them (undefined or true)
           const wantsVerification = workflow?.step1.wantsVerification !== false;
-          const isDisabled = workflow?.step1.wantsVerification === false;
+          
+          // Determine application status based on current state
+          type ApplicationStatus = 'VERIFIED' | 'REJECTED' | 'PENDING_RESUBMISSION' | 'UNDER_REVIEW';
+          let applicationStatus: ApplicationStatus = 'UNDER_REVIEW';
+          let finalizingAction: 'APPROVE' | 'REJECT' | 'REQUEST_INFO' | null = null;
+          
+          // Check if user skipped verification - disable all buttons
+          if (workflow?.step1.wantsVerification === false) {
+            // All buttons disabled for skipped verification
+          } else {
+            // VERIFIED: Status is APPROVED and Step 6 exists (completed verification)
+            if (applicant.status === RegistrationStatus.APPROVED && 
+                (workflow?.step6?.verifiedAt || workflow?.step4?.lastResult === 'MATCH')) {
+              applicationStatus = 'VERIFIED';
+              finalizingAction = 'APPROVE';
+            }
+            // REJECTED: Status is REJECTED
+            else if (applicant.status === RegistrationStatus.REJECTED) {
+              applicationStatus = 'REJECTED';
+              finalizingAction = 'REJECT';
+            }
+            // PENDING_RESUBMISSION: Request Info was clicked (FURTHER_INFO status) and awaiting resubmission
+            // This means:
+            // 1. Status is FURTHER_INFO (Request Info was clicked)
+            // 2. step4.lastResult is undefined (no IRO decision yet - waiting for resubmission)
+            // 3. step4.lastReviewedAt exists (IRO has reviewed/requested info)
+            // 4. step2.submittedAt is older than or equal to step4.lastReviewedAt (no resubmission yet)
+            // Note: When investor resubmits, step2.submittedAt will be newer than step4.lastReviewedAt, so buttons re-enable
+            else if (applicant.status === RegistrationStatus.FURTHER_INFO && 
+                     workflow?.step4?.lastResult === undefined &&
+                     workflow?.step4?.lastReviewedAt) {
+              // Check if investor has resubmitted (new step2 submission after Request Info)
+              const lastReviewedAt = workflow.step4.lastReviewedAt;
+              const step2SubmittedAt = workflow.step2?.submittedAt;
+              
+              // If step2 was submitted after Request Info was sent, it's a resubmission - enable buttons
+              const hasResubmitted = step2SubmittedAt && lastReviewedAt && 
+                                     new Date(step2SubmittedAt) > new Date(lastReviewedAt);
+              
+              if (!hasResubmitted) {
+                applicationStatus = 'PENDING_RESUBMISSION';
+                finalizingAction = 'REQUEST_INFO';
+              }
+              // If hasResubmitted, keep as UNDER_REVIEW (buttons enabled)
+            }
+            // UNDER_REVIEW: Default state - all buttons enabled
+            else {
+              applicationStatus = 'UNDER_REVIEW';
+            }
+          }
+          
+          // Determine button states based on application status
+          const isSkippedVerification = workflow?.step1.wantsVerification === false;
+          const isVerified = applicationStatus === 'VERIFIED';
+          const isRejected = applicationStatus === 'REJECTED';
+          const isPendingResubmission = applicationStatus === 'PENDING_RESUBMISSION';
+          const isUnderReview = applicationStatus === 'UNDER_REVIEW';
+          
+          // All buttons disabled if verification was skipped, verified, rejected, or pending resubmission
+          const approveDisabled = isSkippedVerification || isVerified || isRejected || isPendingResubmission;
+          const rejectDisabled = isSkippedVerification || isVerified || isRejected || isPendingResubmission;
+          const requestInfoDisabled = isSkippedVerification || isVerified || isRejected || isPendingResubmission;
+          
+          // Determine which button should be highlighted (the one that finalized the state)
+          const approveHighlighted = finalizingAction === 'APPROVE';
+          const rejectHighlighted = finalizingAction === 'REJECT';
+          const requestInfoHighlighted = finalizingAction === 'REQUEST_INFO';
           
           return (
             <div className="flex items-center gap-3">
               <button 
                 onClick={() => onUpdateStatus(applicant.id, RegistrationStatus.FURTHER_INFO)}
-                disabled={isDisabled}
+                disabled={requestInfoDisabled}
                 className={`flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-md transition-colors ${
-                  isDisabled 
-                    ? 'text-neutral-400 dark:text-neutral-600 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 cursor-not-allowed opacity-50' 
+                  requestInfoDisabled 
+                    ? requestInfoHighlighted
+                      ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 border-2 border-blue-300 dark:border-blue-700 cursor-not-allowed opacity-90'
+                      : 'text-neutral-400 dark:text-neutral-600 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 cursor-not-allowed opacity-50'
                     : 'text-neutral-700 dark:text-neutral-200 bg-neutral-100 dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 hover:bg-neutral-200 dark:hover:bg-neutral-600 hover:border-neutral-400 dark:hover:border-neutral-500'
                 }`}
-                title={isDisabled ? 'This account skipped holdings verification' : 'Request additional information from the applicant'}
+                title={
+                  isSkippedVerification 
+                    ? 'This account skipped holdings verification' 
+                    : requestInfoDisabled && requestInfoHighlighted
+                    ? 'Request Info was sent - awaiting investor resubmission'
+                    : requestInfoDisabled
+                    ? 'Action not available in current state'
+                    : 'Request additional information from the applicant'
+                }
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -321,13 +395,23 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
               </button>
               <button 
                 onClick={() => onUpdateStatus(applicant.id, RegistrationStatus.REJECTED)}
-                disabled={isDisabled}
+                disabled={rejectDisabled}
                 className={`flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-md transition-colors ${
-                  isDisabled 
-                    ? 'text-neutral-400 dark:text-neutral-600 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 cursor-not-allowed opacity-50' 
+                  rejectDisabled 
+                    ? rejectHighlighted
+                      ? 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 border-2 border-red-300 dark:border-red-700 cursor-not-allowed opacity-90'
+                      : 'text-neutral-400 dark:text-neutral-600 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 cursor-not-allowed opacity-50'
                     : 'text-red-600 dark:text-red-400 bg-neutral-100 dark:bg-neutral-700 border border-red-300 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-400 dark:hover:border-red-700'
                 }`}
-                title={isDisabled ? 'This account skipped holdings verification' : 'Reject the applicant\'s holdings verification'}
+                title={
+                  isSkippedVerification 
+                    ? 'This account skipped holdings verification' 
+                    : rejectDisabled && rejectHighlighted
+                    ? 'Application was rejected'
+                    : rejectDisabled
+                    ? 'Action not available in current state'
+                    : 'Reject the applicant\'s holdings verification'
+                }
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -336,13 +420,23 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
               </button>
               <button 
                 onClick={() => onUpdateStatus(applicant.id, RegistrationStatus.APPROVED)}
-                disabled={isDisabled}
+                disabled={approveDisabled}
                 className={`flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-md transition-colors ${
-                  isDisabled 
-                    ? 'text-neutral-400 dark:text-neutral-600 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 cursor-not-allowed opacity-50' 
+                  approveDisabled 
+                    ? approveHighlighted
+                      ? 'text-white bg-green-600 dark:bg-green-500 border-2 border-green-700 dark:border-green-400 cursor-not-allowed opacity-90 shadow-md'
+                      : 'text-neutral-400 dark:text-neutral-600 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 cursor-not-allowed opacity-50'
                     : 'text-white bg-[#082b4a] dark:bg-[#00adf0] hover:bg-[#061d33] dark:hover:bg-[#0099d6]'
                 }`}
-                title={isDisabled ? 'This account skipped holdings verification' : 'Approve the applicant\'s holdings verification'}
+                title={
+                  isSkippedVerification 
+                    ? 'This account skipped holdings verification' 
+                    : approveDisabled && approveHighlighted
+                    ? 'Application was approved and verified'
+                    : approveDisabled
+                    ? 'Action not available in current state'
+                    : 'Approve the applicant\'s holdings verification'
+                }
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />

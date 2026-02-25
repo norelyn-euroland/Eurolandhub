@@ -1888,11 +1888,19 @@ app.post('/api/send-account-verified', async (req, res) => {
   <p>Hello ${firstName || ''},</p>
   <p>Your account has been successfully verified.</p>
   <p>You can now access all features available to verified investors.</p>
+  <p>To access your investor portal, please visit: <a href="https://eurohub.eurolandir.net/">https://eurohub.eurolandir.net/</a></p>
   <p>If you have any questions, feel free to contact us.</p>
   <p>Best regards,<br>Euroland Team</p>
 </body>
 </html>`,
     };
+
+    // Verify the link is included in the email
+    if (!accountVerifiedTemplate.html.includes('eurohub.eurolandir.net')) {
+      console.error('WARNING: Account verified email template is missing the investor portal link!');
+    } else {
+      console.log('Account verified email includes investor portal link');
+    }
 
     const fromEmail = process.env.RESEND_FROM_EMAIL || 'norelyn.golingan@eirl.ink';
     const fromName = process.env.RESEND_FROM_NAME || 'EurolandHUB';
