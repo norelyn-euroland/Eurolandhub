@@ -284,6 +284,14 @@ app.use(cors({
 // Middleware to parse JSON (for other endpoints)
 app.use(express.json());
 
+// Request logging middleware for debugging API calls
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  }
+  next();
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'API server is running' });
@@ -1832,6 +1840,7 @@ app.post('/api/resend-email-otp', async (req, res) => {
  * Sends email notification when IRO approves an applicant's holdings verification (Step 6: Verified Account).
  */
 app.post('/api/send-account-verified', async (req, res) => {
+  console.log('[send-account-verified] Request received:', { body: req.body });
   try {
     const resendApiKey = process.env.RESEND_API_KEY;
     if (!resendApiKey) {
@@ -1929,6 +1938,7 @@ app.post('/api/send-account-verified', async (req, res) => {
  * Sends email notification when IRO rejects an applicant's holdings verification.
  */
 app.post('/api/send-account-rejected', async (req, res) => {
+  console.log('[send-account-rejected] Request received:', { body: req.body });
   try {
     const resendApiKey = process.env.RESEND_API_KEY;
     if (!resendApiKey) {
@@ -2026,6 +2036,7 @@ app.post('/api/send-account-rejected', async (req, res) => {
  * Sends email notification when IRO requests more information from an applicant.
  */
 app.post('/api/send-request-info', async (req, res) => {
+  console.log('[send-request-info] Request received:', { body: req.body });
   try {
     const resendApiKey = process.env.RESEND_API_KEY;
     if (!resendApiKey) {
