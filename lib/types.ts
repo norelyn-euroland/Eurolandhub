@@ -112,7 +112,7 @@ export interface ShareholdingsVerificationState {
 }
 
 // @google/genai guidelines: Define a shared ViewType for navigation consistency
-export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders';
+export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders' | 'engagement' | 'documents';
 
 /**
  * Tab filter type for registrations page
@@ -228,4 +228,38 @@ export interface AIAnalysisResult {
   summary: string;
   discrepancies: string[];
   recommendation: string;
+}
+
+/**
+ * Document types for investor relations documents
+ */
+export type DocumentType =
+  | 'earnings'
+  | 'dividend'
+  | 'disclosure'
+  | 'press_release'
+  | 'agm'
+  | 'governance'
+  | 'esg'
+  | 'presentation'
+  | 'silent_period';
+
+/**
+ * Document status
+ */
+export type DocumentStatus = 'draft' | 'published' | 'archived';
+
+/**
+ * Document interface for investor relations documents
+ */
+export interface Document {
+  id: string;
+  title: string;
+  type: DocumentType;
+  status: DocumentStatus;
+  publishDate: string; // ISO date string (YYYY-MM-DD)
+  createdAt: string; // ISO timestamp
+  updatedAt: string; // ISO timestamp
+  summary: string;
+  summaryRegenerationCount?: number;
 }

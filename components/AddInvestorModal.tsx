@@ -10,6 +10,7 @@ import Toast from './Toast';
 import InfoTooltip from './InfoTooltip';
 import {
   isValidRegistrationId,
+  normalizeRegistrationId,
   hasInvalidEmail,
   hasInvalidPhone,
   getPhoneDisplayPrefix,
@@ -51,8 +52,9 @@ const ReviewRowFields: React.FC<{
   onFieldChange: (id: string, field: keyof InvestorFormData, value: string) => void;
   onHoldingIdChange: (id: string, value: string) => void;
 }> = ({ form, onFieldChange, onHoldingIdChange }) => {
-  const regIdValid = isValidRegistrationId(form.holdingId);
-  const regIdTouched = (form.holdingId || '').length > 0;
+  const normalizedRegId = normalizeRegistrationId(form.holdingId || '');
+  const regIdValid = isValidRegistrationId(normalizedRegId);
+  const regIdTouched = normalizedRegId.length > 0;
   const regIdInvalid = regIdTouched && !regIdValid;
   const emailInvalid = hasInvalidEmail(form.email);
   const emailTouched = (form.email || '').trim().length > 0;
@@ -457,14 +459,18 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
         }
 
         // Validate Registration ID: exactly 6 digits only
-        const formsWithInvalidIds = investorForms.filter(form => !isValidRegistrationId(form.holdingId || ''));
+        // Normalize the value first (extract digits, limit to 6) before validation
+        const formsWithInvalidIds = investorForms.filter(form => {
+          const normalizedId = normalizeRegistrationId(form.holdingId || '');
+          return normalizedId.length > 0 && !isValidRegistrationId(normalizedId);
+        });
         if (formsWithInvalidIds.length > 0) {
           formsWithInvalidIds.forEach(form => {
             setRegistrationIdErrors(prev => {
               const newMap = new Map(prev);
-              const holdingId = (form.holdingId || '').trim();
+              const holdingId = normalizeRegistrationId(form.holdingId || '');
               newMap.set(form.id, {
-                hasInvalidChars: /[^0-9]/.test(holdingId),
+                hasInvalidChars: /[^0-9]/.test(form.holdingId || ''),
                 isIncomplete: holdingId.length === 0 || holdingId.length < 6
               });
               return newMap;
@@ -1387,7 +1393,10 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       triggerToast(`Please fill in Investor Name and Registration ID for all investors. ${invalidForms.length} form(s) incomplete.`, 'warning');
       return;
     }
-    const invalidRegId = investorForms.filter(f => !isValidRegistrationId(f.holdingId || ''));
+    const invalidRegId = investorForms.filter(f => {
+      const normalizedId = normalizeRegistrationId(f.holdingId || '');
+      return normalizedId.length > 0 && !isValidRegistrationId(normalizedId);
+    });
     if (invalidRegId.length > 0) {
       triggerToast('Registration ID must be exactly 6 digits for all investors. Please correct and try again.', 'warning');
       return;
@@ -2096,7 +2105,10 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
               {/* Validation indicator — data needs attention */}
               {investorForms.length > 0 && (() => {
-                const invalidRegId = investorForms.filter(f => (f.holdingId || '').length > 0 && !isValidRegistrationId(f.holdingId || ''));
+                const invalidRegId = investorForms.filter(f => {
+                  const normalizedId = normalizeRegistrationId(f.holdingId || '');
+                  return normalizedId.length > 0 && !isValidRegistrationId(normalizedId);
+                });
                 const invalidEmail = investorForms.filter(f => hasInvalidEmail(f.email || ''));
                 if (invalidRegId.length === 0 && invalidEmail.length === 0) return null;
                 return (
@@ -2147,11 +2159,13 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                               <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300">Email</th>
                               <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300">Phone</th>
                               <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300 w-24">Edit</th>
+                              <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300 w-20">Delete</th>
                             </tr>
                           </thead>
                           <tbody>
                             {investorForms.filter(f => f.classification === 'new').map((form) => {
-                              const regIdErr = (form.holdingId || '').length > 0 && !isValidRegistrationId(form.holdingId || '');
+                              const normalizedRegId = normalizeRegistrationId(form.holdingId || '');
+                              const regIdErr = normalizedRegId.length > 0 && !isValidRegistrationId(normalizedRegId);
                               const emailErr = hasInvalidEmail(form.email || '');
                               const phoneErr = hasInvalidPhone(form.phone || '');
                               return (
@@ -2184,10 +2198,21 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                       {expandedReviewRowId === form.id ? 'Save' : 'Edit'}
                                     </button>
                                   </td>
+                                  <td className="px-4 py-3">
+                                    <button
+                                      onClick={() => handleRemoveInvestor(form.id)}
+                                      className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                                      title="Delete investor"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                    </button>
+                                  </td>
                                 </tr>
                                 {expandedReviewRowId === form.id && (
                                   <tr className="border-t border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
-                                    <td colSpan={5} className="px-4 py-4">
+                                    <td colSpan={6} className="px-4 py-4">
                                       <ReviewRowFields form={form} onFieldChange={handleFieldChange} onHoldingIdChange={handleHoldingIdChange} />
                                     </td>
                                   </tr>
@@ -2214,11 +2239,13 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                               <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300">Email</th>
                               <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300">Phone</th>
                               <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300 w-24">Edit</th>
+                              <th className="px-4 py-3 text-left font-bold text-neutral-700 dark:text-neutral-300 w-20">Delete</th>
                             </tr>
                           </thead>
                           <tbody>
                             {investorForms.filter(f => f.classification === 'existing').map((form) => {
-                              const regIdErr = (form.holdingId || '').length > 0 && !isValidRegistrationId(form.holdingId || '');
+                              const normalizedRegId = normalizeRegistrationId(form.holdingId || '');
+                              const regIdErr = normalizedRegId.length > 0 && !isValidRegistrationId(normalizedRegId);
                               const emailErr = hasInvalidEmail(form.email || '');
                               const phoneErr = hasInvalidPhone(form.phone || '');
                               return (
@@ -2251,10 +2278,21 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                       {expandedReviewRowId === form.id ? 'Save' : 'Edit'}
                                     </button>
                                   </td>
+                                  <td className="px-4 py-3">
+                                    <button
+                                      onClick={() => handleRemoveInvestor(form.id)}
+                                      className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                                      title="Delete investor"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                    </button>
+                                  </td>
                                 </tr>
                                 {expandedReviewRowId === form.id && (
                                   <tr className="border-t border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
-                                    <td colSpan={5} className="px-4 py-4">
+                                    <td colSpan={6} className="px-4 py-4">
                                       <ReviewRowFields form={form} onFieldChange={handleFieldChange} onHoldingIdChange={handleHoldingIdChange} />
                                     </td>
                                   </tr>
@@ -2296,7 +2334,8 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                       </div>
                       <div className="space-y-4">
                         {investorForms.filter(f => f.classification === 'suspected').map((form) => {
-                          const regIdErr = (form.holdingId || '').length > 0 && !isValidRegistrationId(form.holdingId || '');
+                          const normalizedRegId = normalizeRegistrationId(form.holdingId || '');
+                          const regIdErr = normalizedRegId.length > 0 && !isValidRegistrationId(normalizedRegId);
                           const emailErr = hasInvalidEmail(form.email || '');
                           const phoneErr = hasInvalidPhone(form.phone || '');
                           return (
@@ -2340,6 +2379,16 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                   className="px-4 py-2 text-xs font-bold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors shadow-sm"
                                 >
                                   Confirm match
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveInvestor(form.id)}
+                                  className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                                  title="Delete investor"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
                                 </button>
                               </div>
                             </div>

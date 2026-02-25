@@ -231,6 +231,21 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
       console.log('Updating applicant status:', { id, status, applicantName: applicant.fullName, wantsVerification });
       await applicantService.update(id, updatedApplicant);
       console.log('Applicant status updated successfully:', { id, newStatus: updatedApplicant.status });
+
+      // Always show a status update toast (email sending is secondary and may fail independently).
+      if (status === RegistrationStatus.APPROVED) {
+        setToastMessage('Applicant status updated: Approved');
+        setToastVariant('success');
+        setShowToast(true);
+      } else if (status === RegistrationStatus.REJECTED) {
+        setToastMessage('Applicant status updated: Rejected');
+        setToastVariant('warning');
+        setShowToast(true);
+      } else if (status === RegistrationStatus.FURTHER_INFO) {
+        setToastMessage('Applicant status updated: Request Info');
+        setToastVariant('info');
+        setShowToast(true);
+      }
       
       // Helper function to send email and show toast
       const sendEmailNotification = async (endpoint: string, emailType: string, toastMessage: string, toastVariant: 'success' | 'warning' | 'error' | 'info' = 'success') => {
@@ -259,8 +274,22 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
           const nameParts = updatedApplicant.fullName.trim().split(/\s+/);
           const firstName = nameParts[0] || updatedApplicant.fullName;
 
-          console.log(`Sending ${emailType} email to:`, email, 'via endpoint:', endpoint);
-          const response = await fetch(endpoint, {
+          // Support both:
+          // - Relative `/api/...` (Vercel + Vite dev proxy)
+          // - Absolute base via `VITE_API_BASE_URL` (useful for local preview/static hosting)
+          const apiBase = (import.meta as any).env?.VITE_API_BASE_URL as string | undefined;
+          const buildUrl = (path: string) => {
+            if (!apiBase) return path;
+            const base = apiBase.endsWith('/') ? apiBase.slice(0, -1) : apiBase;
+            if (path.startsWith('/')) return `${base}${path}`;
+            return `${base}/${path}`;
+          };
+
+          const primaryUrl = buildUrl(endpoint);
+          console.log(`Sending ${emailType} email to:`, email, 'via endpoint:', primaryUrl);
+
+          const doFetch = async (url: string) =>
+            fetch(url, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -269,7 +298,23 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
               toEmail: email,
               firstName,
             }),
-          });
+            });
+
+          let response = await doFetch(primaryUrl);
+
+          // If we're on localhost and `/api/*` returns 404, it's very often because the current web server
+          // (e.g. `vite preview`) isn't proxying to the API server. Retry directly against the local API server.
+          if (
+            response.status === 404 &&
+            !apiBase &&
+            typeof window !== 'undefined' &&
+            endpoint.startsWith('/api/') &&
+            (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+          ) {
+            const fallbackUrl = `http://localhost:3001${endpoint}`;
+            console.warn('Email API returned 404, retrying via fallback URL:', fallbackUrl);
+            response = await doFetch(fallbackUrl);
+          }
 
           console.log(`Email API response status:`, response.status, response.statusText);
           if (response.ok) {
@@ -297,7 +342,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
             const displayMessage = errorMessage.length > 80 
               ? `${errorMessage.substring(0, 77)}...` 
               : errorMessage;
-            setToastMessage(`Failed to send email: ${displayMessage}`);
+            setToastMessage(`Status updated, but failed to send email: ${displayMessage}`);
             setToastVariant('error');
             setShowToast(true);
           }
@@ -309,7 +354,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
             : typeof emailError === 'string' 
               ? emailError 
               : 'Network error or server unavailable';
-          setToastMessage(`Error sending email to ${email}: ${errorMsg}`);
+          setToastMessage(`Status updated, but email failed: ${errorMsg}`);
           setToastVariant('error');
           setShowToast(true);
         }

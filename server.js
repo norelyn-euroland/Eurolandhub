@@ -277,7 +277,15 @@ ${baseBody}`,
 
 // CORS configuration - allow requests from Vite dev server
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  // Allow any localhost port in dev so the frontend can run on 3000/3002/etc.
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const isLocalhost =
+      /^http:\/\/localhost:\d+$/.test(origin) ||
+      /^http:\/\/127\.0\.0\.1:\d+$/.test(origin);
+    if (isLocalhost) return callback(null, true);
+    return callback(new Error(`Not allowed by CORS: ${origin}`), false);
+  },
   credentials: true,
 }));
 

@@ -279,9 +279,9 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
   // If wantsVerification is false, we can still manually approve/reject
   const isShareholdingsDeclined = wf.step1.wantsVerification === false;
   
-  // For shareholdings declined accounts, we can still approve/reject without step2
-  // For accounts that wanted verification, we need step2 to exist
-  if (!isShareholdingsDeclined && !wf.step2) return a;
+  // For shareholdings declined accounts, we can still approve/reject without step2.
+  // IMPORTANT: IRO actions should also be allowed even if step2 is missing (some legacy/imported
+  // applicants may not have completed the holdings submission state yet).
 
   const reviewedAt = nowIso();
 
@@ -324,11 +324,10 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
   const failedAttempts = (wf.step4.failedAttempts || 0) + 1;
   const lockedUntil = failedAttempts >= MAX_FAILED_ATTEMPTS ? addDaysIso(reviewedAt, LOCKOUT_DAYS) : wf.step3.lockedUntil;
 
-  // IRO review failed: If 3 failures, lock and set to UNVERIFIED (PENDING)
-  // Otherwise, keep as PENDING (UNVERIFIED) for resubmission
+  // IRO rejected: reflect the action in top-level status so the registry UI updates.
   return {
     ...a,
-    status: RegistrationStatus.PENDING, // UNVERIFIED status
+    status: RegistrationStatus.REJECTED,
     shareholdingsVerification: {
       ...wf,
       step4: {
@@ -360,9 +359,8 @@ export function recordRequestInfo(applicant: Applicant): Applicant {
   // Allow IRO actions even if user declined shareholdings verification
   const isShareholdingsDeclined = wf.step1.wantsVerification === false;
   
-  // For shareholdings declined accounts, we can still request info without step2
-  // For accounts that wanted verification, we need step2 to exist
-  if (!isShareholdingsDeclined && !wf.step2) return a;
+  // For shareholdings declined accounts, we can still request info without step2.
+  // IMPORTANT: IRO actions should also be allowed even if step2 is missing.
 
   const requestedAt = nowIso();
 
