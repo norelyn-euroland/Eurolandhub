@@ -794,7 +794,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                           // Check if user declined holdings verification - hide Audit button if declined
                           const workflowStatus = getWorkflowStatusInternal(applicant);
                           const isHoldingsDeclined = workflowStatus === 'SHAREHOLDINGS_DECLINED' || 
-                                                     applicant.shareholdingsVerification?.step1.wantsVerification === false;
+                                                     applicant.shareholdingsVerification?.step1?.wantsVerification === false;
                           
                           // Don't show Audit button if holdings verification was declined
                           if (isHoldingsDeclined) {

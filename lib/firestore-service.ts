@@ -153,7 +153,21 @@ const firestoreToApplicant = (doc: QueryDocumentSnapshot<DocumentData>): Applica
     taxDocumentUrl: data.taxDocumentUrl || data.taxDocument || '',
     holdingsRecord: data.holdingsRecord || undefined,
     emailOtpVerification: data.emailOtpVerification || undefined,
-    shareholdingsVerification: data.shareholdingsVerification || undefined,
+    shareholdingsVerification: (() => {
+      const sv = data.shareholdingsVerification;
+      if (!sv || typeof sv !== 'object') return undefined;
+      // Normalize: if the frontend wrote a partial/empty object, ensure required sub-objects exist
+      // If step1 is missing entirely, the object is incomplete — treat as no workflow started
+      if (!sv.step1) return undefined;
+      return {
+        ...sv,
+        step1: sv.step1,
+        step2: sv.step2 || undefined,
+        step3: sv.step3 || { failedAttempts: 0 },
+        step4: sv.step4 || { failedAttempts: 0 },
+        step6: sv.step6 || undefined,
+      };
+    })(),
     // Pre-verified workflow fields
     workflowStage: data.workflowStage || undefined,
     accountStatus: data.accountStatus || undefined,

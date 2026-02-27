@@ -39,36 +39,61 @@ function normalizeCountry(v: string): string {
 }
 
 export function ensureWorkflow(applicant: Applicant): Applicant {
-  if (applicant.shareholdingsVerification) return applicant;
-
   const parts = applicant.fullName.trim().split(/\s+/);
   const firstName = parts[0] || '';
   const lastName = parts.length > 1 ? parts[parts.length - 1] : '';
 
-  const state: ShareholdingsVerificationState = {
-    step1: {
+  const existing = applicant.shareholdingsVerification;
+
+  // If no workflow at all, create a brand-new one
+  if (!existing) {
+    const state: ShareholdingsVerificationState = {
+      step1: {
+        firstName,
+        lastName,
+        email: applicant.email,
+        contactNumber: applicant.phoneNumber || '',
+        authProvider: 'GOOGLE',
+        // wantsVerification is intentionally undefined until set AFTER email verification (Step 2) is complete
+        // The decision "Want to verify account for Investor community?" comes after email verification
+      },
+      step3: {
+        failedAttempts: 0,
+      },
+      step4: {
+        failedAttempts: 0,
+      },
+    };
+    return { ...applicant, shareholdingsVerification: state };
+  }
+
+  // Workflow exists but may be partial (e.g. frontend wrote incomplete data).
+  // Ensure all required sub-objects have safe defaults so downstream code never crashes.
+  const patched: ShareholdingsVerificationState = {
+    ...existing,
+    step1: existing.step1 || {
       firstName,
       lastName,
       email: applicant.email,
       contactNumber: applicant.phoneNumber || '',
-      authProvider: 'GOOGLE',
-      // wantsVerification is intentionally undefined until set AFTER email verification (Step 2) is complete
-      // The decision "Want to verify account for Investor community?" comes after email verification
+      authProvider: 'GOOGLE' as const,
     },
-    step3: {
-      failedAttempts: 0,
-    },
-    step4: {
-      failedAttempts: 0,
-    },
+    // step2 is optional — leave as-is
+    step3: existing.step3 || { failedAttempts: 0 },
+    step4: existing.step4 || { failedAttempts: 0 },
   };
 
-  return { ...applicant, shareholdingsVerification: state };
+  // Only create a new object if something was actually patched
+  if (patched.step1 !== existing.step1 || patched.step3 !== existing.step3 || patched.step4 !== existing.step4) {
+    return { ...applicant, shareholdingsVerification: patched };
+  }
+
+  return applicant;
 }
 
 export function isLocked(applicant: Applicant): boolean {
   const wf = applicant.shareholdingsVerification;
-  return isFutureIso(wf?.step3.lockedUntil);
+  return isFutureIso(wf?.step3?.lockedUntil);
 }
 
 /**
@@ -157,7 +182,7 @@ export function submitShareholdingInfo(
 
   // Check if this is a resubmission after RESUBMISSION_REQUIRED
   // If Step 4 has a NO_MATCH result, this is a resubmission - skip auto verification
-  const isResubmission = wf.step4.lastResult === 'NO_MATCH';
+  const isResubmission = wf.step4?.lastResult === 'NO_MATCH';
 
   // Step 3: Store submission, status will be set by Step 4 (automatic verification)
   const withStep2 = {
@@ -214,11 +239,12 @@ export function runAutoVerification(applicant: Applicant, shareholders: Sharehol
   const wf = a.shareholdingsVerification!;
 
   if (isLocked(a)) return a;
-  if (!wf.step1.wantsVerification) return a;
+  if (!wf.step1?.wantsVerification) return a;
   if (!wf.step2) return a;
 
   const checkedAt = nowIso();
   const submission = wf.step2;
+  const step3 = wf.step3 || { failedAttempts: 0 };
 
   // Automatic verification: check Shareholdings ID + Company Name, and Country if provided.
   const target = shareholders.find((s) => {
@@ -238,7 +264,7 @@ export function runAutoVerification(applicant: Applicant, shareholders: Sharehol
       shareholdingsVerification: {
         ...wf,
         step3: {
-          ...wf.step3,
+          ...step3,
           lastResult: 'MATCH',
           failedAttempts: 0, // Reset failed attempts on match
           lockedUntil: undefined, // Clear lockout on match
@@ -248,8 +274,8 @@ export function runAutoVerification(applicant: Applicant, shareholders: Sharehol
     };
   }
 
-  const failedAttempts = (wf.step3.failedAttempts || 0) + 1;
-  const lockedUntil = failedAttempts >= MAX_FAILED_ATTEMPTS ? addDaysIso(checkedAt, LOCKOUT_DAYS) : wf.step3.lockedUntil;
+  const failedAttempts = (step3.failedAttempts || 0) + 1;
+  const lockedUntil = failedAttempts >= MAX_FAILED_ATTEMPTS ? addDaysIso(checkedAt, LOCKOUT_DAYS) : step3.lockedUntil;
 
   // AUTO_CHECK_FAILED: Failed Step 4 (automatic verification) but not locked yet -> UNVERIFIED (PENDING)
   // LOCKED_7_DAYS: Failed 3 times -> UNVERIFIED (PENDING)
@@ -259,7 +285,7 @@ export function runAutoVerification(applicant: Applicant, shareholders: Sharehol
     shareholdingsVerification: {
       ...wf,
       step3: {
-        ...wf.step3,
+        ...step3,
         lastResult: 'NO_MATCH',
         failedAttempts,
         lockedUntil,
@@ -275,9 +301,12 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
 
   if (isLocked(a)) return a;
   
+  const step3 = wf.step3 || { failedAttempts: 0 };
+  const step4 = wf.step4 || { failedAttempts: 0 };
+
   // Allow IRO actions even if user declined shareholdings verification
   // If wantsVerification is false, we can still manually approve/reject
-  const isShareholdingsDeclined = wf.step1.wantsVerification === false;
+  const isShareholdingsDeclined = wf.step1?.wantsVerification === false;
   
   // For shareholdings declined accounts, we can still approve/reject without step2.
   // IMPORTANT: IRO actions should also be allowed even if step2 is missing (some legacy/imported
@@ -294,7 +323,7 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
         shareholdingsVerification: {
           ...wf,
           step4: {
-            ...wf.step4,
+            ...step4,
             lastResult: 'MATCH',
             failedAttempts: 0,
             lastReviewedAt: reviewedAt,
@@ -311,7 +340,7 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
       shareholdingsVerification: {
         ...wf,
         step4: {
-          ...wf.step4,
+          ...step4,
           lastResult: 'MATCH',
           failedAttempts: 0, // Reset failed attempts on match
           lastReviewedAt: reviewedAt,
@@ -321,8 +350,8 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
     };
   }
 
-  const failedAttempts = (wf.step4.failedAttempts || 0) + 1;
-  const lockedUntil = failedAttempts >= MAX_FAILED_ATTEMPTS ? addDaysIso(reviewedAt, LOCKOUT_DAYS) : wf.step3.lockedUntil;
+  const failedAttempts = (step4.failedAttempts || 0) + 1;
+  const lockedUntil = failedAttempts >= MAX_FAILED_ATTEMPTS ? addDaysIso(reviewedAt, LOCKOUT_DAYS) : step3.lockedUntil;
 
   // IRO rejected: reflect the action in top-level status so the registry UI updates.
   return {
@@ -331,13 +360,13 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
     shareholdingsVerification: {
       ...wf,
       step4: {
-        ...wf.step4,
+        ...step4,
         lastResult: 'NO_MATCH',
         failedAttempts,
         lastReviewedAt: reviewedAt,
       },
       step3: {
-        ...wf.step3,
+        ...step3,
         lockedUntil,
       },
       step6: undefined,
@@ -356,8 +385,10 @@ export function recordRequestInfo(applicant: Applicant): Applicant {
 
   if (isLocked(a)) return a;
   
+  const step4 = wf.step4 || { failedAttempts: 0 };
+
   // Allow IRO actions even if user declined shareholdings verification
-  const isShareholdingsDeclined = wf.step1.wantsVerification === false;
+  const isShareholdingsDeclined = wf.step1?.wantsVerification === false;
   
   // For shareholdings declined accounts, we can still request info without step2.
   // IMPORTANT: IRO actions should also be allowed even if step2 is missing.
@@ -373,7 +404,7 @@ export function recordRequestInfo(applicant: Applicant): Applicant {
     shareholdingsVerification: {
       ...wf,
       step4: {
-        ...wf.step4,
+        ...step4,
         // Don't set lastResult - keep awaiting review
         // Record that IRO requested info
         lastReviewedAt: requestedAt,
@@ -384,7 +415,7 @@ export function recordRequestInfo(applicant: Applicant): Applicant {
 
 
 export function getAutoMatchResult(applicant: Applicant): ShareholdingsVerificationMatchResult | undefined {
-  return applicant.shareholdingsVerification?.step3.lastResult;
+  return applicant.shareholdingsVerification?.step3?.lastResult;
 }
 
 /**
@@ -444,12 +475,12 @@ export function getWorkflowStatusInternal(applicant: Applicant): WorkflowStatusI
   }
 
   // SHAREHOLDINGS_DECLINED: User declined shareholdings verification (after email was verified)
-  if (wf.step1.wantsVerification === false) {
+  if (wf.step1?.wantsVerification === false) {
     return 'SHAREHOLDINGS_DECLINED';
   }
 
   // Check if locked (7-day lockout after 3 failed attempts)
-  if (wf.step3.lockedUntil) {
+  if (wf.step3?.lockedUntil) {
     const lockedUntil = new Date(wf.step3.lockedUntil);
     if (lockedUntil.getTime() > Date.now()) {
       // Still locked - return LOCKED_FOR_7_DAYS status
@@ -459,20 +490,20 @@ export function getWorkflowStatusInternal(applicant: Applicant): WorkflowStatusI
 
   // REGISTRATION_PENDING: User agreed to shareholdings verification but hasn't submitted Step 3 (Holdings Registration)
   // Only return this if NOT already verified
-  if (wf.step1.wantsVerification === true && !wf.step2) {
+  if (wf.step1?.wantsVerification === true && !wf.step2) {
     return 'REGISTRATION_PENDING';
   }
 
   // Handle resubmission scenario: Step 2 exists but Step 3 has no result (skipped auto check)
   // This means user resubmitted after RESUBMISSION_REQUIRED, goes directly to IRO review
-  if (wf.step2 && wf.step3.lastResult === undefined && !wf.step4.lastResult) {
+  if (wf.step2 && wf.step3?.lastResult === undefined && !wf.step4?.lastResult) {
     return 'AWAITING_IRO_REVIEW';
   }
 
   // Step 4: Auto check passed
-  if (wf.step3.lastResult === 'MATCH') {
+  if (wf.step3?.lastResult === 'MATCH') {
     // AWAITING_IRO_REVIEW: Step 4 (automatic verification) passed, waiting for IRO review (Step 5)
-    if (!wf.step4.lastResult) {
+    if (!wf.step4?.lastResult) {
       return 'AWAITING_IRO_REVIEW';
     }
 
@@ -488,19 +519,19 @@ export function getWorkflowStatusInternal(applicant: Applicant): WorkflowStatusI
   }
 
   // Step 4: Auto check failed -> RESUBMISSION_REQUIRED
-  if (wf.step3.lastResult === 'NO_MATCH') {
+  if (wf.step3?.lastResult === 'NO_MATCH') {
     return 'RESUBMISSION_REQUIRED';
   }
 
   // Default fallback - if email verified but no shareholdings decision yet
   // This means email verification (Step 2) is complete, but user hasn't been asked about shareholdings yet
-  if (emailOtp?.verifiedAt && wf.step1.wantsVerification === undefined) {
+  if (emailOtp?.verifiedAt && wf.step1?.wantsVerification === undefined) {
     return 'EMAIL_VERIFIED';
   }
 
   // If Step 3 (Holdings Registration) exists but no Step 4 (auto verification) result yet
   // This shouldn't happen in normal flow, but handle gracefully
-  if (wf.step2 && wf.step3.lastResult === undefined) {
+  if (wf.step2 && wf.step3?.lastResult === undefined) {
     return 'REGISTRATION_PENDING';
   }
 
