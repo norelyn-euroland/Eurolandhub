@@ -159,12 +159,17 @@ const firestoreToApplicant = (doc: QueryDocumentSnapshot<DocumentData>): Applica
       // Normalize: if the frontend wrote a partial/empty object, ensure required sub-objects exist
       // If step1 is missing entirely, the object is incomplete — treat as no workflow started
       if (!sv.step1) return undefined;
+      const step4 = sv.step4 || { failedAttempts: 0 };
       return {
         ...sv,
         step1: sv.step1,
         step2: sv.step2 || undefined,
         step3: sv.step3 || { failedAttempts: 0 },
-        step4: sv.step4 || { failedAttempts: 0 },
+        step4: {
+          ...step4,
+          iroDecision: step4.iroDecision || undefined,
+          iroDecisionHistory: step4.iroDecisionHistory || undefined,
+        },
         step6: sv.step6 || undefined,
       };
     })(),
@@ -184,6 +189,10 @@ const firestoreToApplicant = (doc: QueryDocumentSnapshot<DocumentData>): Applica
     linkClickedCount: data.linkClickedCount || undefined,
     accountClaimedAt: data.accountClaimedAt || undefined,
     profilePictureUrl: data.profilePictureUrl || data.photoURL || undefined,
+    // Compliance tracking fields
+    lastIRODecisionAt: data.lastIRODecisionAt || undefined,
+    complianceStatus: data.complianceStatus || undefined,
+    userLastResponseAt: data.userLastResponseAt || undefined,
     // Include any additional fields the frontend might send
     ...Object.fromEntries(
       Object.entries(data).filter(([key]) => 
@@ -195,7 +204,8 @@ const firestoreToApplicant = (doc: QueryDocumentSnapshot<DocumentData>): Applica
           'shareholdingsVerification', 'workflowStage', 'accountStatus', 'systemStatus',
           'statusInFrontend', 'isPreVerified', 'registrationId', 'emailGeneratedAt',
           'emailSentAt', 'emailOpenedAt', 'emailOpenedCount', 'linkClickedAt',
-          'linkClickedCount', 'accountClaimedAt', 'profilePictureUrl', 'photoURL'].includes(key)
+          'linkClickedCount', 'accountClaimedAt', 'profilePictureUrl', 'photoURL',
+          'lastIRODecisionAt', 'complianceStatus', 'userLastResponseAt'].includes(key)
       )
     ),
   } as Applicant;

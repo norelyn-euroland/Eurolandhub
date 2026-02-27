@@ -17,6 +17,29 @@ export enum AccountType {
 export type ShareholdingsVerificationMatchResult = 'MATCH' | 'NO_MATCH';
 
 /**
+ * Compliance status for tracking user response to IRO decisions
+ */
+export type ComplianceStatus =
+  | 'AWAITING_USER_RESPONSE' // IRO made a decision, waiting for user to respond
+  | 'USER_RESPONDED' // User has responded (resubmitted or provided info)
+  | 'COMPLIANCE_COMPLETE' // User has fully complied with IRO request
+  | 'NO_COMPLIANCE_REQUIRED'; // No compliance needed (e.g., approved)
+
+/**
+ * IRO decision tracking
+ */
+export interface IRODecision {
+  decision: 'APPROVED' | 'REJECTED' | 'REQUEST_INFO';
+  decisionAt: string; // ISO timestamp
+  decisionBy?: string; // IRO identifier (optional)
+  emailSentAt?: string; // ISO timestamp when email was sent
+  complianceStatus: ComplianceStatus;
+  userRespondedAt?: string; // ISO timestamp when user responded
+  resubmissionCount?: number; // Number of times user has resubmitted after this decision
+  notes?: string; // Optional notes about the decision
+}
+
+/**
  * Internal workflow status states (used by system logic)
  */
 export type WorkflowStatusInternal =
@@ -25,6 +48,7 @@ export type WorkflowStatusInternal =
   | 'SHAREHOLDINGS_DECLINED'
   | 'REGISTRATION_PENDING'
   | 'AWAITING_IRO_REVIEW'
+  | 'AWAITING_USER_RESPONSE' // New: User needs to respond to IRO decision
   | 'RESUBMISSION_REQUIRED'
   | 'LOCKED_FOR_7_DAYS'
   | 'VERIFIED';
@@ -101,6 +125,11 @@ export interface ShareholdingsVerificationStep4 {
   lastResult?: ShareholdingsVerificationMatchResult;
   failedAttempts: number;
   lastReviewedAt?: string; // ISO string
+  // Manual verification request tracking
+  manualVerificationRequestedAt?: string; // ISO string - when user requested manual verification after Step 4 failure
+  // Compliance tracking
+  iroDecision?: IRODecision; // Latest IRO decision and compliance tracking
+  iroDecisionHistory?: IRODecision[]; // History of all IRO decisions
 }
 
 export interface ShareholdingsVerificationState {
@@ -209,6 +238,10 @@ export interface Applicant {
   linkClickedCount?: number; // Number of times link was clicked
   accountClaimedAt?: string; // ISO timestamp when account was verified/claimed
   profilePictureUrl?: string; // Profile picture URL from email provider (e.g., Gravatar)
+  // Compliance tracking
+  lastIRODecisionAt?: string; // ISO timestamp of most recent IRO decision
+  complianceStatus?: ComplianceStatus; // Current compliance status
+  userLastResponseAt?: string; // ISO timestamp when user last responded to IRO decision
 }
 
 export interface Shareholder {

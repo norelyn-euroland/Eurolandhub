@@ -295,7 +295,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
   const getAwaitingUserActionsCount = (): number => {
     return applicants.filter(a => {
       const internalStatus = getWorkflowStatusInternal(a);
-      return ['EMAIL_VERIFICATION_PENDING', 'REGISTRATION_PENDING', 'RESUBMISSION_REQUIRED'].includes(internalStatus);
+      return ['REGISTRATION_PENDING', 'RESUBMISSION_REQUIRED'].includes(internalStatus);
     }).length;
   };
 
@@ -396,6 +396,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
       'SHAREHOLDINGS_DECLINED': { color: 'text-[#9A3412] dark:text-orange-400', bgColor: 'bg-[#FEF3E7] dark:bg-orange-900/30' },
       'REGISTRATION_PENDING': { color: 'text-indigo-700 dark:text-indigo-400', bgColor: 'bg-indigo-50 dark:bg-indigo-900/30' },
       'AWAITING_IRO_REVIEW': { color: 'text-purple-700 dark:text-purple-400', bgColor: 'bg-purple-50 dark:bg-purple-900/30' },
+      'AWAITING_USER_RESPONSE': { color: 'text-orange-700 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
       'RESUBMISSION_REQUIRED': { color: 'text-orange-700 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
       'VERIFIED': { color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-50 dark:bg-green-900/30' },
     };
@@ -778,6 +779,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                             'SHAREHOLDINGS_DECLINED': { color: 'text-[#9A3412] dark:text-orange-400', bgColor: 'bg-[#FEF3E7] dark:bg-orange-900/30' },
                             'REGISTRATION_PENDING': { color: 'text-indigo-700 dark:text-indigo-400', bgColor: 'bg-indigo-50 dark:bg-indigo-900/30' },
                             'AWAITING_IRO_REVIEW': { color: 'text-purple-700 dark:text-purple-400', bgColor: 'bg-purple-50 dark:bg-purple-900/30' },
+                            'AWAITING_USER_RESPONSE': { color: 'text-orange-700 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
                             'RESUBMISSION_REQUIRED': { color: 'text-orange-700 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
                             'VERIFIED': { color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-50 dark:bg-green-900/30' },
                           };

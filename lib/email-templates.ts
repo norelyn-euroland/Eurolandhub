@@ -113,6 +113,7 @@ export const requestInfoTemplate: EmailTemplate = {
   <p>Thank you for submitting your holdings verification request.</p>
   <p>Our Investor Relations team has reviewed your submission and requires additional information to complete the verification process.</p>
   <p>Please log in to your account and provide the requested information. Once you submit the additional details, we will continue with the verification process.</p>
+  <p>You can access your account and update your holdings information by visiting: <a href="https://eurohub.eurolandir.net/" style="color: #082b4a; text-decoration: underline;">https://eurohub.eurolandir.net/</a></p>
   <p>If you have any questions or need assistance, please contact our Investor Relations team.</p>
   <p>Best regards,<br>Euroland Team</p>
 </body>

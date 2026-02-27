@@ -2,10 +2,10 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Applicant, RegistrationStatus } from '../lib/types';
+import { Applicant, RegistrationStatus, ComplianceStatus } from '../lib/types';
 import { MOCK_SHAREHOLDERS } from '../lib/mockShareholders';
 import { applicantService } from '../lib/firestore-service';
-import { getWorkflowStatusInternal } from '../lib/shareholdingsVerification';
+import { getWorkflowStatusInternal, markUserResponse, markComplianceComplete } from '../lib/shareholdingsVerification';
 import Tooltip from './Tooltip';
 
 // CopyableField component with copy notification
@@ -490,6 +490,176 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
             </div>
           </section>
 
+          {/* Compliance Status - Only for non-pre-verified accounts with IRO decisions */}
+          {!applicant.isPreVerified && applicant.shareholdingsVerification?.step4?.iroDecision && (
+            <section className="bg-white dark:bg-neutral-800 p-10 rounded-xl border border-neutral-200 dark:border-neutral-700 shadow-sm relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-1.5 h-full bg-[#082b4a] dark:bg-[#00adf0]"></div>
+              <h2 className="text-sm font-black mb-8 text-neutral-900 dark:text-neutral-100 uppercase tracking-widest flex items-center gap-2">
+                <span className="w-2.5 h-2.5 bg-[#082b4a] dark:bg-[#00adf0] rounded-full"></span>
+                Compliance Status
+              </h2>
+              
+              {(() => {
+                const iroDecision = applicant.shareholdingsVerification?.step4?.iroDecision;
+                const complianceStatus = applicant.complianceStatus || iroDecision?.complianceStatus || 'NO_COMPLIANCE_REQUIRED';
+                const decisionHistory = applicant.shareholdingsVerification?.step4?.iroDecisionHistory || [];
+                
+                const getComplianceStatusColor = (status: ComplianceStatus) => {
+                  switch (status) {
+                    case 'AWAITING_USER_RESPONSE':
+                      return 'text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/30 border-orange-300 dark:border-orange-700';
+                    case 'USER_RESPONDED':
+                      return 'text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700';
+                    case 'COMPLIANCE_COMPLETE':
+                      return 'text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 border-green-300 dark:border-green-700';
+                    default:
+                      return 'text-neutral-700 dark:text-neutral-400 bg-neutral-50 dark:bg-neutral-800 border-neutral-300 dark:border-neutral-700';
+                  }
+                };
+
+                const getComplianceStatusLabel = (status: ComplianceStatus) => {
+                  switch (status) {
+                    case 'AWAITING_USER_RESPONSE':
+                      return 'Awaiting User Response';
+                    case 'USER_RESPONDED':
+                      return 'User Responded';
+                    case 'COMPLIANCE_COMPLETE':
+                      return 'Compliance Complete';
+                    default:
+                      return 'No Compliance Required';
+                  }
+                };
+
+                return (
+                  <div className="space-y-6">
+                    {/* Current Compliance Status */}
+                    <div className="grid grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-2">
+                          Current Status
+                        </label>
+                        <span className={`inline-block px-3 py-1.5 text-xs font-bold rounded-md border ${getComplianceStatusColor(complianceStatus)}`}>
+                          {getComplianceStatusLabel(complianceStatus)}
+                        </span>
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-2">
+                          IRO Decision
+                        </label>
+                        <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
+                          {iroDecision?.decision === 'APPROVED' ? 'Approved' : 
+                           iroDecision?.decision === 'REJECTED' ? 'Rejected' : 
+                           iroDecision?.decision === 'REQUEST_INFO' ? 'Request Info' : 'N/A'}
+                        </span>
+                      </div>
+                      {iroDecision?.decisionAt && (
+                        <div>
+                          <label className="block text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-2">
+                            Decision Date
+                          </label>
+                          <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
+                            {new Date(iroDecision.decisionAt).toLocaleDateString('en-US', { 
+                              year: 'numeric', 
+                              month: 'short', 
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </span>
+                        </div>
+                      )}
+                      {iroDecision?.userRespondedAt && (
+                        <div>
+                          <label className="block text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-2">
+                            User Responded
+                          </label>
+                          <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
+                            {new Date(iroDecision.userRespondedAt).toLocaleDateString('en-US', { 
+                              year: 'numeric', 
+                              month: 'short', 
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </span>
+                        </div>
+                      )}
+                      {iroDecision?.resubmissionCount !== undefined && (
+                        <div>
+                          <label className="block text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-2">
+                            Resubmissions
+                          </label>
+                          <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
+                            {iroDecision.resubmissionCount}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action Buttons for IRO */}
+                    {(complianceStatus === 'AWAITING_USER_RESPONSE' || complianceStatus === 'USER_RESPONDED') && (
+                      <div className="flex items-center gap-3 pt-4 border-t border-neutral-200 dark:border-neutral-700">
+                        {complianceStatus === 'AWAITING_USER_RESPONSE' && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                const updated = markUserResponse(applicant, 'Manually marked by IRO');
+                                await applicantService.update(applicant.id, updated);
+                                // Force a refresh by updating the parent component
+                                window.location.reload();
+                              } catch (error) {
+                                console.error('Failed to mark user response:', error);
+                                alert('Failed to update compliance status');
+                              }
+                            }}
+                            className="px-4 py-2 text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/50 border border-blue-300 dark:border-blue-800 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/70 transition-colors"
+                          >
+                            Mark User Responded
+                          </button>
+                        )}
+                        {complianceStatus === 'USER_RESPONDED' && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                const updated = markComplianceComplete(applicant);
+                                await applicantService.update(applicant.id, updated);
+                                window.location.reload();
+                              } catch (error) {
+                                console.error('Failed to mark compliance complete:', error);
+                                alert('Failed to update compliance status');
+                              }
+                            }}
+                            className="px-4 py-2 text-xs font-semibold text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/50 border border-green-300 dark:border-green-800 rounded-md hover:bg-green-100 dark:hover:bg-green-900/70 transition-colors"
+                          >
+                            Mark Compliance Complete
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Decision History */}
+                    {decisionHistory.length > 0 && (
+                      <div className="pt-4 border-t border-neutral-200 dark:border-neutral-700">
+                        <label className="block text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-3">
+                          Decision History
+                        </label>
+                        <div className="space-y-2">
+                          {decisionHistory.map((decision, idx) => (
+                            <div key={idx} className="text-xs text-neutral-600 dark:text-neutral-400 p-2 bg-neutral-50 dark:bg-neutral-900 rounded">
+                              <span className="font-bold">{decision.decision}</span> - {new Date(decision.decisionAt).toLocaleDateString()}
+                              {decision.userRespondedAt && (
+                                <span className="ml-2 text-blue-600 dark:text-blue-400">• User responded</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </section>
+          )}
 
           {/* Email Activity Log - Only for pre-verified accounts */}
           {applicant.isPreVerified && (

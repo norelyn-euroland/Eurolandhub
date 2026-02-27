@@ -1,47 +1,57 @@
 # Investors - Holdings Verification Workflow
 
-This document outlines the complete workflow for investor holdings verification, including registration, email confirmation, holdings submission, automatic verification, manual IRO review, and final verification status.
+This document outlines the complete 6-step workflow for investor holdings verification, including registration, email confirmation, holdings submission, automatic verification, manual IRO review, and final verification status.
 
 ---
 
-## Phase 1: Registration and Email Confirmation
+## **User Registration & Verification Workflow**
 
-### Step 1: Basic User Registration
-The user provides their First and Last Name, Email, and Contact Number, or registers through a Google/Microsoft account.
+### **Step 1: Basic User Registration**
 
-### Step 2: Verify Email Address
-The system sends a 6-digit code via email to confirm ownership of the account.
+The process begins with the user providing basic identification details:
 
-**Sample Template:** *"Hello {{first_name}}, your email verification code is: {{otp_code}}. This code will expire in 1 hour."*
+* **Required Data:** First & Last Name, Email, and Contact Number.
+* **OAuth Options:** Alternative registration via Google or Microsoft accounts.
 
-**Decision Point (Verification Consent):** The user is asked if they want to verify their account for the investor community and updates.
+### **Step 2: Email Verification (Frontend)**
 
-- **No:** The user is directed to the dynamic home page as an **unverified account**.
+To confirm identity and prevent bot registrations:
+
+* The system sends a **6-digit code** to the user's email.
+* The user must enter this code on the frontend to proceed.
+* **Note:** This step is handled entirely by the frontend and is not tracked in the backend workflow state.
+
+**Decision Point (Verification Consent):** After email verification, the user is asked if they want to verify their account for the Investor community and updates.
+
+- **No:** The user is directed to the Dynamic Home Page as an **Unverified Account**.
 - **Yes:** Proceed to Step 3.
 
 ---
 
-## Phase 2: Holdings Submission and Lockout Validation
+### **Step 3: Holdings Registration**
 
-### Step 3: Holdings Registration
-The user enters their Registration/shareholdings ID and the Company Name.
+The user provides specific investment data for verification:
 
-**Decision Point (Block?):** The system checks the **Lockout Enforcement Logic**.
+* **Required Data:** Registration/Shareholdings ID and Company Name/Name.
+
+**Decision Point (Block?):** The system checks the **Lockout Enforcement Logic** before processing the submission.
 
 **Lockout Enforcement Logic:**
 To prevent duplicate registrations, if an account is locked and a user attempts to register using a different email, phone number, or name, the system will block the attempt and notify the user that the email/phone/name is locked for 7 days, including how many days remain before they can register again.
 
 **Notification:** The user is notified that the ID is locked for 7 days, including a countdown of remaining days.
 
-- **Yes (Blocked):** Directed to the dynamic home page (unverified).
+- **Yes (Blocked):** Directed to the Dynamic Home Page (unverified).
 - **No (Not Blocked):** Proceed to Step 4.
 
 ---
 
-## Phase 3: Automated and Manual Verification
+### **Step 4: Automatic Verification (Fast Initial)**
 
-### Step 4: Automatic Verification (Fast Initial)
-The system automatically cross-references the ID, Company Name, and Country (if provided) against records.
+The system performs an automated cross-reference:
+
+* The system checks the ID and Company Name against existing records.
+* If a country is provided, it is also validated.
 
 **Matching Criteria:**
 - **Shareholdings ID:** Must match exactly (normalized: trimmed, extra spaces collapsed)
@@ -50,31 +60,37 @@ The system automatically cross-references the ID, Company Name, and Country (if 
 
 **Decision Point (Match?):**
 
-- **Pending:** If not immediately resolved, it moves to the next check.
-- **Not Match:** The system notifies the user to double-check their information.
-  - **Failure Rule:** After **three (3) failed attempts**, the user is locked out and may only request verification again after seven (7) days.
-  - **Resubmit?** 
-    - If the user chooses "Yes," they can resubmit corrected information. The system will run automatic verification again, and the failed attempts counter increments.
-    - If the user chooses "No," they are sent to the dynamic home page as an unverified account.
-- **Match:** Proceed to Step 5.
+- **Match:** Proceed directly to Step 5.
+- **No Match:** The user is notified that their ID does not match and is asked to double-check.
+  - **User Options:**
+    - **Request Manual Verification:** User can request manual IRO checking (bypasses resubmission)
+      - Status changes to `AWAITING_IRO_REVIEW` (FURTHER_INFO)
+      - Goes directly to Step 5 (Manual IRO Verification)
+    - **Resubmit:** User can correct and resubmit information
+      - Automatic verification runs again
+      - Failed attempts counter increments
+  - **Retry Logic:** If the user fails **3 times**, they are locked out for 7 days
+  - **After 3 failed attempts:** User is locked out for 7 days but may still request manual verification (if not locked)
 
 **Status Updates:**
 - **Match Found:** Status set to `AWAITING_IRO_REVIEW` (FURTHER_INFO), failed attempts reset to 0, lockout cleared (if previously locked).
-- **No Match Found:** Status set to `UNVERIFIED` (PENDING), failed attempts incremented, lockout applied after 3 failures.
+- **No Match Found:** Status set to `RESUBMISSION_REQUIRED` (PENDING), failed attempts incremented, lockout applied after 3 failures.
+- **Manual Verification Requested:** Status set to `AWAITING_IRO_REVIEW` (FURTHER_INFO), submission goes directly to Step 5.
 
-### Step 5: Manual IRO Verification (Final)
-An Investor Relations Officer (IRO) manually reviews the information for accuracy.
+---
+
+### **Step 5: Manual IRO Verification (Final)**
+
+For accounts that fail auto-verification or require higher-level clearance:
+
+* An **Investor Relations Officer (IRO)** manually reviews the submitted information.
+* The IRO confirms if the data matches the internal registry.
 
 **IRO Decision Options:**
 - **Approve:** Proceed to Step 6 (Verified Account)
-- **Reject:** Re-enters the "Not Match" notification and failure rule cycle
+- **Reject:** User needs to resubmit corrected information
   - After **three (3) IRO rejections**, the user is locked out for 7 days
 - **Request Info:** User remains in `AWAITING_IRO_REVIEW` state, can resubmit additional information
-
-**Decision Point (Match?):**
-
-- **Not Match:** Re-enters the "Not Match" notification and failure rule cycle.
-- **Match:** Proceed to Step 6.
 
 **Status Updates:**
 - **IRO Approves:** Status set to `APPROVED`, workflow status becomes `VERIFIED`, `step6.verifiedAt` timestamp recorded.
@@ -82,14 +98,25 @@ An Investor Relations Officer (IRO) manually reviews the information for accurac
 
 ---
 
-## Phase 4: Final Verification Status
+### **Step 6: Verified Account**
 
-### Step 6: Verified Account
-The system informs the user via the dynamic home page that their account is now verified.
+Once cleared by the IRO or the automated system:
 
-**Sample Template:** *"Hello {{first_name}}, Your account has been successfully verified. You can now access all features available to verified investors."*
+* The user is notified via the Dynamic Home Page and email.
+* **Status:** The account is now "Verified."
+* **Sample Email Content:** *"Hello {{ first_name }}, your account has been successfully verified. You can now access all features available to verified investors."*
 
-**Status:** `VERIFIED` - User has full access to verified investor features and holdings information.
+---
+
+## **Security & Guardrails**
+
+### **Lockout Enforcement Logic**
+
+To prevent duplicate registrations and system abuse:
+
+* **Trigger:** If an account is locked and the user attempts to register using a different email or phone number.
+* **Action:** The system blocks the attempt.
+* **Penalty:** The email or phone number is **locked for 7 days**. The system notifies the user of the remaining lockout duration before they can try again.
 
 ---
 

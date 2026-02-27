@@ -373,6 +373,40 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
           if (response.ok) {
             const responseData = await response.json().catch(() => ({}));
             console.log(`Sent ${emailType} email to:`, email);
+            
+            // Update IRO decision with email sent timestamp
+            if (updatedApplicant.shareholdingsVerification?.step4?.iroDecision) {
+              const emailSentAt = new Date().toISOString();
+              const updatedIRODecision = {
+                ...updatedApplicant.shareholdingsVerification.step4.iroDecision,
+                emailSentAt,
+              };
+              
+              const updatedStep4 = {
+                ...updatedApplicant.shareholdingsVerification.step4,
+                iroDecision: updatedIRODecision,
+              };
+              
+              const updatedShareholdingsVerification = {
+                ...updatedApplicant.shareholdingsVerification,
+                step4: updatedStep4,
+              };
+              
+              const finalUpdated = {
+                ...updatedApplicant,
+                shareholdingsVerification: updatedShareholdingsVerification,
+              };
+              
+              // Update the applicant record with email sent timestamp
+              try {
+                await applicantService.update(updatedApplicant.id, finalUpdated);
+                console.log('Updated IRO decision with email sent timestamp');
+              } catch (updateError) {
+                console.error('Failed to update email sent timestamp:', updateError);
+                // Don't fail the whole operation if this update fails
+              }
+            }
+            
             // Show success toast
             setToastMessage(toastMessage);
             setToastVariant(toastVariant);
