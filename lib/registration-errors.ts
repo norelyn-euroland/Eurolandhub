@@ -4,13 +4,13 @@
 export class LockedAccountError extends Error {
   public readonly remainingDays: number;
   public readonly lockedUntil: string;
-  public readonly field: 'email' | 'phone' | 'name';
+  public readonly field: 'email' | 'phone' | 'name' | 'registrationId';
 
   constructor(
     message: string,
     remainingDays: number,
     lockedUntil: string,
-    field: 'email' | 'phone' | 'name'
+    field: 'email' | 'phone' | 'name' | 'registrationId'
   ) {
     super(message);
     this.name = 'LockedAccountError';

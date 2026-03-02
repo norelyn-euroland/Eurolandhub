@@ -1,4 +1,5 @@
 import { RegistrationStatus, Shareholder, ShareholdingsVerificationMatchResult, ShareholdingsVerificationState, Applicant, WorkflowStatusInternal, GeneralAccountStatus, ComplianceStatus, IRODecision } from './types.js';
+import { isEmailVerified } from './firestore-service.js';
 
 const MAX_FAILED_ATTEMPTS = 3;
 const LOCKOUT_DAYS = 7;
@@ -180,6 +181,10 @@ export function submitShareholdingInfo(
     submittedAt,
   };
 
+  // Check if lock is expired - if so, clear lock fields (physical clearing)
+  const step3 = wf.step3 || { failedAttempts: 0 };
+  const isLockExpired = step3.lockedUntil && new Date(step3.lockedUntil).getTime() <= Date.now();
+  
   // Check if this is a resubmission after IRO decision (REJECTED or REQUEST_INFO)
   // If there's an IRO decision requiring user response, this is a compliance resubmission
   const step4 = wf.step4 || { failedAttempts: 0 };
@@ -189,7 +194,7 @@ export function submitShareholdingInfo(
   
   // Also check for legacy resubmission (NO_MATCH result without IRO decision tracking)
   const isLegacyResubmission = wf.step4?.lastResult === 'NO_MATCH';
-  const isResubmission = isComplianceResubmission || isLegacyResubmission;
+  const isResubmission = isComplianceResubmission || isLegacyResubmission || isLockExpired;
 
   // Update compliance status if this is a compliance resubmission
   let updatedIRODecision: IRODecision | undefined;
@@ -203,35 +208,39 @@ export function submitShareholdingInfo(
   }
 
   // Step 3: Store submission, status will be set by Step 4 (automatic verification)
+  // If lock expired, clear lock fields (physical clearing)
   const withStep2 = {
     ...a,
-    status: RegistrationStatus.PENDING, // Will be updated by Step 4 or Step 5
+    status: isLockExpired ? RegistrationStatus.PENDING_REVIEW : RegistrationStatus.PENDING, // Will be updated by Step 4 or Step 5
     userLastResponseAt: isComplianceResubmission ? submittedAt : a.userLastResponseAt,
     complianceStatus: isComplianceResubmission ? 'USER_RESPONDED' as ComplianceStatus : a.complianceStatus,
     shareholdingsVerification: {
       ...wf,
       step2, // This is Step 3: Holdings Registration submission
       // Reset Step 3 for resubmission (will skip auto check)
+      // If lock expired, clear lock fields (physical clearing)
       step3: isResubmission ? {
         ...wf.step3,
         lastResult: undefined, // Clear previous result for resubmission
         lastCheckedAt: undefined,
+        lockedUntil: isLockExpired ? undefined : wf.step3?.lockedUntil, // Clear lock if expired
+        failedAttempts: isLockExpired ? 0 : (wf.step3?.failedAttempts || 0), // Reset attempts if expired
       } : wf.step3,
       // Reset Step 4 for resubmission
       step4: isResubmission ? {
         ...step4,
         lastResult: undefined, // Clear previous IRO review result
         lastReviewedAt: undefined,
-        iroDecision: updatedIRODecision || step4.iroDecision, // Update compliance status
+        iroDecision: isLockExpired ? undefined : (updatedIRODecision || step4.iroDecision), // Clear rejection metadata if expired
       } : wf.step4,
     },
   };
 
-  // Resubmission: Skip automatic verification, go directly to AWAITING_IRO_REVIEW
+  // Resubmission: Skip automatic verification, go directly to UNDER_REVIEW
   if (isResubmission) {
     return {
       ...withStep2,
-      status: RegistrationStatus.FURTHER_INFO, // PENDING in frontend
+      status: isLockExpired ? RegistrationStatus.PENDING_REVIEW : RegistrationStatus.FURTHER_INFO_REQUIRED, // PENDING_REVIEW if lock expired
       shareholdingsVerification: {
         ...withStep2.shareholdingsVerification!,
         step3: {
@@ -280,8 +289,8 @@ export function runAutoVerification(applicant: Applicant, shareholders: Sharehol
   if (target) {
     return {
       ...a,
-      // Step 4 match: AWAITING_IRO_REVIEW -> PENDING status (FURTHER_INFO)
-      status: RegistrationStatus.FURTHER_INFO, // PENDING in frontend
+      // Step 4 match: UNDER_REVIEW -> PENDING_REVIEW status
+      status: RegistrationStatus.PENDING_REVIEW,
       shareholdingsVerification: {
         ...wf,
         step3: {
@@ -296,20 +305,20 @@ export function runAutoVerification(applicant: Applicant, shareholders: Sharehol
   }
 
   const failedAttempts = (step3.failedAttempts || 0) + 1;
-  const lockedUntil = failedAttempts >= MAX_FAILED_ATTEMPTS ? addDaysIso(checkedAt, LOCKOUT_DAYS) : step3.lockedUntil;
+  const shouldLock = failedAttempts >= MAX_FAILED_ATTEMPTS;
+  const lockedUntil = shouldLock ? addDaysIso(checkedAt, LOCKOUT_DAYS) : step3.lockedUntil;
 
-  // AUTO_CHECK_FAILED: Failed Step 4 (automatic verification) but not locked yet -> UNVERIFIED (PENDING)
-  // LOCKED_7_DAYS: Failed 3 times -> UNVERIFIED (PENDING)
+  // When failed attempts reach 3, set lock and optionally set status to REJECTED
   return {
     ...a,
-    status: RegistrationStatus.PENDING, // Both AUTO_CHECK_FAILED and LOCKED_7_DAYS are UNVERIFIED
+    status: shouldLock ? RegistrationStatus.REJECTED : RegistrationStatus.FURTHER_INFO_REQUIRED,
     shareholdingsVerification: {
       ...wf,
       step3: {
         ...step3,
         lastResult: 'NO_MATCH',
         failedAttempts,
-        lockedUntil,
+        lockedUntil, // Set 7-day lock when failed attempts reach 3
         lastCheckedAt: checkedAt,
       },
     },
@@ -449,10 +458,14 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
     };
   }
 
+  // IRO rejected: always set 7-day lock
+  // Service must:
+  // - Set applicant.status = RegistrationStatus.REJECTED
+  // - Set wf.step3.lockedUntil = now + 7 days
+  // - Set wf.step4.lastResult = 'NO_MATCH'
+  const lockedUntil = addDaysIso(reviewedAt, LOCKOUT_DAYS);
   const failedAttempts = (step4.failedAttempts || 0) + 1;
-  const lockedUntil = failedAttempts >= MAX_FAILED_ATTEMPTS ? addDaysIso(reviewedAt, LOCKOUT_DAYS) : step3.lockedUntil;
 
-  // IRO rejected: reflect the action in top-level status so the registry UI updates.
   return {
     ...a,
     status: RegistrationStatus.REJECTED,
@@ -470,7 +483,7 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
       },
       step3: {
         ...step3,
-        lockedUntil,
+        lockedUntil, // Always set 7-day lock on rejection
       },
       step6: undefined,
     },
@@ -541,144 +554,133 @@ export function getAutoMatchResult(applicant: Applicant): ShareholdingsVerificat
 
 /**
  * Get the internal workflow status based on applicant state
- * This determines the current phase of the verification workflow
+ * This is a strictly read-only resolver that never mutates Firestore data.
  * 
- * Note: Step 2 (Email OTP Verification) is handled by the frontend and not tracked here.
- * The workflow goes directly from Step 1 (Basic Registration) to Step 3 (Holdings Registration).
+ * Strict Evaluation Order (Must Follow Exactly):
+ * Step 1: Pre-Verified Workflow Stage Check (Backend Only)
+ * Step 2: Email Verification Gate
+ * Step 3: Lock Check (Logical Only)
+ * Step 4: Registration Status Mapping
+ * Step 5: Default Fallback
  */
-export function getWorkflowStatusInternal(applicant: Applicant): WorkflowStatusInternal {
+export async function getWorkflowStatusInternal(applicant: Applicant): Promise<WorkflowStatusInternal> {
   const wf = applicant.shareholdingsVerification;
 
-  // If no workflow exists, user needs to start registration
-  if (!wf) {
-    return 'REGISTRATION_PENDING';
+  // Step 1: Pre-Verified Workflow Stage Check (Backend Only)
+  // These statuses are for backend / IRO tracking only. They will not be shown in dynamic home.
+  if (applicant.workflowStage === 'ACCOUNT_CLAIMED') {
+    return 'ACCOUNT_CLAIMED';
+  }
+  if (applicant.workflowStage === 'INVITE_EXPIRED') {
+    return 'INVITATION_EXPIRED';
   }
 
-  // VERIFIED: Status is APPROVED and Step 6 exists (completed verification)
-  // Check this FIRST before other status checks to ensure approved applicants show as VERIFIED
-  // Also check step4.lastResult === 'MATCH' as additional confirmation of IRO approval
-  if (applicant.status === RegistrationStatus.APPROVED && wf.step6?.verifiedAt) {
-    return 'VERIFIED';
-  }
-  
-  // Also check if step4 shows MATCH (IRO approved) even if step6 is missing (shouldn't happen, but safety check)
-  if (applicant.status === RegistrationStatus.APPROVED && wf.step4?.lastResult === 'MATCH' && wf.step4?.lastReviewedAt) {
-    return 'VERIFIED';
+  // Step 2: Email Verification Gate
+  // Check OTP verification document existence in emailVerificationCodes collection
+  const emailVerified = await isEmailVerified(applicant.id);
+  if (!emailVerified) {
+    return 'SENT_EMAIL'; // Blocks all progression
   }
 
-  // SHAREHOLDINGS_DECLINED: User declined shareholdings verification
-  if (wf.step1?.wantsVerification === false) {
-    return 'SHAREHOLDINGS_DECLINED';
-  }
-
-  // Check if locked (7-day lockout after 3 failed attempts)
-  if (wf.step3?.lockedUntil) {
+  // Step 3: Lock Check (Logical Only)
+  // If lockedUntil exists, check if still locked or expired
+  if (wf?.step3?.lockedUntil) {
     const lockedUntil = new Date(wf.step3.lockedUntil);
     if (lockedUntil.getTime() > Date.now()) {
-      // Still locked - return LOCKED_FOR_7_DAYS status
+      // Still locked - return LOCKED_FOR_7_DAYS
       return 'LOCKED_FOR_7_DAYS';
     }
+    // Lock expired - treat as unlocked (do NOT mutate Firestore), continue
   }
 
-  // REGISTRATION_PENDING: User agreed to shareholdings verification but hasn't submitted Step 3 (Holdings Registration)
-  // Only return this if NOT already verified
-  if (wf.step1?.wantsVerification === true && !wf.step2) {
+  // Step 4: Registration Status Mapping
+  // Map applicant.status (RegistrationStatus) to workflow stage
+  if (applicant.status === RegistrationStatus.DRAFT) {
+    return 'REGISTRATION_PENDING';
+  }
+  if (applicant.status === RegistrationStatus.PENDING_REVIEW) {
+    return 'UNDER_REVIEW';
+  }
+  if (applicant.status === RegistrationStatus.FURTHER_INFO_REQUIRED) {
+    return 'FURTHER_INFO_REQUIRED';
+  }
+  if (applicant.status === RegistrationStatus.APPROVED) {
+    return 'VERIFIED';
+  }
+  if (applicant.status === RegistrationStatus.REJECTED) {
+    // No REJECTED workflow stage exists - map to REGISTRATION_PENDING
+    // (Lock check already happened in Step 3, so if we reach here, lock is expired)
     return 'REGISTRATION_PENDING';
   }
 
-  // Handle resubmission scenario: Step 3 exists but Step 4 has no result (skipped auto check)
-  // This means user resubmitted after RESUBMISSION_REQUIRED, goes directly to IRO review
-  if (wf.step2 && wf.step3?.lastResult === undefined && !wf.step4?.lastResult) {
-    return 'AWAITING_IRO_REVIEW';
-  }
-
-  // Step 4: Auto check passed
-  if (wf.step3?.lastResult === 'MATCH') {
-    // AWAITING_IRO_REVIEW: Step 4 (automatic verification) passed, waiting for IRO review (Step 5)
-    if (!wf.step4?.lastResult) {
-      return 'AWAITING_IRO_REVIEW';
+  // Handle legacy statuses for backward compatibility
+  if (applicant.status === RegistrationStatus.PENDING) {
+    // Check if workflow exists to determine if it's under review or pending registration
+    if (wf?.step2) {
+      return 'UNDER_REVIEW';
     }
-
-    // Step 5: IRO review passed -> VERIFIED
-    if (wf.step4.lastResult === 'MATCH') {
-      return 'VERIFIED';
-    }
-
-    // Step 5: IRO review failed -> RESUBMISSION_REQUIRED
-    if (wf.step4.lastResult === 'NO_MATCH') {
-      return 'RESUBMISSION_REQUIRED';
-    }
-  }
-
-  // Step 4: Auto check failed -> Check if user requested manual verification
-  if (wf.step3?.lastResult === 'NO_MATCH') {
-    // If user requested manual verification, they go directly to IRO review
-    if (wf.step4?.manualVerificationRequestedAt && !wf.step4?.lastResult) {
-      return 'AWAITING_IRO_REVIEW';
-    }
-    // Otherwise, user needs to resubmit or request manual verification
-    return 'RESUBMISSION_REQUIRED';
-  }
-
-  // Check for compliance status: AWAITING_USER_RESPONSE
-  // This occurs when IRO has made a decision (REJECTED or REQUEST_INFO) and user needs to respond
-  if (wf.step4?.iroDecision) {
-    const iroDecision = wf.step4.iroDecision;
-    if ((iroDecision.decision === 'REJECTED' || iroDecision.decision === 'REQUEST_INFO') &&
-        iroDecision.complianceStatus === 'AWAITING_USER_RESPONSE') {
-      return 'AWAITING_USER_RESPONSE';
-    }
-  }
-
-  // Default fallback - if no shareholdings decision yet
-  // This means Step 1 (Basic Registration) is complete, but user hasn't been asked about shareholdings yet
-  if (wf.step1?.wantsVerification === undefined) {
     return 'REGISTRATION_PENDING';
   }
-
-  // If Step 3 (Holdings Registration) exists but no Step 4 (auto verification) result yet
-  // This shouldn't happen in normal flow, but handle gracefully
-  if (wf.step2 && wf.step3?.lastResult === undefined) {
-    return 'REGISTRATION_PENDING';
+  if (applicant.status === RegistrationStatus.FURTHER_INFO) {
+    return 'FURTHER_INFO_REQUIRED';
   }
 
+  // Step 5: Default Fallback
   return 'REGISTRATION_PENDING';
 }
 
 /**
  * Map internal workflow status to frontend display label
+ * Pre-verified statuses must NOT be visible in dynamic home. They should fallback safely.
  */
-export function getWorkflowStatusFrontendLabel(internalStatus: WorkflowStatusInternal): string {
-  const mapping: Record<WorkflowStatusInternal, string> = {
-    'EMAIL_VERIFICATION_PENDING': 'VERIFY EMAIL',
-    'EMAIL_VERIFIED': 'VERIFIED EMAIL NOTIFICATION',
-    'SHAREHOLDINGS_DECLINED': 'VERIFY YOUR ACCOUNT',
+export function getWorkflowStatusFrontendLabel(
+  internalStatus: WorkflowStatusInternal
+): string {
+  const mapping: Partial<Record<WorkflowStatusInternal, string>> = {
+    'SENT_EMAIL': 'VERIFY EMAIL',
     'REGISTRATION_PENDING': 'CONTINUE TO VERIFY YOUR ACCOUNT',
-    'AWAITING_IRO_REVIEW': 'PENDING',
-    'AWAITING_USER_RESPONSE': 'AWAITING USER RESPONSE',
-    'RESUBMISSION_REQUIRED': 'VERIFY YOUR ACCOUNT',
+    'UNDER_REVIEW': 'PENDING',
+    'FURTHER_INFO_REQUIRED': 'VERIFY YOUR ACCOUNT',
     'LOCKED_FOR_7_DAYS': 'VERIFY YOUR ACCOUNT',
     'VERIFIED': 'VERIFIED',
   };
+
+  // Pre-verified backend-only states should not surface
+  if (internalStatus === 'ACCOUNT_CLAIMED') {
+    return 'VERIFIED';
+  }
+
+  if (internalStatus === 'INVITATION_EXPIRED') {
+    return '—';
+  }
+
   return mapping[internalStatus] || 'CONTINUE TO VERIFY YOUR ACCOUNT';
 }
 
 /**
  * Map internal workflow status to General Account Status
- * This provides a high-level status for dashboard display
+ * Do not expose backend-only states directly.
  */
-export function getGeneralAccountStatus(internalStatus: WorkflowStatusInternal): GeneralAccountStatus {
-  const mapping: Record<WorkflowStatusInternal, GeneralAccountStatus> = {
-    'EMAIL_VERIFICATION_PENDING': 'UNVERIFIED',
-    'EMAIL_VERIFIED': 'UNVERIFIED',
-    'SHAREHOLDINGS_DECLINED': 'UNVERIFIED',
+export function getGeneralAccountStatus(
+  internalStatus: WorkflowStatusInternal
+): GeneralAccountStatus {
+  const mapping: Partial<Record<WorkflowStatusInternal, GeneralAccountStatus>> = {
+    'SENT_EMAIL': 'UNVERIFIED',
     'REGISTRATION_PENDING': 'PENDING',
-    'AWAITING_IRO_REVIEW': 'PENDING',
-    'AWAITING_USER_RESPONSE': 'PENDING',
-    'RESUBMISSION_REQUIRED': 'UNVERIFIED',
+    'UNDER_REVIEW': 'PENDING',
+    'FURTHER_INFO_REQUIRED': 'UNVERIFIED',
     'LOCKED_FOR_7_DAYS': 'UNVERIFIED',
     'VERIFIED': 'VERIFIED',
   };
+
+  if (internalStatus === 'ACCOUNT_CLAIMED') {
+    return 'VERIFIED';
+  }
+
+  if (internalStatus === 'INVITATION_EXPIRED') {
+    return 'UNVERIFIED';
+  }
+
   return mapping[internalStatus] || 'UNVERIFIED';
 }
 
@@ -686,14 +688,13 @@ export function getGeneralAccountStatus(internalStatus: WorkflowStatusInternal):
  * Check if a user has not completed verification and is stuck/incomplete
  * Returns true if user needs to take action to continue verification
  */
-export function isVerificationIncomplete(applicant: Applicant): boolean {
-  const internalStatus = getWorkflowStatusInternal(applicant);
+export async function isVerificationIncomplete(applicant: Applicant): Promise<boolean> {
+  const internalStatus = await getWorkflowStatusInternal(applicant);
   
   // Users who are stuck and need to take action
   const incompleteStatuses: WorkflowStatusInternal[] = [
     'REGISTRATION_PENDING',
-    'RESUBMISSION_REQUIRED',
-    'AWAITING_USER_RESPONSE',
+    'FURTHER_INFO_REQUIRED',
   ];
   
   return incompleteStatuses.includes(internalStatus);
@@ -703,7 +704,7 @@ export function isVerificationIncomplete(applicant: Applicant): boolean {
  * Get the reason why verification is incomplete
  * Helps identify what action the user needs to take
  */
-export function getIncompleteReason(applicant: Applicant): string | null {
+export async function getIncompleteReason(applicant: Applicant): Promise<string | null> {
   const wf = applicant.shareholdingsVerification;
   
   if (!wf) {
@@ -725,20 +726,15 @@ export function getIncompleteReason(applicant: Applicant): string | null {
     return 'User agreed to verify but has not submitted holdings information (Step 3)';
   }
   
-  // User submitted but needs to resubmit (RESUBMISSION_REQUIRED)
-  const internalStatus = getWorkflowStatusInternal(applicant);
-  if (internalStatus === 'RESUBMISSION_REQUIRED') {
+  // User submitted but needs to resubmit (FURTHER_INFO_REQUIRED)
+  const internalStatus = await getWorkflowStatusInternal(applicant);
+  if (internalStatus === 'FURTHER_INFO_REQUIRED') {
     return 'User needs to resubmit holdings information after rejection';
-  }
-  
-  // User needs to respond to IRO request
-  if (internalStatus === 'AWAITING_USER_RESPONSE') {
-    return 'User needs to respond to IRO request for information';
   }
   
   // User is locked
   if (internalStatus === 'LOCKED_FOR_7_DAYS') {
-    return 'User account is locked due to multiple failed attempts';
+    return 'User account is locked due to multiple failed attempts or IRO rejection';
   }
   
   return null;
@@ -818,34 +814,40 @@ export function getDaysSinceLastProgress(applicant: Applicant): number | null {
  * Get all users who are stuck in the verification process
  * Useful for generating reports or sending reminders
  */
-export function getIncompleteVerifications(applicants: Applicant[]): Applicant[] {
-  return applicants.filter(applicant => {
-    return isVerificationIncomplete(applicant);
-  });
+export async function getIncompleteVerifications(applicants: Applicant[]): Promise<Applicant[]> {
+  const results = await Promise.all(
+    applicants.map(async (applicant) => ({
+      applicant,
+      isIncomplete: await isVerificationIncomplete(applicant),
+    }))
+  );
+  return results.filter(r => r.isIncomplete).map(r => r.applicant);
 }
 
 /**
  * Get users who have been stuck for a specific number of days or more
  * Useful for identifying users who need follow-up
  */
-export function getStuckUsers(applicants: Applicant[], minDays: number = 3): Applicant[] {
-  return applicants.filter(applicant => {
-    if (!isVerificationIncomplete(applicant)) {
-      return false;
-    }
-    
-    const daysStuck = getDaysSinceLastProgress(applicant);
-    return daysStuck !== null && daysStuck >= minDays;
-  });
+export async function getStuckUsers(applicants: Applicant[], minDays: number = 3): Promise<Applicant[]> {
+  const results = await Promise.all(
+    applicants.map(async (applicant) => ({
+      applicant,
+      isIncomplete: await isVerificationIncomplete(applicant),
+      daysStuck: getDaysSinceLastProgress(applicant),
+    }))
+  );
+  return results
+    .filter(r => r.isIncomplete && r.daysStuck !== null && r.daysStuck >= minDays)
+    .map(r => r.applicant);
 }
 
 /**
  * Get verification progress stage for tracking purposes
  * Returns a string describing the current stage the user is at
  */
-export function getVerificationStage(applicant: Applicant): string {
+export async function getVerificationStage(applicant: Applicant): Promise<string> {
   const wf = applicant.shareholdingsVerification;
-  const internalStatus = getWorkflowStatusInternal(applicant);
+  const internalStatus = await getWorkflowStatusInternal(applicant);
   
   if (!wf) {
     return 'Not Started';
@@ -883,8 +885,8 @@ export function getVerificationStage(applicant: Applicant): string {
     return 'Locked';
   }
   
-  if (internalStatus === 'AWAITING_USER_RESPONSE') {
-    return 'Awaiting User Response';
+  if (internalStatus === 'FURTHER_INFO_REQUIRED') {
+    return 'Needs Resubmission';
   }
   
   return 'In Progress';

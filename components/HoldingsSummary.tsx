@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Applicant, RegistrationStatus, HoldingsSummary as HoldingsSummaryType } from '../lib/types';
-import { fetchHoldingsData } from '../lib/mockHoldingsData';
+import { Applicant, RegistrationStatus, HoldingsSummary as HoldingsSummaryType, HoldingsDataPoint } from '../lib/types';
 import HoldingsChart from './HoldingsChart';
+import HoldingsUpdateHistory from './HoldingsUpdateHistory';
 import { getWorkflowStatusInternal } from '../lib/shareholdingsVerification';
 
 interface HoldingsSummaryProps {
@@ -18,25 +18,38 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
     let cancelled = false;
 
     const DEFAULT_SHARE_PRICE = 125.5;
-    // Use an ID that exists in `MOCK_HOLDINGS_DATA` as a safe fallback
-    const FALLBACK_COMPANY_ID = '201200512';
+    const FALLBACK_COMPANY_ID = '200512'; // SM Investment Corporation ID
     const FALLBACK_COMPANY_NAME = 'SM Investment Corporation';
 
-    const getTimeSeriesSafe = async (companyId: string): Promise<{ series: any[]; usedCompanyId: string }> => {
-      const primary = await fetchHoldingsData(companyId, 'ALL');
-      if (primary.length > 0) return { series: primary, usedCompanyId: companyId };
-      if (companyId === FALLBACK_COMPANY_ID) return { series: primary, usedCompanyId: companyId };
-      const fallback = await fetchHoldingsData(FALLBACK_COMPANY_ID, 'ALL');
-      return { series: fallback, usedCompanyId: FALLBACK_COMPANY_ID };
+    // Generate minimal time-series data from holdings record
+    // Since we're using Firestore data, we create simple data points
+    const generateTimeSeriesData = (sharesHeld: number): HoldingsDataPoint[] => {
+      const dataPoints: HoldingsDataPoint[] = [];
+      const now = new Date();
+      
+      // Create data points for the last 12 months (monthly data)
+      for (let i = 11; i >= 0; i--) {
+        const date = new Date(now);
+        date.setMonth(date.getMonth() - i);
+        
+        dataPoints.push({
+          timestamp: date.toISOString(),
+          share_price: DEFAULT_SHARE_PRICE + (Math.random() * 20 - 10), // Placeholder price variation
+          shares_held: sharesHeld,
+          total_shares_outstanding: sharesHeld * 10, // Placeholder
+        });
+      }
+      
+      return dataPoints;
     };
 
     const run = async () => {
-      // Show holdings for verified accounts and pending accounts (AWAITING_IRO_REVIEW) with valid holdings
-      // Don't show for RESUBMISSION_REQUIRED (invalid/wrong holdings)
-      const internalStatus = getWorkflowStatusInternal(applicant);
+      // Show holdings for verified accounts and pending accounts (UNDER_REVIEW) with valid holdings
+      // Don't show for FURTHER_INFO_REQUIRED (invalid/wrong holdings)
+      const internalStatus = await getWorkflowStatusInternal(applicant);
       const isVerified = internalStatus === 'VERIFIED';
       const hasValidHoldings =
-        (internalStatus === 'VERIFIED' || internalStatus === 'AWAITING_IRO_REVIEW') && applicant.holdingsRecord;
+        (internalStatus === 'VERIFIED' || internalStatus === 'UNDER_REVIEW') && applicant.holdingsRecord;
 
       // Nothing to load for non-verified users without holdings
       if (!hasValidHoldings && !(isVerified && !applicant.holdingsRecord)) {
@@ -49,12 +62,11 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
       try {
         if (hasValidHoldings) {
           const holdingsRecord = applicant.holdingsRecord!;
-          const { series, usedCompanyId } = await getTimeSeriesSafe(holdingsRecord.companyId);
-          const currentSharePrice =
-            series.length > 0 ? series[series.length - 1].share_price : DEFAULT_SHARE_PRICE;
+          const series = generateTimeSeriesData(holdingsRecord.sharesHeld);
+          const currentSharePrice = DEFAULT_SHARE_PRICE;
 
           const summary: HoldingsSummaryType = {
-            companyId: usedCompanyId,
+            companyId: holdingsRecord.companyId || FALLBACK_COMPANY_ID,
             companyName: holdingsRecord.companyName || FALLBACK_COMPANY_NAME,
             sharesHeld: holdingsRecord.sharesHeld,
             ownershipPercentage: holdingsRecord.ownershipPercentage,
@@ -76,11 +88,11 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
         const sharesClass = 'Ordinary';
         const registrationDate = applicant.submissionDate || new Date().toISOString();
 
-        const { series, usedCompanyId } = await getTimeSeriesSafe(FALLBACK_COMPANY_ID);
-        const currentSharePrice = series.length > 0 ? series[series.length - 1].share_price : DEFAULT_SHARE_PRICE;
+        const series = generateTimeSeriesData(randomShares);
+        const currentSharePrice = DEFAULT_SHARE_PRICE;
 
         const summary: HoldingsSummaryType = {
-          companyId: usedCompanyId,
+          companyId: FALLBACK_COMPANY_ID,
           companyName: FALLBACK_COMPANY_NAME,
           sharesHeld: randomShares,
           ownershipPercentage: randomOwnership,
@@ -132,21 +144,39 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
     };
   }, [applicant]);
 
-  // Show verification message for accounts without holdings (only for non-verified or resubmission required)
-  const internalStatus = getWorkflowStatusInternal(applicant);
+  // Show verification message for accounts without holdings (only for non-verified or further info required)
+  // Use state to store async status
+  const [internalStatus, setInternalStatus] = useState<string>('REGISTRATION_PENDING');
+  const [statusLoading, setStatusLoading] = useState(true);
+
+  useEffect(() => {
+    getWorkflowStatusInternal(applicant).then(status => {
+      setInternalStatus(status);
+      setStatusLoading(false);
+    });
+  }, [applicant]);
+
   const isVerified = internalStatus === 'VERIFIED';
   
   // Don't show message for verified investors (they'll have random data generated)
-  if (!isVerified && (!applicant.holdingsRecord || (internalStatus !== 'AWAITING_IRO_REVIEW'))) {
+  if (!statusLoading && !isVerified && (!applicant.holdingsRecord || (internalStatus !== 'UNDER_REVIEW'))) {
     return (
       <div className="flex items-center justify-center h-[400px]">
         <div className="text-center max-w-md">
           <p className="text-neutral-600 dark:text-neutral-300 font-medium text-base leading-relaxed">
-            {internalStatus === 'RESUBMISSION_REQUIRED' 
+            {internalStatus === 'FURTHER_INFO_REQUIRED' 
               ? 'This investor\'s holdings require resubmission. Holdings information will be available after verification.'
               : 'This investor has not yet verified their holdings. Holdings information will be available once verification is complete.'}
           </p>
         </div>
+      </div>
+    );
+  }
+
+  if (statusLoading) {
+    return (
+      <div className="flex items-center justify-center h-[400px]">
+        <div className="text-sm font-bold text-neutral-600 dark:text-neutral-300">Loading status...</div>
       </div>
     );
   }
@@ -232,8 +262,16 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
 
       {/* Chart */}
       <div className="mt-8">
-        <HoldingsChart companyId={holdingsSummary.companyId} />
+        <HoldingsChart 
+          companyId={holdingsSummary.companyId} 
+          currentSharesHeld={holdingsSummary.sharesHeld}
+        />
       </div>
+
+      {/* Holdings Update History */}
+      <HoldingsUpdateHistory 
+        history={applicant.holdingsUpdateHistory || []}
+      />
     </div>
   );
 };

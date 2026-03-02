@@ -64,8 +64,9 @@ export async function markAccountAsClaimed(applicantId: string): Promise<void> {
     }
 
     // Update status and profile picture
+    const accountClaimedAt = new Date().toISOString();
     await applicantService.update(applicantId, {
-      accountClaimedAt: new Date().toISOString(),
+      accountClaimedAt,
       workflowStage: 'ACCOUNT_CLAIMED' as WorkflowStage,
       systemStatus: 'CLAIMED' as SystemStatus,
       accountStatus: 'VERIFIED' as AccountStatus,
@@ -73,6 +74,18 @@ export async function markAccountAsClaimed(applicantId: string): Promise<void> {
       ...(profilePictureUrl && { profilePictureUrl }), // Only include if we have a profile picture
     });
     console.log('Marked pre-verified account as claimed:', applicantId);
+
+    // Sync to official shareholders collection
+    const updatedApplicant = await applicantService.getById(applicantId);
+    if (updatedApplicant && updatedApplicant.registrationId) {
+      try {
+        const { syncOfficialShareholderOnClaim } = await import('./official-shareholder-sync.js');
+        await syncOfficialShareholderOnClaim(updatedApplicant);
+      } catch (syncError) {
+        console.error('Error syncing official shareholder on claim:', syncError);
+        // Don't fail if sync fails
+      }
+    }
 
     // Send Step 6 verified account email (from Investors Holdings Verification Workflow)
     if (applicant.email) {

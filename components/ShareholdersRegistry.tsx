@@ -1,175 +1,17 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { MOCK_SHAREHOLDERS } from '../lib/mockShareholders';
+import { ISSUER_SAMPLE } from '../lib/issuer-sample';
 import { MOCK_APPLICANTS } from '../lib/mockApplicants';
-import { shareholderService, batchService } from '../lib/firestore-service';
-import { Shareholder, Applicant, RegistrationStatus } from '../lib/types';
+import { shareholderService, batchService, officialShareholderService, applicantService } from '../lib/firestore-service';
+import { Shareholder, Applicant, RegistrationStatus, OfficialShareholder } from '../lib/types';
 import { getWorkflowStatusInternal, getGeneralAccountStatus } from '../lib/shareholdingsVerification';
 import MetricCard from './MetricCard';
 import Tooltip from './Tooltip';
 import Toast from './Toast';
 import HoldingsSummary from './HoldingsSummary';
 import { EngagementTabContent } from './OverviewDashboard';
-
-// Engagement Activity Types (matching OverviewDashboard)
-interface EngagementActivity {
-  id: string;
-  type: 'comment' | 'interaction' | 'share';
-  commentText: string;
-  likes: number;
-  replies: number;
-  replyDetails?: Array<{
-    id: string;
-    author: string;
-    text: string;
-    timestamp: string;
-  }>;
-  timestamp: string;
-  status: 'Responded' | 'Pending';
-  associatedContent?: {
-    type: 'Press Release' | 'Announcement' | 'Event' | 'Document';
-    title: string;
-  };
-}
-
-// Mock engagement data generator (matching OverviewDashboard)
-const generateEngagementData = (applicant: Applicant): EngagementActivity[] => {
-  const activities: EngagementActivity[] = [];
-  const now = new Date();
-  
-  // Generate mock activities based on user's last active date
-  let lastActive: Date;
-  try {
-    if (applicant.lastActive) {
-      lastActive = new Date(applicant.lastActive);
-      if (isNaN(lastActive.getTime())) {
-        lastActive = applicant.submissionDate ? new Date(applicant.submissionDate) : now;
-        if (isNaN(lastActive.getTime())) {
-          lastActive = now;
-        }
-      }
-    } else {
-      lastActive = applicant.submissionDate ? new Date(applicant.submissionDate) : now;
-      if (isNaN(lastActive.getTime())) {
-        lastActive = now;
-      }
-    }
-  } catch (error) {
-    lastActive = now;
-  }
-  
-  if (lastActive.getTime() > now.getTime()) {
-    lastActive = now;
-  }
-  
-  const daysSinceActive = Math.max(0, Math.floor((now.getTime() - lastActive.getTime()) / (1000 * 60 * 60 * 24)));
-  const maxDays = Math.max(daysSinceActive, 30);
-  
-  const sampleComments = [
-    'Great Q3 results! The ESG initiatives are impressive. Would love to see more details on the sustainability roadmap.',
-    'Excellent performance this quarter. The strategic investments in retail and property are paying off well.',
-    'Looking forward to the annual report. The transparency in governance is commendable.',
-    'The dividend announcement is great news for shareholders. Keep up the good work!',
-    'Impressive growth in the property segment. Can we get more insights on the expansion strategy?',
-    'The corporate governance improvements are notable. This builds investor confidence.',
-    'Strong financial position. The debt reduction strategy is working effectively.',
-    'The digital transformation initiatives in SM Retail are showing results. Excited to see what\'s next.',
-  ];
-  
-  const sampleReplies = [
-    { author: 'Maria Santos', text: 'I agree! The sustainability initiatives are a key differentiator for SM.' },
-    { author: 'Juan Dela Cruz', text: 'The property segment growth is impressive. Looking forward to more updates.' },
-    { author: 'Ana Garcia', text: 'Great point about governance. Transparency is crucial for long-term investors.' },
-    { author: 'Carlos Rodriguez', text: 'The dividend yield is attractive. This shows management\'s commitment to shareholders.' },
-    { author: 'Lisa Tan', text: 'The retail expansion strategy is well-executed. SM continues to lead the market.' },
-    { author: 'Robert Lim', text: 'Strong fundamentals. The diversified portfolio approach is working well.' },
-    { author: 'Patricia Ong', text: 'The ESG focus aligns with global trends. Good to see SM taking the lead.' },
-    { author: 'Michael Chen', text: 'The financial metrics are solid. Management is executing the strategy effectively.' },
-  ];
-  
-  const contentTypes: Array<'Press Release' | 'Announcement' | 'Event' | 'Document'> = ['Press Release', 'Announcement', 'Event', 'Document'];
-  const contentTitles = [
-    'Q3 2024 Earnings Release',
-    'Annual General Meeting Notice',
-    'Sustainability Report 2024',
-    'Corporate Governance Update',
-    'Dividend Declaration',
-    'Strategic Partnership Announcement',
-    'Quarterly Financial Results',
-    'Investor Relations Update',
-  ];
-  const statuses: Array<'Responded' | 'Pending'> = ['Responded', 'Pending'];
-  
-  const activityCount = Math.floor(Math.random() * 6) + 5;
-  
-  for (let i = 0; i < activityCount; i++) {
-    const daysAgo = Math.floor(Math.random() * Math.min(Math.max(maxDays, 1), 90));
-    const activityDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
-    
-    if (isNaN(activityDate.getTime())) {
-      continue;
-    }
-    
-    const activityTypes: Array<'comment' | 'interaction' | 'share'> = ['comment', 'interaction', 'share'];
-    const type = activityTypes[Math.floor(Math.random() * activityTypes.length)];
-    
-    const commentText = sampleComments[Math.floor(Math.random() * sampleComments.length)];
-    const likes = Math.floor(Math.random() * 50) + 1;
-    const replyCount = type === 'interaction' ? Math.floor(Math.random() * 5) + 1 : Math.floor(Math.random() * 3);
-    
-    const replyDetails: Array<{ id: string; author: string; text: string; timestamp: string }> = [];
-    if (replyCount > 0) {
-      const shuffledReplies = [...sampleReplies].sort(() => Math.random() - 0.5);
-      for (let j = 0; j < Math.min(replyCount, shuffledReplies.length); j++) {
-        const replyDate = new Date(activityDate.getTime() + (j + 1) * 60 * 60 * 1000);
-        replyDetails.push({
-          id: `reply-${i}-${j}`,
-          author: shuffledReplies[j].author,
-          text: shuffledReplies[j].text,
-          timestamp: replyDate.toISOString(),
-        });
-      }
-    }
-    
-    const contentType = contentTypes[Math.floor(Math.random() * contentTypes.length)];
-    const contentTitle = contentTitles[Math.floor(Math.random() * contentTitles.length)];
-    const status = statuses[Math.floor(Math.random() * statuses.length)];
-    
-    try {
-      activities.push({
-        id: `activity-${i}`,
-        type,
-        commentText,
-        likes,
-        replies: replyCount,
-        replyDetails: replyDetails.length > 0 ? replyDetails : undefined,
-        timestamp: activityDate.toISOString(),
-        status,
-        associatedContent: {
-          type: contentType,
-          title: contentTitle,
-        },
-      });
-    } catch (error) {
-      console.warn('Skipping activity with invalid timestamp:', error);
-      continue;
-    }
-  }
-  
-  return activities.sort((a, b) => {
-    try {
-      const dateA = new Date(a.timestamp);
-      const dateB = new Date(b.timestamp);
-      if (isNaN(dateA.getTime()) || isNaN(dateB.getTime())) {
-        return 0;
-      }
-      return dateB.getTime() - dateA.getTime();
-    } catch (error) {
-      return 0;
-    }
-  });
-};
+import { computeShareholderStatus, getStatusBadgeColor, getStatusLabel } from '../lib/shareholder-status';
 
 const MOCK_AUDIT_LOGS = [
   { id: 1, event: 'Ledger Export Generated', user: 'D. Sterling', time: '10:45 AM', date: 'Today' },
@@ -186,7 +28,7 @@ interface ShareholdersRegistryProps {
 }
 
 
-type TabType = 'shareholder' | 'engagement' | 'all-users';
+type TabType = 'shareholder' | 'all-users';
 
 const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery, applicants, applicantsLoading }) => {
   const [isAuditOpen, setIsAuditOpen] = useState(false);
@@ -199,17 +41,8 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
   const [loadingShareholders, setLoadingShareholders] = useState(true);
   const [allUsers, setAllUsers] = useState<Applicant[]>([]);
   const [loadingAllUsers, setLoadingAllUsers] = useState(true);
-  const [engagementData, setEngagementData] = useState<Array<{
-    investorName: string;
-    verificationStatus: string;
-    latestInteraction: string;
-    engagementType: string;
-    totalInteractions: number;
-    notificationsEnabled: boolean;
-    activities: EngagementActivity[];
-    applicant: Applicant;
-  }>>([]);
-  const [loadingEngagement, setLoadingEngagement] = useState(true);
+  const [allShareholders, setAllShareholders] = useState<Shareholder[]>([]);
+  const [officialShareholders, setOfficialShareholders] = useState<OfficialShareholder[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadToast, setUploadToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({ show: false, message: '', type: 'success' });
   const [selectedUser, setSelectedUser] = useState<Applicant | null>(null);
@@ -217,15 +50,14 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
 
   // Search and filter state
   const [localSearchQuery, setLocalSearchQuery] = useState('');
-  const [nameSort, setNameSort] = useState<string | null>(null); // 'a-z' or 'z-a'
-  const [holdingsSort, setHoldingsSort] = useState<string | null>(null); // 'high-to-low' or 'low-to-high'
-  const [engagementTypeFilter, setEngagementTypeFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string | null>(null); // 'all', 'VERIFIED', 'PRE-VERIFIED', 'null' for shareholder; 'all', 'VERIFIED', 'PRE-VERIFIED', 'null' for all-users
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
 
   // Pagination state for each tab
   const [currentPage, setCurrentPage] = useState<Record<TabType, number>>({
     shareholder: 1,
     'all-users': 1,
-    engagement: 1,
   });
 
   const itemsPerPage = 10;
@@ -266,7 +98,7 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     setCurrentPage(prev => ({ ...prev, [tab]: newPage }));
   };
 
-  // Filter and sort functions for Applicant/Shareholder data
+  // Filter functions for Applicant/Shareholder data
   const filterData = <T extends Applicant | Shareholder>(data: T[]): T[] => {
     let filtered = [...data];
 
@@ -275,172 +107,83 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
       const query = localSearchQuery.toLowerCase().trim();
       filtered = filtered.filter((item) => {
         if ('fullName' in item) {
-          return item.fullName.toLowerCase().includes(query) || 
-                 item.email?.toLowerCase().includes(query) ||
-                 (item.registrationId || item.id).toLowerCase().includes(query);
-        }
-        return item.name?.toLowerCase().includes(query) || item.id.toLowerCase().includes(query);
-      });
-    }
-
-    // Name sort (A-Z or Z-A)
-    if (nameSort) {
-      filtered.sort((a, b) => {
-        const nameA = ('fullName' in a ? a.fullName : a.name || '').toLowerCase();
-        const nameB = ('fullName' in b ? b.fullName : b.name || '').toLowerCase();
-        
-        if (nameSort === 'a-z') {
-          return nameA.localeCompare(nameB);
-        } else if (nameSort === 'z-a') {
-          return nameB.localeCompare(nameA);
-        }
-        return 0;
-      });
-    }
-
-    // Holdings sort (High to Low or Low to High)
-    // For "All Users" tab, prioritize verified/pre-verified accounts first
-    if (holdingsSort && displayTab === 'all-users') {
-      // Separate into verified/pre-verified and unverified/pending groups
-      const verifiedGroup: T[] = [];
-      const unverifiedGroup: T[] = [];
-      
-      filtered.forEach((item) => {
-        if ('fullName' in item) {
+          // Applicant
           const applicant = item as Applicant;
-          const internalStatus = getWorkflowStatusInternal(applicant);
-          const isVerified = internalStatus === 'VERIFIED';
-          const isPreVerified = applicant.isPreVerified;
+          return applicant.fullName.toLowerCase().includes(query) || 
+                 applicant.email?.toLowerCase().includes(query) ||
+                 (applicant.registrationId || applicant.id).toLowerCase().includes(query);
+        } else {
+          // Shareholder
+          const shareholder = item as Shareholder;
+          return shareholder.name?.toLowerCase().includes(query) || 
+                 shareholder.id.toLowerCase().includes(query);
+        }
+      });
+    }
+
+    // Status filter
+    if (statusFilter && statusFilter !== 'all') {
+      filtered = filtered.filter((item) => {
+        if (!('fullName' in item)) return false; // Only filter applicants in Shareholder tab
+        
+        const applicant = item as Applicant;
+        
+        // Use official shareholder status (primary source of truth)
+        if (displayTab === 'shareholder') {
+          // For Shareholder tab: Use official shareholder status
+          const officialShareholder = officialShareholders.find(sh => 
+            sh.applicantId === applicant.id || 
+            sh.id === applicant.registrationId ||
+            (sh.email && applicant.email && sh.email.toLowerCase() === applicant.email.toLowerCase())
+          );
           
-          if (isVerified || isPreVerified) {
-            verifiedGroup.push(item);
+          if (officialShareholder) {
+            if (statusFilter === 'VERIFIED') {
+              return officialShareholder.status === 'VERIFIED';
+            } else if (statusFilter === 'PRE-VERIFIED') {
+              return officialShareholder.status === 'PRE-VERIFIED';
+            } else if (statusFilter === 'null') {
+              return officialShareholder.status === 'NULL';
+            }
           } else {
-            unverifiedGroup.push(item);
+            // Fallback to applicant status if no official shareholder record
+            if (statusFilter === 'VERIFIED') {
+              return applicant.status === RegistrationStatus.APPROVED || 
+                     applicant.accountStatus === 'VERIFIED' ||
+                     applicant.shareholdingsVerification?.step6?.verifiedAt !== undefined;
+            } else if (statusFilter === 'PRE-VERIFIED') {
+              return applicant.isPreVerified === true;
+            }
           }
         } else {
-          // For Shareholder items, treat as verified
-          verifiedGroup.push(item);
+          // For All Users tab: Use computed status
+          const status = computeShareholderStatus(applicant, null);
+          if (statusFilter === 'VERIFIED') {
+            return status === 'VERIFIED';
+          } else if (statusFilter === 'PRE-VERIFIED') {
+            return status === 'PRE-VERIFIED';
+          } else if (statusFilter === 'null') {
+            return status === null;
+          }
         }
-      });
-      
-      // Sort each group by holdings
-      const sortByHoldings = (a: T, b: T) => {
-        let holdingsA = 0;
-        let holdingsB = 0;
-        
-        if ('holdingsRecord' in a && a.holdingsRecord) {
-          holdingsA = a.holdingsRecord.sharesHeld || 0;
-        } else if ('holdings' in a) {
-          holdingsA = a.holdings || 0;
-        }
-        
-        if ('holdingsRecord' in b && b.holdingsRecord) {
-          holdingsB = b.holdingsRecord.sharesHeld || 0;
-        } else if ('holdings' in b) {
-          holdingsB = b.holdings || 0;
-        }
-        
-        if (holdingsSort === 'high-to-low') {
-          return holdingsB - holdingsA;
-        } else if (holdingsSort === 'low-to-high') {
-          return holdingsA - holdingsB;
-        }
-        return 0;
-      };
-      
-      verifiedGroup.sort(sortByHoldings);
-      unverifiedGroup.sort(sortByHoldings);
-      
-      // Combine: verified/pre-verified first, then unverified/pending
-      filtered = [...verifiedGroup, ...unverifiedGroup];
-    } else if (holdingsSort) {
-      // For other tabs, use regular holdings sort
-      filtered.sort((a, b) => {
-        let holdingsA = 0;
-        let holdingsB = 0;
-        
-        if ('holdingsRecord' in a && a.holdingsRecord) {
-          holdingsA = a.holdingsRecord.sharesHeld || 0;
-        } else if ('holdings' in a) {
-          holdingsA = a.holdings || 0;
-        }
-        
-        if ('holdingsRecord' in b && b.holdingsRecord) {
-          holdingsB = b.holdingsRecord.sharesHeld || 0;
-        } else if ('holdings' in b) {
-          holdingsB = b.holdings || 0;
-        }
-        
-        if (holdingsSort === 'high-to-low') {
-          return holdingsB - holdingsA;
-        } else if (holdingsSort === 'low-to-high') {
-          return holdingsA - holdingsB;
-        }
-        return 0;
+        return false;
       });
     }
 
     return filtered;
   };
 
-  // Filter and sort function for engagement data
-  const filterEngagementData = (data: typeof engagementData): typeof engagementData => {
-    let filtered = [...data];
-
-    // Search query filter
-    if (localSearchQuery.trim()) {
-      const query = localSearchQuery.toLowerCase().trim();
-      filtered = filtered.filter((item) => {
-        return item.investorName.toLowerCase().includes(query) ||
-               item.engagementType.toLowerCase().includes(query);
-      });
-    }
-
-    // Name sort (A-Z or Z-A)
-    if (nameSort) {
-      filtered.sort((a, b) => {
-        const nameA = a.investorName.toLowerCase();
-        const nameB = b.investorName.toLowerCase();
-        
-        if (nameSort === 'a-z') {
-          return nameA.localeCompare(nameB);
-        } else if (nameSort === 'z-a') {
-          return nameB.localeCompare(nameA);
-        }
-        return 0;
-      });
-    }
-
-    // Engagement type filter
-    if (engagementTypeFilter && engagementTypeFilter !== 'all') {
-      filtered = filtered.filter((item) => {
-        return item.engagementType.toLowerCase() === engagementTypeFilter.toLowerCase();
-      });
-    }
-
-    return filtered;
-  };
-
-  // Fetch SM Investment Corporation issuer data
+  // Real-time subscription for shareholders (masterlist)
   useEffect(() => {
-    const fetchIssuer = async () => {
-      setLoading(true);
-      try {
-        // Fetch existing shareholders from Firebase
-        let existingShareholders: Shareholder[] = [];
-        try {
-          existingShareholders = await shareholderService.getAll();
-        } catch (error) {
-          console.warn('Error fetching shareholders, using mock data:', error);
-        }
+    setLoading(true);
+    
+    // Set up real-time subscription for shareholders
+    const unsubscribeShareholders = shareholderService.subscribeToShareholders(
+      (shareholders) => {
+        setAllShareholders(shareholders);
         
-        // If no shareholders in Firebase, use mock data as fallback
-        if (existingShareholders.length === 0) {
-          existingShareholders = MOCK_SHAREHOLDERS.map(sh => ({ ...sh }));
-        }
-
-        // Find SM Investment Corporation (case-insensitive search)
-        const smInvestment = existingShareholders.find(
+        // Find SM Investment Corporation (case-insensitive search) from Firestore
+        const smInvestment = shareholders.find(
           sh => sh.name.toLowerCase().includes('sm investment') || 
                 sh.name.toLowerCase().includes('sm investments')
         );
@@ -448,78 +191,132 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
         if (smInvestment) {
           setIssuer(smInvestment);
         } else {
-          // Fallback to first mock shareholder if not found
-          const fallback = MOCK_SHAREHOLDERS.find(
-            sh => sh.name.toLowerCase().includes('sm investment') || 
-                  sh.name.toLowerCase().includes('sm investments')
-          ) || MOCK_SHAREHOLDERS[0];
-          setIssuer(fallback);
+          // Fallback to issuer sample data if not found in Firestore
+          setIssuer(ISSUER_SAMPLE);
         }
-      } catch (error) {
-        console.error('Error fetching issuer:', error);
-        // Use mock data as fallback
-        const fallback = MOCK_SHAREHOLDERS.find(
-          sh => sh.name.toLowerCase().includes('sm investment') || 
-                sh.name.toLowerCase().includes('sm investments')
-        ) || MOCK_SHAREHOLDERS[0];
-        setIssuer(fallback);
-    } finally {
+        
         setLoading(false);
-    }
-  };
+      }
+    );
 
-    fetchIssuer();
+    return () => {
+      unsubscribeShareholders();
+    };
   }, []);
 
-  // Fetch shareholdings data for Shareholder tab - Pending + Verified accounts only
+  // Close filter dropdown on click outside
   useEffect(() => {
-    const fetchShareholdings = async () => {
-      setLoadingShareholders(true);
-      try {
-        // Use real-time applicants from App.tsx (Firestore subscription)
-        const allApplicants = applicants;
-        
-        // Shareholder Tab (Verification Actions):
-        // - Include pre-verified accounts (pending actions)
-        // - Include user claims only (not full registry)
-        // - Exclude corporates (only individuals)
-        const shareholdersWithClaims = allApplicants.filter((applicant) => {
-          const internalStatus = getWorkflowStatusInternal(applicant);
-          
-          // Include pre-verified accounts (pending actions) OR regular user claims
-          // Pre-verified: isPreVerified === true with pending/verified status
-          // User claims: VERIFIED or AWAITING_IRO_REVIEW (non-pre-verified)
-          const isPreVerifiedPending = applicant.isPreVerified && 
-            (internalStatus === 'VERIFIED' || internalStatus === 'AWAITING_IRO_REVIEW');
-          const isUserClaim = !applicant.isPreVerified && 
-            (internalStatus === 'VERIFIED' || internalStatus === 'AWAITING_IRO_REVIEW');
-          
-          // Only include individuals (applicants are always individuals, not corporates)
-          return isPreVerifiedPending || isUserClaim;
-        });
-
-        // Store the applicants with claims for display in Shareholder tab
-        setVerifiedShareholders(shareholdersWithClaims);
-      } catch (error) {
-        console.error('Error fetching shareholdings:', error);
-        setVerifiedShareholders([]);
-      } finally {
-        setLoadingShareholders(false);
+    const handleClickOutside = (event: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
+        setIsFilterOpen(false);
       }
     };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
-    if (displayTab === 'shareholder') {
-      if (applicantsLoading) {
-        setLoadingShareholders(true);
-        return;
-      }
-      fetchShareholdings();
+  // Real-time subscription for official shareholders
+  // This collection tracks PRE-VERIFIED, VERIFIED, and NULL status investors independently
+  useEffect(() => {
+    if (displayTab !== 'shareholder') {
+      return;
     }
-  }, [displayTab, applicants, applicantsLoading]);
+
+    setLoadingShareholders(true);
+    
+    // Set up real-time subscription for official shareholders
+    const unsubscribeOfficial = officialShareholderService.subscribeToOfficialShareholders(
+      async (officialShareholdersList) => {
+        setOfficialShareholders(officialShareholdersList);
+        
+        // Now fetch corresponding applicant data for each official shareholder
+        const officialInvestorsWithData: (OfficialShareholder & { applicant?: Applicant })[] = [];
+        
+        for (const officialShareholder of officialShareholdersList) {
+          let applicant: Applicant | undefined;
+          
+          // If there's an applicantId, fetch the applicant data
+          if (officialShareholder.applicantId) {
+            try {
+              applicant = await applicantService.getById(officialShareholder.applicantId) || undefined;
+            } catch (error) {
+              console.warn('Error fetching applicant:', error);
+            }
+          }
+          
+          // If no applicantId but we have email, try to find by email from current applicants list
+          if (!applicant && officialShareholder.email) {
+            applicant = applicants.find(a => 
+              a.email && a.email.toLowerCase() === officialShareholder.email?.toLowerCase()
+            );
+          }
+          
+          officialInvestorsWithData.push({
+            ...officialShareholder,
+            applicant,
+          });
+        }
+        
+        // Convert to format expected by the component (using applicant data when available)
+        const displayData: Applicant[] = officialInvestorsWithData.map((official) => {
+          if (official.applicant) {
+            return official.applicant;
+          }
+          
+          // If no applicant exists, create a minimal applicant-like object for display
+          return {
+            id: official.id,
+            fullName: official.name,
+            email: official.email || '',
+            phoneNumber: official.phone,
+            location: official.country,
+            submissionDate: official.createdAt.split('T')[0],
+            lastActive: 'Never',
+            status: official.status === 'VERIFIED' ? RegistrationStatus.APPROVED : 
+                   official.status === 'PRE-VERIFIED' ? RegistrationStatus.PENDING : 
+                   RegistrationStatus.PENDING,
+            idDocumentUrl: '',
+            taxDocumentUrl: '',
+            isPreVerified: official.status === 'PRE-VERIFIED',
+            registrationId: official.id,
+            accountStatus: official.status === 'VERIFIED' ? 'VERIFIED' : 
+                          official.status === 'PRE-VERIFIED' ? 'PENDING' : 
+                          'UNVERIFIED',
+            workflowStage: official.status === 'VERIFIED' ? 'ACCOUNT_CLAIMED' : 
+                          official.status === 'PRE-VERIFIED' ? 'SENT_EMAIL' : 
+                          undefined,
+            systemStatus: official.status === 'VERIFIED' ? 'CLAIMED' : 
+                          official.status === 'PRE-VERIFIED' ? 'ACTIVE' : 
+                          'NULL',
+            holdingsRecord: official.holdings ? {
+              companyId: official.id,
+              companyName: official.name,
+              sharesHeld: official.holdings,
+              ownershipPercentage: official.stake || 0,
+              sharesClass: official.accountType || 'Ordinary',
+              registrationDate: official.createdAt,
+            } : undefined,
+          } as Applicant;
+        });
+        
+        setVerifiedShareholders(displayData);
+        setLoadingShareholders(false);
+      }
+    );
+
+    return () => {
+      unsubscribeOfficial();
+    };
+  }, [displayTab, applicants]);
 
 
   // Fetch all users (basic sign-ups without share claims) for All Users tab
+  // Updates continuously with real-time data
   useEffect(() => {
+    if (displayTab !== 'all-users') {
+      return;
+    }
+
     const fetchAllUsers = async () => {
       setLoadingAllUsers(true);
       try {
@@ -529,24 +326,31 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
         // All Users Tab: Include pre-verified accounts since they represent 
         // provisioned users ready for claiming/activation, providing a full registration overview.
         // Also include basic sign-ups without share claims
-        const basicUsers = allApplicants.filter((applicant) => {
-          const internalStatus = getWorkflowStatusInternal(applicant);
-          
-          // Include pre-verified accounts (provisioned users ready for claiming/activation)
-          if (applicant.isPreVerified) {
-            // Include pre-verified accounts that haven't been claimed yet
-            // or are in early stages (not yet verified with holdings)
-            return internalStatus !== 'VERIFIED' || !applicant.holdingsRecord;
-          }
-          
-          // For non-pre-verified accounts:
-          // Exclude users with valid claims (VERIFIED, AWAITING_IRO_REVIEW) - these go to Shareholder tab
-          // Exclude users who need to resubmit (RESUBMISSION_REQUIRED)
-          // Include only: unverified, no claims, or declined verification
-          return internalStatus !== 'VERIFIED' 
-            && internalStatus !== 'AWAITING_IRO_REVIEW'
-            && internalStatus !== 'RESUBMISSION_REQUIRED';
+        const statusPromises = allApplicants.map(async (applicant) => {
+          const internalStatus = await getWorkflowStatusInternal(applicant);
+          return { applicant, internalStatus };
         });
+        
+        const applicantsWithStatus = await Promise.all(statusPromises);
+        
+        const basicUsers = applicantsWithStatus
+          .filter(({ applicant, internalStatus }) => {
+            // Include pre-verified accounts (provisioned users ready for claiming/activation)
+            if (applicant.isPreVerified) {
+              // Include pre-verified accounts that haven't been claimed yet
+              // or are in early stages (not yet verified with holdings)
+              return internalStatus !== 'VERIFIED' || !applicant.holdingsRecord;
+            }
+            
+            // For non-pre-verified accounts:
+            // Exclude users with valid claims (VERIFIED, UNDER_REVIEW) - these go to Shareholder tab
+            // Exclude users who need to resubmit (FURTHER_INFO_REQUIRED)
+            // Include only: unverified, no claims, or declined verification
+            return internalStatus !== 'VERIFIED' 
+              && internalStatus !== 'UNDER_REVIEW'
+              && internalStatus !== 'FURTHER_INFO_REQUIRED';
+          })
+          .map(({ applicant }) => applicant);
         
         setAllUsers(basicUsers);
       } catch (error) {
@@ -557,145 +361,22 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
       }
     };
 
-    if (displayTab === 'all-users') {
-      if (applicantsLoading) {
-        setLoadingAllUsers(true);
-        return;
-      }
-      fetchAllUsers();
+    if (applicantsLoading) {
+      setLoadingAllUsers(true);
+      return;
     }
+    
+    // Fetch immediately - real-time subscription will trigger updates automatically
+    fetchAllUsers();
   }, [displayTab, applicants, applicantsLoading]);
 
-  // Fetch engagement data for Engagement tab
-  useEffect(() => {
-    const fetchEngagement = async () => {
-      setLoadingEngagement(true);
-      try {
-        const applicantsList = applicants;
-        
-        const engagement = applicantsList.map((applicant) => {
-          // Generate detailed engagement activities for this user
-          const activities = generateEngagementData(applicant);
-          
-          // Determine verification status
-          let verificationStatus = 'Unverified';
-          if (applicant.status === RegistrationStatus.APPROVED && applicant.shareholdingsVerification?.step6?.verifiedAt) {
-            verificationStatus = 'Verified';
-          } else if (applicant.status === RegistrationStatus.PENDING) {
-            verificationStatus = 'Pending';
-          }
 
-          // Get latest interaction (most recent of email opened, link clicked, account claimed, or latest activity)
-          const interactions: string[] = [];
-          if (applicant.emailOpenedAt) interactions.push(applicant.emailOpenedAt);
-          if (applicant.linkClickedAt) interactions.push(applicant.linkClickedAt);
-          if (applicant.accountClaimedAt) interactions.push(applicant.accountClaimedAt);
-          // Add latest activity timestamp if available
-          if (activities.length > 0) {
-            interactions.push(activities[0].timestamp);
-          }
-          const latestInteraction = interactions.length > 0 
-            ? new Date(Math.max(...interactions.map(d => new Date(d).getTime()))).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-            : 'Never';
-
-          // Determine engagement type based on activities or account status
-          let engagementType = 'None';
-          if (activities.length > 0) {
-            // Use the most recent activity's associated content type
-            const latestActivity = activities[0];
-            if (latestActivity.associatedContent) {
-              switch (latestActivity.associatedContent.type) {
-                case 'Press Release':
-                case 'Announcement':
-                  engagementType = 'News';
-                  break;
-                case 'Event':
-                  engagementType = 'Event';
-                  break;
-                case 'Document':
-                  engagementType = 'Disclosure';
-                  break;
-              }
-            }
-          }
-          // Fallback to account-based engagement type if no activities
-          if (engagementType === 'None') {
-            if (applicant.accountClaimedAt) {
-              engagementType = 'Disclosure';
-            } else if (applicant.linkClickedAt) {
-              engagementType = 'Event';
-            } else if (applicant.emailOpenedAt) {
-              engagementType = 'News';
-            }
-          }
-
-          // Calculate total interactions (include activity count)
-          const totalInteractions = activities.length + (applicant.emailOpenedCount || 0) + (applicant.linkClickedCount || 0) + (applicant.accountClaimedAt ? 1 : 0);
-
-          // Notifications enabled if email was sent
-          const notificationsEnabled = !!applicant.emailSentAt;
-
-          return {
-            investorName: applicant.fullName,
-            verificationStatus,
-            latestInteraction,
-            engagementType,
-            totalInteractions,
-            notificationsEnabled,
-            activities,
-            applicant,
-          };
-        });
-
-        setEngagementData(engagement);
-      } catch (error) {
-        console.error('Error fetching engagement data:', error);
-        setEngagementData([]);
-      } finally {
-        setLoadingEngagement(false);
-      }
-    };
-
-    if (displayTab === 'engagement') {
-      if (applicantsLoading) {
-        setLoadingEngagement(true);
-        return;
-      }
-      fetchEngagement();
-    }
-  }, [displayTab, applicants, applicantsLoading]);
-
-  // Calculate issuer metrics
-  const totalSharesOutstanding = 25381100; // Fixed value from issuer/registry source
-  const sharePrice = 125.50; // Random share price in peso
-  const marketCap = totalSharesOutstanding * sharePrice; // Computed live
-  // Calculate top holders concentration from verified shareholders only
-  const verifiedShareholdersForMetrics = verifiedShareholders.filter((item): item is Applicant => 'fullName' in item);
-  const topHoldersConcentration = verifiedShareholdersForMetrics.length >= 3
-    ? verifiedShareholdersForMetrics.slice(0, 3).reduce((sum, applicant) => {
-        const ownership = applicant.holdingsRecord?.ownershipPercentage || 0;
-        return sum + ownership;
-      }, 0)
-    : verifiedShareholdersForMetrics.reduce((sum, applicant) => {
-        const ownership = applicant.holdingsRecord?.ownershipPercentage || 0;
-        return sum + ownership;
-      }, 0);
-  
   // Generate sample chart data for metric cards (7 days)
   const generateChartData = (baseValue: number, variance: number = 0.1) => {
     return Array.from({ length: 7 }, (_, i) => {
       const variation = (Math.sin(i) * variance + 1) * baseValue;
       return Math.round(variation);
     });
-  };
-
-  // Format peso currency (compact for large numbers to avoid overflow)
-  const formatPesoCompact = (value: number) => {
-    const abs = Math.abs(value);
-    if (abs >= 1_000_000_000_000) return `₱${(value / 1_000_000_000_000).toFixed(2)}T`;
-    if (abs >= 1_000_000_000) return `₱${(value / 1_000_000_000).toFixed(2)}B`;
-    if (abs >= 1_000_000) return `₱${(value / 1_000_000).toFixed(2)}M`;
-    return `₱${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   const computeTrend = (series: number[]) => {
@@ -708,11 +389,78 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     return { percent: Math.abs(pct), direction: pct >= 0 ? ('up' as const) : ('down' as const) };
   };
 
-  // Build 7-day series per metric for 7-day trend badges
-  const totalSharesSeries = generateChartData(totalSharesOutstanding, 0.001);
-  const sharePriceSeries = generateChartData(sharePrice, 0.03);
-  const marketCapSeries = sharePriceSeries.map((p) => Math.round(p * totalSharesOutstanding));
-  const topHoldersSeries = generateChartData(topHoldersConcentration, 0.02);
+  // Calculate metrics for Shareholder Tab (Masterlist View)
+  const calculateShareholderTabMetrics = () => {
+    // 1. Total Official Shareholders (from official shareholders collection)
+    const totalOfficialShareholders = officialShareholders.length;
+
+    // Get the count of what's actually displayed in the table
+    const displayedShareholdersCount = verifiedShareholders.length;
+
+    // 2. Verified Accounts (count and percentage)
+    // Count verified from official shareholders collection
+    const verifiedCount = officialShareholders.filter(sh => sh.status === 'VERIFIED').length;
+    
+    // Calculate percentage based on total official shareholders
+    const verifiedPercentage = totalOfficialShareholders > 0 
+      ? Math.round((verifiedCount / totalOfficialShareholders) * 100)
+      : 0;
+
+    // 3. Pending Claims (Pre-Verified) - accounts created by IRO but not yet claimed
+    // Count from official shareholders collection
+    const pendingClaimsCount = officialShareholders.filter(sh => sh.status === 'PRE-VERIFIED').length;
+
+    // 4. No Contact Records (Null Status) - official investors with no email/phone
+    // Count from official shareholders collection
+    const noContactCount = officialShareholders.filter(sh => sh.status === 'NULL').length;
+
+    return {
+      totalOfficialShareholders,
+      displayedShareholdersCount,
+      verifiedCount,
+      verifiedPercentage,
+      pendingClaimsCount,
+      noContactCount,
+    };
+  };
+
+  // Calculate metrics for All Users Tab (Account View)
+  const calculateAllUsersTabMetrics = () => {
+    // 1. Total Registered Users
+    const totalRegisteredUsers = allUsers.length;
+
+    // 2. Verified Users
+    const verifiedUsersCount = allUsers.filter(user => {
+      const status = computeShareholderStatus(user, null);
+      return status === 'VERIFIED';
+    }).length;
+
+    // 3. Pre-Verified Users
+    const preVerifiedUsersCount = allUsers.filter(user => {
+      const status = computeShareholderStatus(user, null);
+      return status === 'PRE-VERIFIED';
+    }).length;
+
+    // 4. Unverified Users (not verified and not pre-verified)
+    const unverifiedUsersCount = allUsers.filter(user => {
+      const status = computeShareholderStatus(user, null);
+      return status === null;
+    }).length;
+
+    return {
+      totalRegisteredUsers,
+      verifiedUsersCount,
+      preVerifiedUsersCount,
+      unverifiedUsersCount,
+    };
+  };
+
+  // Get metrics based on active tab
+  const shareholderMetrics = calculateShareholderTabMetrics();
+  const allUsersMetrics = calculateAllUsersTabMetrics();
+
+  // Generate chart data for trends
+  const generateTrendSeries = (value: number) => generateChartData(value, 0.05);
 
   // Helper function to get last 6 digits of registration/holders ID
   const getLast6Digits = (id: string | undefined | null): string => {
@@ -725,17 +473,17 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
   // Helper function to get registration/holders ID for applicants
   const getApplicantRegistrationId = (applicant: Applicant): string => {
     // Priority: shareholdingsId from step2 > registrationId > applicant.id
-    const internalStatus = getWorkflowStatusInternal(applicant);
-    if (internalStatus === 'VERIFIED' || internalStatus === 'AWAITING_IRO_REVIEW') {
+    // For pre-verified accounts, use registrationId
+    if (applicant.isPreVerified && applicant.registrationId) {
+      return applicant.registrationId;
+    }
+    // For verified accounts
+    if (applicant.status === RegistrationStatus.APPROVED || applicant.accountStatus === 'VERIFIED') {
       return applicant.shareholdingsVerification?.step2?.shareholdingsId || 
              applicant.registrationId || 
              applicant.id;
     }
-    // For pre-verified accounts
-    if (applicant.isPreVerified && applicant.registrationId) {
-      return applicant.registrationId;
-    }
-    return applicant.id;
+    return applicant.registrationId || applicant.id;
   };
 
   // Handle uploading all mock data to Firebase
@@ -756,7 +504,8 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
       // - Include corporates (yes)
       // - Registry/IRO-uploaded institutional data
       // This data appears in the Investor tab (Ownership Reports)
-      const shareholdersToUpload: Shareholder[] = [...MOCK_SHAREHOLDERS];
+      // Note: Shareholders should be uploaded via batch upload feature, not from mock data
+      const shareholdersToUpload: Shareholder[] = [];
       
       console.log(`\n📊 SHAREHOLDERS COLLECTION (Investor Tab)`);
       console.log(`   Purpose: Registry/IRO uploads for ownership reports`);
@@ -1295,44 +1044,81 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
           </div>
         </div>
 
-          {/* Metric Cards Grid */}
+          {/* Dynamic Metric Cards Grid - Changes based on active tab */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-            <MetricCard
-              title="Total Shares Outstanding"
-              value={totalSharesOutstanding.toLocaleString()}
-              trend={computeTrend(totalSharesSeries)}
-              chartData={totalSharesSeries}
-              chartColor="#7C3AED"
-              subtitle="Issued ordinary shares"
-            />
-            <MetricCard
-              title="Share Price"
-              value={formatPesoCompact(sharePrice)}
-              trend={computeTrend(sharePriceSeries)}
-              secondaryTrend={{ percent: 0.42, direction: 'up', display: 'hover', label: 'Today' }}
-              chartData={sharePriceSeries}
-              chartColor="#10B981"
-              subtitle="Last market close"
-              tooltipSymbol="₱"
-            />
-            <MetricCard
-              title="Market Capitalization"
-              value={formatPesoCompact(marketCap)}
-              trend={computeTrend(marketCapSeries)}
-              chartData={marketCapSeries.map((v) => v / 1_000_000)}
-              chartColor="#3b82f6"
-              subtitle="Price × shares outstanding"
-              tooltipSymbol="₱"
-            />
-            <MetricCard
-              title="Top Holders Concentration"
-              value={`${topHoldersConcentration.toFixed(2)}%`}
-              trend={computeTrend(topHoldersSeries)}
-              chartData={topHoldersSeries}
-              chartColor="#F59E0B"
-              subtitle="Top 3 shareholders"
-              tooltipSymbol="%"
-            />
+            {displayTab === 'shareholder' ? (
+              <>
+                {/* Shareholder Tab (Masterlist View) */}
+                <MetricCard
+                  title="Total Official Shareholders"
+                  value={shareholderMetrics.totalOfficialShareholders.toLocaleString()}
+                  trend={computeTrend(generateTrendSeries(shareholderMetrics.totalOfficialShareholders))}
+                  chartData={generateTrendSeries(shareholderMetrics.totalOfficialShareholders)}
+                  chartColor="#7C3AED"
+                  subtitle={`${shareholderMetrics.displayedShareholdersCount} displayed in table`}
+                />
+                <MetricCard
+                  title="Verified Accounts"
+                  value={`${shareholderMetrics.verifiedCount.toLocaleString()} (${shareholderMetrics.verifiedPercentage}% Verified)`}
+                  trend={computeTrend(generateTrendSeries(shareholderMetrics.verifiedCount))}
+                  chartData={generateTrendSeries(shareholderMetrics.verifiedCount)}
+                  chartColor="#10B981"
+                  subtitle={`${shareholderMetrics.verifiedPercentage}% of total official`}
+                />
+                <MetricCard
+                  title="Pending Claims"
+                  value={shareholderMetrics.pendingClaimsCount.toLocaleString()}
+                  trend={computeTrend(generateTrendSeries(shareholderMetrics.pendingClaimsCount))}
+                  chartData={generateTrendSeries(shareholderMetrics.pendingClaimsCount)}
+                  chartColor="#F59E0B"
+                  subtitle="Pre-verified, not claimed"
+                />
+                <MetricCard
+                  title="No Contact Records"
+                  value={shareholderMetrics.noContactCount.toLocaleString()}
+                  trend={computeTrend(generateTrendSeries(shareholderMetrics.noContactCount))}
+                  chartData={generateTrendSeries(shareholderMetrics.noContactCount)}
+                  chartColor="#EF4444"
+                  subtitle="Null status investors"
+                />
+              </>
+            ) : (
+              <>
+                {/* All Users Tab (Account View) */}
+                <MetricCard
+                  title="Total Registered Users"
+                  value={allUsersMetrics.totalRegisteredUsers.toLocaleString()}
+                  trend={computeTrend(generateTrendSeries(allUsersMetrics.totalRegisteredUsers))}
+                  chartData={generateTrendSeries(allUsersMetrics.totalRegisteredUsers)}
+                  chartColor="#7C3AED"
+                  subtitle="All accounts in system"
+                />
+                <MetricCard
+                  title="Verified Users"
+                  value={allUsersMetrics.verifiedUsersCount.toLocaleString()}
+                  trend={computeTrend(generateTrendSeries(allUsersMetrics.verifiedUsersCount))}
+                  chartData={generateTrendSeries(allUsersMetrics.verifiedUsersCount)}
+                  chartColor="#10B981"
+                  subtitle="Fully verified accounts"
+                />
+                <MetricCard
+                  title="Pre-Verified Users"
+                  value={allUsersMetrics.preVerifiedUsersCount.toLocaleString()}
+                  trend={computeTrend(generateTrendSeries(allUsersMetrics.preVerifiedUsersCount))}
+                  chartData={generateTrendSeries(allUsersMetrics.preVerifiedUsersCount)}
+                  chartColor="#F59E0B"
+                  subtitle="Invited but not claimed"
+                />
+                <MetricCard
+                  title="Unverified Users"
+                  value={allUsersMetrics.unverifiedUsersCount.toLocaleString()}
+                  trend={computeTrend(generateTrendSeries(allUsersMetrics.unverifiedUsersCount))}
+                  chartData={generateTrendSeries(allUsersMetrics.unverifiedUsersCount)}
+                  chartColor="#EF4444"
+                  subtitle="Pending verification"
+                />
+              </>
+            )}
           </div>
 
           {/* Tabs Section */}
@@ -1349,108 +1135,175 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
               >
                 Shareholder
               </button>
-              <button
-                onClick={() => handleTabChange('all-users')}
-                className={`px-6 py-4 text-sm font-black uppercase tracking-wider transition-all duration-300 ${
-                  activeTab === 'all-users'
-                    ? 'text-neutral-900 dark:text-neutral-100 border-b-2 border-neutral-900 dark:border-neutral-100'
-                    : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
-                }`}
-              >
-                All Users
-              </button>
-              <button
-                onClick={() => handleTabChange('engagement')}
-                className={`px-6 py-4 text-sm font-black uppercase tracking-wider transition-all duration-300 ${
-                  activeTab === 'engagement'
-                    ? 'text-neutral-900 dark:text-neutral-100 border-b-2 border-neutral-900 dark:border-neutral-100'
-                    : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
-                }`}
-              >
-                Engagement
-              </button>
+               <button
+                 onClick={() => handleTabChange('all-users')}
+                 className={`px-6 py-4 text-sm font-black uppercase tracking-wider transition-all duration-300 ${
+                   activeTab === 'all-users'
+                     ? 'text-neutral-900 dark:text-neutral-100 border-b-2 border-neutral-900 dark:border-neutral-100'
+                     : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
+                 }`}
+               >
+                 All Users
+               </button>
             </div>
           </div>
 
           {/* Search and Filters */}
-          <div className="mb-6 space-y-4">
-            {/* Search Input */}
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg className="h-5 w-5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              </div>
-              <input
-                type="text"
-                value={localSearchQuery}
-                onChange={(e) => {
-                  setLocalSearchQuery(e.target.value);
-                  setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
-                }}
-                placeholder="Search by name, email, or ID..."
-                className="w-full pl-10 pr-4 py-2.5 text-sm border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 placeholder-neutral-500 dark:placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0] focus:border-transparent"
-              />
-            </div>
-
-            {/* Filters Row */}
-            <div className="flex flex-wrap items-center gap-3">
-              {/* Name Sort (A-Z / Z-A) */}
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-bold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider">Name:</label>
-                <select
-                  value={nameSort || 'none'}
+          <div className="mb-6">
+            {/* Search Input with Filter Icon */}
+            <div className="relative flex items-center gap-2">
+              <div className="relative flex-1">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <svg className="h-5 w-5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+                <input
+                  type="text"
+                  value={localSearchQuery}
                   onChange={(e) => {
-                    setNameSort(e.target.value === 'none' ? null : e.target.value);
+                    setLocalSearchQuery(e.target.value);
                     setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
                   }}
-                  className="px-3 py-1.5 text-xs border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0] focus:border-transparent"
-                >
-                  <option value="none">None</option>
-                  <option value="a-z">A-Z</option>
-                  <option value="z-a">Z-A</option>
-                </select>
+                  placeholder="Search by name, email, or ID..."
+                  className="w-full pl-10 pr-4 py-2.5 text-sm border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 placeholder-neutral-500 dark:placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0] focus:border-transparent"
+                />
               </div>
+              
+              {/* Filter Icon Button */}
+              <div className="relative" ref={filterRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsFilterOpen(v => !v)}
+                  className={`h-[42px] w-[42px] inline-flex items-center justify-center bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors ${
+                    statusFilter && statusFilter !== 'all' ? 'bg-[#082b4a] dark:bg-[#00adf0] border-[#082b4a] dark:border-[#00adf0]' : ''
+                  }`}
+                  aria-label="Filter by status"
+                  aria-expanded={isFilterOpen}
+                >
+                  {/* Filter/Funnel icon */}
+                  <svg className={`w-4 h-4 ${statusFilter && statusFilter !== 'all' ? 'text-white' : 'text-neutral-600 dark:text-neutral-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4h18l-7 8v6l-4 2v-8L3 4z" />
+                  </svg>
+                </button>
 
-              {/* Holdings Sort (High to Low / Low to High) - for Shareholder and All Users tabs */}
-              {displayTab !== 'engagement' && (
-                <div className="flex items-center gap-2">
-                  <label className="text-xs font-bold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider">Holdings:</label>
-                  <select
-                    value={holdingsSort || 'none'}
-                    onChange={(e) => {
-                      setHoldingsSort(e.target.value === 'none' ? null : e.target.value);
-                      setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
-                    }}
-                    className="px-3 py-1.5 text-xs border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0] focus:border-transparent"
-                  >
-                    <option value="none">None</option>
-                    <option value="high-to-low">High to Low</option>
-                    <option value="low-to-high">Low to High</option>
-                  </select>
-                </div>
-              )}
-
-              {/* Engagement Type Filter (for Engagement tab) */}
-              {displayTab === 'engagement' && (
-                <div className="flex items-center gap-2">
-                  <label className="text-xs font-bold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider">Type:</label>
-                  <select
-                    value={engagementTypeFilter || 'all'}
-                    onChange={(e) => {
-                      setEngagementTypeFilter(e.target.value === 'all' ? null : e.target.value);
-                      setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
-                    }}
-                    className="px-3 py-1.5 text-xs border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0] focus:border-transparent"
-                  >
-                    <option value="all">All</option>
-                    <option value="disclosure">Disclosure</option>
-                    <option value="event">Event</option>
-                    <option value="news">News</option>
-                    <option value="none">None</option>
-                  </select>
-                </div>
-              )}
+                {isFilterOpen && (
+                  <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-xl z-[9999] overflow-hidden">
+                    {displayTab === 'shareholder' ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStatusFilter(null);
+                            setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
+                            setIsFilterOpen(false);
+                          }}
+                          className={`w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors ${
+                            !statusFilter || statusFilter === 'all'
+                              ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100'
+                              : 'hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300'
+                          }`}
+                        >
+                          All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStatusFilter('PRE-VERIFIED');
+                            setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
+                            setIsFilterOpen(false);
+                          }}
+                          className={`w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors ${
+                            statusFilter === 'PRE-VERIFIED'
+                              ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100'
+                              : 'hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300'
+                          }`}
+                        >
+                          Pre-Verified
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStatusFilter('VERIFIED');
+                            setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
+                            setIsFilterOpen(false);
+                          }}
+                          className={`w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors ${
+                            statusFilter === 'VERIFIED'
+                              ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100'
+                              : 'hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300'
+                          }`}
+                        >
+                          Verified
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStatusFilter(null);
+                            setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
+                            setIsFilterOpen(false);
+                          }}
+                          className={`w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors ${
+                            !statusFilter || statusFilter === 'all'
+                              ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100'
+                              : 'hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300'
+                          }`}
+                        >
+                          All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStatusFilter('VERIFIED');
+                            setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
+                            setIsFilterOpen(false);
+                          }}
+                          className={`w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors ${
+                            statusFilter === 'VERIFIED'
+                              ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100'
+                              : 'hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300'
+                          }`}
+                        >
+                          Verified
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStatusFilter('null');
+                            setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
+                            setIsFilterOpen(false);
+                          }}
+                          className={`w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors ${
+                            statusFilter === 'null'
+                              ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100'
+                              : 'hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300'
+                          }`}
+                        >
+                          Unverified
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStatusFilter('PRE-VERIFIED');
+                            setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
+                            setIsFilterOpen(false);
+                          }}
+                          className={`w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors ${
+                            statusFilter === 'PRE-VERIFIED'
+                              ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100'
+                              : 'hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300'
+                          }`}
+                        >
+                          Pre-Verified
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1477,126 +1330,116 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                     </div>
                   ) : verifiedShareholders.length > 0 ? (
                     <div>
-                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-4 italic">
-                        Operational list of only pending/verified individuals needing IRO review—no full registry dump. Includes pre-verified accounts (pending actions) and user claims only.
-                      </p>
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-neutral-50 dark:bg-neutral-900/50 text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200 dark:border-neutral-700">
-                            <th className="px-4 py-5">REGISTRATION ID</th>
-                            <th className="px-4 py-5">NAME</th>
-                            <th className="px-4 py-5">EMAIL</th>
-                            <th className="px-4 py-5">VERIFICATION STATUS</th>
-                            <th className="px-4 py-5">SHARES</th>
-                            <th className="px-4 py-5">% OWNERSHIP</th>
-                            <th className="px-4 py-5">LAST UPDATED</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
-                          {getPaginatedData(filterData(verifiedShareholders.filter((item): item is Applicant => 'fullName' in item)), 'shareholder').map((applicant) => {
-                            const internalStatus = getWorkflowStatusInternal(applicant);
-                            const verificationStatus = internalStatus === 'VERIFIED'
-                              ? 'Verified' 
-                              : internalStatus === 'AWAITING_IRO_REVIEW'
-                              ? 'Pending'
-                              : 'Unverified';
-                            
-                            // For pending accounts (AWAITING_IRO_REVIEW), get holdings from holdingsRecord if available
-                            // For verified accounts, use holdingsRecord
-                            // Holdings should be displayed for both pending and verified
-                            let shares = 0;
-                            let ownership = 0;
-                            
-                            if (internalStatus === 'VERIFIED' || internalStatus === 'AWAITING_IRO_REVIEW') {
-                              // Both verified and pending (awaiting IRO) should show holdings
-                              shares = applicant.holdingsRecord?.sharesHeld || 0;
-                              ownership = applicant.holdingsRecord?.ownershipPercentage || 0;
-                            }
-                            
-                            const lastUpdated = applicant.shareholdingsVerification?.step6?.verifiedAt 
-                              || applicant.shareholdingsVerification?.step2?.submittedAt 
-                              || applicant.submissionDate;
+                       <table className="w-full text-left border-collapse">
+                         <thead>
+                           <tr className="bg-neutral-50 dark:bg-neutral-900/50 text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200 dark:border-neutral-700">
+                             <th className="px-4 py-5">NO.</th>
+                             <th className="px-4 py-5">NAME</th>
+                             <th className="px-4 py-5">EMAIL</th>
+                             <th className="px-4 py-5">REGISTRATION DATE</th>
+                             <th className="px-4 py-5">STATUS</th>
+                             <th className="px-4 py-5">LAST ACTIVE</th>
+                           </tr>
+                         </thead>
+                         <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
+                           {getPaginatedData(filterData(verifiedShareholders.filter((item): item is Applicant => 'fullName' in item)), 'shareholder').map((applicant, index) => {
+                             // Get status from official shareholder record (primary source of truth)
+                             const officialShareholder = officialShareholders.find(sh => 
+                               sh.applicantId === applicant.id || 
+                               sh.id === applicant.registrationId ||
+                               (sh.email && applicant.email && sh.email.toLowerCase() === applicant.email.toLowerCase())
+                             );
+                             
+                             // Use official shareholder status if available, otherwise derive from applicant
+                             let accountStatus: 'VERIFIED' | 'PRE-VERIFIED' | null = null;
+                             
+                             if (officialShareholder) {
+                               accountStatus = officialShareholder.status === 'VERIFIED' ? 'VERIFIED' :
+                                              officialShareholder.status === 'PRE-VERIFIED' ? 'PRE-VERIFIED' : null;
+                             } else {
+                               // Fallback to applicant status if no official shareholder record found
+                               if (applicant.status === RegistrationStatus.APPROVED || 
+                                   applicant.accountStatus === 'VERIFIED' ||
+                                   applicant.shareholdingsVerification?.step6?.verifiedAt !== undefined) {
+                                 accountStatus = 'VERIFIED';
+                               } else if (applicant.isPreVerified === true) {
+                                 accountStatus = 'PRE-VERIFIED';
+                               }
+                             }
+                             
+                             const statusLabel = accountStatus === 'VERIFIED' ? 'VERIFIED' : 
+                                                accountStatus === 'PRE-VERIFIED' ? 'PRE-VERIFIED' : '–';
+                             const statusBadgeColor = accountStatus === 'VERIFIED' 
+                               ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                               : accountStatus === 'PRE-VERIFIED'
+                               ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                               : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300';
+                             
+                             const registrationDate = applicant.submissionDate || applicant.shareholdingsVerification?.step2?.submittedAt;
+                             const lastActive = applicant.lastActive || applicant.accountClaimedAt || applicant.submissionDate;
+                             
+                             // Calculate row number (accounting for pagination)
+                             const rowNumber = (currentPage.shareholder - 1) * itemsPerPage + index + 1;
 
-                            const registrationId = getApplicantRegistrationId(applicant);
-                            const displayId = getLast6Digits(registrationId);
-
-                            return (
-                              <tr 
-                                key={applicant.id} 
-                                onClick={() => setSelectedUser(applicant)}
-                                className="group hover:bg-neutral-50 dark:hover:bg-neutral-700/80 transition-all cursor-pointer"
-                              >
-                                <td className="px-4 py-5">
-                                  <Tooltip content={`Full ID: ${registrationId}`}>
-                                    <span className="text-sm font-mono font-black text-neutral-900 dark:text-neutral-100">
-                                      {displayId}
-                                    </span>
-                                  </Tooltip>
-                                </td>
-                                <td className="px-4 py-5">
-                                  <Tooltip content={applicant.fullName}>
-                                    <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 truncate">{applicant.fullName}</p>
-                                  </Tooltip>
-                                </td>
-                                <td className="px-4 py-5">
-                                  <Tooltip content={applicant.email}>
-                                    <span className="text-xs text-neutral-600 dark:text-neutral-400 truncate block">{applicant.email}</span>
-                                  </Tooltip>
-                                </td>
-                                <td className="px-4 py-5">
-                                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${
-                                    verificationStatus === 'Verified'
-                                      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
-                                      : verificationStatus === 'Pending'
-                                      ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
-                                      : 'bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400'
-                                  }`}>
-                                    {verificationStatus === 'Unverified' && (
-                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                                        <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
-                                      </svg>
-                                    )}
-                                    {verificationStatus === 'Pending' && (
-                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                                        <circle cx="12" cy="12" r="10"/>
-                                        <path d="M12 6v6l4 2"/>
-                                      </svg>
-                                    )}
-                                    {verificationStatus === 'Verified' && (
-                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                                        <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
-                                        <path d="m9 12 2 2 4-4"/>
-                                      </svg>
-                                    )}
-                                    {verificationStatus}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-5">
-                                  <span className="text-sm font-black text-neutral-900 dark:text-neutral-100">
-                                    {shares > 0 ? shares.toLocaleString() : '—'}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-5">
-                                  <span className="text-sm font-black text-neutral-900 dark:text-neutral-100">
-                                    {ownership > 0 ? `${ownership.toFixed(5)}%` : '—'}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-5">
-                                  <span className="text-xs text-neutral-600 dark:text-neutral-400">
-                                    {lastUpdated ? new Date(lastUpdated).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                             return (
+                               <tr 
+                                 key={applicant.id} 
+                                 onClick={() => setSelectedUser(applicant)}
+                                 className="group hover:bg-neutral-50 dark:hover:bg-neutral-700/80 transition-all cursor-pointer"
+                               >
+                                 <td className="px-4 py-5">
+                                   <span className="text-sm font-mono font-black text-neutral-900 dark:text-neutral-100">
+                                     {rowNumber}
+                                   </span>
+                                 </td>
+                                 <td className="px-4 py-5">
+                                   <Tooltip content={applicant.fullName}>
+                                     <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 truncate">{applicant.fullName}</p>
+                                   </Tooltip>
+                                 </td>
+                                 <td className="px-4 py-5">
+                                   <Tooltip content={applicant.email || 'No email'}>
+                                     <span className="text-xs text-neutral-600 dark:text-neutral-400 truncate block">{applicant.email || '—'}</span>
+                                   </Tooltip>
+                                 </td>
+                                 <td className="px-4 py-5">
+                                   <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                                     {registrationDate ? new Date(registrationDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                                   </span>
+                                 </td>
+                                 <td className="px-4 py-5">
+                                   <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${statusBadgeColor}`}>
+                                     {accountStatus === 'VERIFIED' && (
+                                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                         <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
+                                         <path d="m9 12 2 2 4-4"/>
+                                       </svg>
+                                     )}
+                                     {accountStatus === 'PRE-VERIFIED' && (
+                                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                         <circle cx="12" cy="12" r="10"/>
+                                         <path d="M12 6v6l4 2"/>
+                                       </svg>
+                                     )}
+                                     {statusLabel}
+                                   </span>
+                                 </td>
+                                 <td className="px-4 py-5">
+                                   <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                                     {lastActive ? new Date(lastActive).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                                   </span>
+                                 </td>
+                               </tr>
+                             );
+                           })}
+                         </tbody>
+                       </table>
                       {(() => {
                         const filteredData = filterData(verifiedShareholders.filter((item): item is Applicant => 'fullName' in item));
                         return filteredData.length > itemsPerPage && (
                           <div className="mt-6 flex items-center justify-between border-t border-neutral-200 dark:border-neutral-700 pt-4">
                             <div className="text-sm text-neutral-600 dark:text-neutral-400">
-                              Showing {((currentPage.shareholder - 1) * itemsPerPage) + 1} to {Math.min(currentPage.shareholder * itemsPerPage, filteredData.length)} of {filteredData.length} verified investors
+                              Showing {((currentPage.shareholder - 1) * itemsPerPage) + 1} to {Math.min(currentPage.shareholder * itemsPerPage, filteredData.length)} of {filteredData.length} official investors
                             </div>
                             <div className="flex items-center gap-2">
                               <button
@@ -1650,36 +1493,26 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                       <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="bg-neutral-50 dark:bg-neutral-900/50 text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200 dark:border-neutral-700">
+                            <th className="px-4 py-5">NO.</th>
                             <th className="px-4 py-5">NAME</th>
                             <th className="px-4 py-5">EMAIL</th>
                             <th className="px-4 py-5">REGISTRATION DATE</th>
-                            <th className="px-4 py-5">ACTIVITY LEVEL</th>
                             <th className="px-4 py-5">STATUS</th>
+                            <th className="px-4 py-5">LAST ACTIVE</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
-                          {getPaginatedData(filterData(allUsers), 'all-users').map((user) => {
-                            // Determine status (active/inactive)
-                            const getStatus = (lastActive: string): 'Active' | 'Inactive' => {
-                              if (lastActive === 'Just now' || lastActive.includes('hour') || lastActive.includes('day')) {
-                                return 'Active';
-                              }
-                              return 'Inactive';
-                            };
-
-                            const lastActive = user.lastActive || 'Never';
-                            const status = getStatus(lastActive);
-
-                            // Determine badge color based on activity recency
-                            const getActivityBadgeColor = (lastActive: string) => {
-                              if (lastActive === 'Just now' || lastActive.includes('hour')) {
-                                return 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300';
-                              }
-                              if (lastActive.includes('day') || lastActive.includes('week')) {
-                                return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300';
-                              }
-                              return 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300';
-                            };
+                          {getPaginatedData(filterData(allUsers), 'all-users').map((user, index) => {
+                            // Compute status using status mapping utility
+                            const userStatus = computeShareholderStatus(user, null);
+                            const statusLabel = getStatusLabel(userStatus);
+                            const statusBadgeColor = getStatusBadgeColor(userStatus);
+                            
+                            const registrationDate = user.submissionDate;
+                            const lastActive = user.lastActive || user.accountClaimedAt || user.submissionDate;
+                            
+                            // Calculate row number (accounting for pagination)
+                            const rowNumber = (currentPage['all-users'] - 1) * itemsPerPage + index + 1;
 
                             return (
                               <tr 
@@ -1688,33 +1521,48 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                                 className="group hover:bg-neutral-50 dark:hover:bg-neutral-700/80 transition-all cursor-pointer"
                               >
                                 <td className="px-4 py-5">
+                                  <span className="text-sm font-mono font-black text-neutral-900 dark:text-neutral-100">
+                                    {rowNumber}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-5">
                                   <Tooltip content={user.fullName}>
                                     <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 truncate">{user.fullName}</p>
                                   </Tooltip>
-                  </td>
-                  <td className="px-4 py-5">
-                                  <Tooltip content={user.email}>
-                                    <span className="text-xs text-neutral-600 dark:text-neutral-400 truncate block">{user.email}</span>
+                                </td>
+                                <td className="px-4 py-5">
+                                  <Tooltip content={user.email || 'No email'}>
+                                    <span className="text-xs text-neutral-600 dark:text-neutral-400 truncate block">{user.email || '—'}</span>
                                   </Tooltip>
                                 </td>
                                 <td className="px-4 py-5">
                                   <span className="text-xs text-neutral-600 dark:text-neutral-400">
-                                    {user.submissionDate ? new Date(user.submissionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-5">
-                                  <span className={`inline-block px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${getActivityBadgeColor(lastActive)}`}>
-                                    {lastActive}
-                    </span>
-                  </td>
-                  <td className="px-4 py-5">
-                                  <span className={`inline-block px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${
-                                    status === 'Active'
-                                      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
-                                      : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'
-                                  }`}>
-                                    {status}
-                      </span>
+                                    {registrationDate ? new Date(registrationDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-5">
+                                  <Tooltip content={userStatus === null ? "Unverified account" : undefined}>
+                                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${statusBadgeColor}`}>
+                                      {userStatus === 'VERIFIED' && (
+                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                          <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
+                                          <path d="m9 12 2 2 4-4"/>
+                                        </svg>
+                                      )}
+                                      {userStatus === 'PRE-VERIFIED' && (
+                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                          <circle cx="12" cy="12" r="10"/>
+                                          <path d="M12 6v6l4 2"/>
+                                        </svg>
+                                      )}
+                                      {statusLabel}
+                                    </span>
+                                  </Tooltip>
+                                </td>
+                                <td className="px-4 py-5">
+                                  <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                                    {lastActive ? new Date(lastActive).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                                  </span>
                                 </td>
                               </tr>
                             );
@@ -1756,137 +1604,6 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                         </svg>
                       </div>
                       <p className="text-xs font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">No users found.</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {displayTab === 'engagement' && (
-                <div className="overflow-x-auto">
-                  {loadingEngagement ? (
-                    <div className="py-12 text-center">
-                      <div className="w-12 h-12 bg-neutral-50 dark:bg-neutral-900 rounded-full flex items-center justify-center mx-auto mb-4 border border-dashed border-neutral-200 dark:border-neutral-700">
-                        <svg className="w-5 h-5 text-neutral-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                        </svg>
-                      </div>
-                      <p className="text-xs font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">Loading engagement data...</p>
-                    </div>
-                  ) : engagementData.length > 0 ? (
-                    <div>
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-neutral-50 dark:bg-neutral-900/50 text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200 dark:border-neutral-700">
-                            <th className="px-4 py-5">INVESTOR NAME</th>
-                            <th className="px-4 py-5">VERIFICATION STATUS</th>
-                            <th className="px-4 py-5">LATEST INTERACTION</th>
-                            <th className="px-4 py-5">ENGAGEMENT TYPE</th>
-                            <th className="px-4 py-5">TOTAL INTERACTIONS</th>
-                            <th className="px-4 py-5">NOTIFICATIONS ENABLED</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
-                          {getPaginatedData(filterEngagementData(engagementData), 'engagement').map((engagement, index) => (
-                          <tr key={index} className="group hover:bg-neutral-50 dark:hover:bg-neutral-700/80 transition-all cursor-default">
-                            <td className="px-4 py-5">
-                              <Tooltip content={engagement.investorName}>
-                                <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 truncate">{engagement.investorName}</p>
-                    </Tooltip>
-                  </td>
-                  <td className="px-4 py-5">
-                              <span className={`inline-block px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${
-                                engagement.verificationStatus === 'Verified'
-                                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
-                                  : engagement.verificationStatus === 'Pending'
-                                  ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
-                                  : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'
-                              }`}>
-                                {engagement.verificationStatus}
-                              </span>
-                  </td>
-                            <td className="px-4 py-5">
-                              <span className="text-xs text-neutral-600 dark:text-neutral-400">{engagement.latestInteraction}</span>
-                            </td>
-                            <td className="px-4 py-5">
-                              <span className={`inline-block px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${
-                                engagement.engagementType === 'Disclosure'
-                                  ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
-                                  : engagement.engagementType === 'Event'
-                                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                                  : engagement.engagementType === 'News'
-                                  ? 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300'
-                                  : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'
-                              }`}>
-                                {engagement.engagementType}
-                      </span>
-                  </td>
-                  <td className="px-4 py-5">
-                              <span className="text-sm font-black text-neutral-900 dark:text-neutral-100">
-                                {engagement.totalInteractions}
-                              </span>
-                  </td>
-                            <td className="px-4 py-5">
-                              <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${
-                                engagement.notificationsEnabled
-                                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
-                                  : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300'
-                              }`}>
-                                {engagement.notificationsEnabled ? (
-                                  <>
-                                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                                    </svg>
-                                    Yes
-                                  </>
-                                ) : (
-                                  <>
-                                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                                    </svg>
-                                    No
-                                  </>
-                                )}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-                        {(() => {
-                          const filteredData = filterEngagementData(engagementData);
-                          return filteredData.length > itemsPerPage && (
-                            <div className="mt-6 flex items-center justify-between border-t border-neutral-200 dark:border-neutral-700 pt-4">
-                              <div className="text-sm text-neutral-600 dark:text-neutral-400">
-                                Showing {((currentPage.engagement - 1) * itemsPerPage) + 1} to {Math.min(currentPage.engagement * itemsPerPage, filteredData.length)} of {filteredData.length} engagement records
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => handlePageChange('engagement', currentPage.engagement - 1)}
-                                  disabled={currentPage.engagement === 1}
-                                  className="px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                >
-                                  Previous
-                                </button>
-                                <button
-                                  onClick={() => handlePageChange('engagement', currentPage.engagement + 1)}
-                                  disabled={currentPage.engagement >= getTotalPages(filteredData.length)}
-                                  className="px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                >
-                                  Next
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                    </div>
-                  ) : (
-                    <div className="py-12 text-center">
-                      <div className="w-12 h-12 bg-neutral-50 dark:bg-neutral-900 rounded-full flex items-center justify-center mx-auto mb-4 border border-dashed border-neutral-200 dark:border-neutral-700">
-                        <svg className="w-5 h-5 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-                        </svg>
-                      </div>
-                      <p className="text-xs font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">No engagement data found.</p>
                     </div>
                   )}
                 </div>

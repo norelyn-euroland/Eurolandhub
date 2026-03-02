@@ -18,7 +18,7 @@ import {
   Unsubscribe
 } from 'firebase/firestore';
 import { db } from './firebase.js';
-import { Applicant, RegistrationStatus, Shareholder } from './types.js';
+import { Applicant, RegistrationStatus, Shareholder, OfficialShareholder, ShareholderStatusType } from './types.js';
 import { isLocked } from './shareholdingsVerification.js';
 import { LockedAccountError, calculateRemainingDays } from './registration-errors.js';
 import { MOCK_APPLICANTS } from './mockApplicants.js';
@@ -27,8 +27,25 @@ import { MOCK_APPLICANTS } from './mockApplicants.js';
 const COLLECTIONS = {
   APPLICANTS: 'applicants',
   USERS: 'users',
-  SHAREHOLDERS: 'shareholders'
+  SHAREHOLDERS: 'shareholders', // Masterlist data (for ownership reports)
+  OFFICIAL_SHAREHOLDERS: 'officialShareholders', // Official investors tracking (pre-verified, verified, null)
+  EMAIL_VERIFICATION_CODES: 'emailVerificationCodes'
 } as const;
+
+/**
+ * Check if email verification document exists in emailVerificationCodes collection
+ * Document existence = email verified
+ * This is the email verification gate
+ */
+export async function isEmailVerified(userId: string): Promise<boolean> {
+  try {
+    const codeDoc = await getDoc(doc(db, COLLECTIONS.EMAIL_VERIFICATION_CODES, userId));
+    return codeDoc.exists();
+  } catch (error) {
+    console.error('Error checking email verification:', error);
+    return false;
+  }
+}
 
 /**
  * Convert Firestore Timestamp to string date
@@ -193,6 +210,8 @@ const firestoreToApplicant = (doc: QueryDocumentSnapshot<DocumentData>): Applica
     lastIRODecisionAt: data.lastIRODecisionAt || undefined,
     complianceStatus: data.complianceStatus || undefined,
     userLastResponseAt: data.userLastResponseAt || undefined,
+    // Holdings update history
+    holdingsUpdateHistory: data.holdingsUpdateHistory || undefined,
     // Include any additional fields the frontend might send
     ...Object.fromEntries(
       Object.entries(data).filter(([key]) => 
@@ -205,7 +224,7 @@ const firestoreToApplicant = (doc: QueryDocumentSnapshot<DocumentData>): Applica
           'statusInFrontend', 'isPreVerified', 'registrationId', 'emailGeneratedAt',
           'emailSentAt', 'emailOpenedAt', 'emailOpenedCount', 'linkClickedAt',
           'linkClickedCount', 'accountClaimedAt', 'profilePictureUrl', 'photoURL',
-          'lastIRODecisionAt', 'complianceStatus', 'userLastResponseAt'].includes(key)
+          'lastIRODecisionAt', 'complianceStatus', 'userLastResponseAt', 'holdingsUpdateHistory'].includes(key)
       )
     ),
   } as Applicant;
@@ -687,7 +706,9 @@ export const applicantService = {
       
       const q = query(collection(db, COLLECTIONS.APPLICANTS), ...constraints);
       
-      return onSnapshot(q, (snapshot) => {
+      // Use onSnapshot with source: 'server' to prevent cache and get real-time updates
+      // Include metadata to detect changes
+      return onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
         try {
           // Firestore onSnapshot automatically handles deletions - deleted docs are removed from snapshot.docs
           // This means the callback will receive an updated array without deleted documents
@@ -821,7 +842,7 @@ export const applicantService = {
           mockData = mockData.slice(0, filters.limitCount);
         }
         
-        callback(mockData);
+          callback(mockData);
       });
     } catch (error) {
       console.error('Error setting up applicants subscription:', error);
@@ -966,7 +987,8 @@ export const shareholderService = {
     try {
       const q = query(collection(db, COLLECTIONS.SHAREHOLDERS), orderBy('holdings', 'desc'));
       
-      return onSnapshot(q, (snapshot) => {
+      // Use onSnapshot with includeMetadataChanges to get all updates including cache hits
+      return onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
         try {
           // Firestore onSnapshot automatically handles deletions - deleted docs are removed from snapshot.docs
           // This means the callback will receive an updated array without deleted documents
@@ -1218,5 +1240,186 @@ export const batchService = {
       throw error;
     }
   }
+};
+
+/**
+ * Convert OfficialShareholder data for Firestore
+ */
+const officialShareholderToFirestore = (shareholder: OfficialShareholder): DocumentData => {
+  return removeUndefined(shareholder);
+};
+
+/**
+ * Convert Firestore document to OfficialShareholder
+ */
+const firestoreToOfficialShareholder = (doc: QueryDocumentSnapshot<DocumentData>): OfficialShareholder => {
+  const data = doc.data();
+  return {
+    id: doc.id,
+    name: data.name || '',
+    email: data.email || undefined,
+    phone: data.phone || undefined,
+    country: data.country || undefined,
+    status: data.status || 'NULL',
+    applicantId: data.applicantId || undefined,
+    holdings: data.holdings || undefined,
+    stake: data.stake || undefined,
+    accountType: data.accountType || undefined,
+    createdAt: data.createdAt || new Date().toISOString(),
+    updatedAt: data.updatedAt || new Date().toISOString(),
+    emailSentAt: data.emailSentAt || undefined,
+    accountClaimedAt: data.accountClaimedAt || undefined,
+  } as OfficialShareholder;
+};
+
+/**
+ * Official Shareholder Service
+ * Manages the officialShareholders collection for tracking pre-verified, verified, and null status investors
+ */
+export const officialShareholderService = {
+  /**
+   * Get a single official shareholder by ID
+   */
+  async getById(shareholderId: string): Promise<OfficialShareholder | null> {
+    try {
+      const docRef = doc(db, COLLECTIONS.OFFICIAL_SHAREHOLDERS, shareholderId);
+      const docSnap = await getDoc(docRef);
+      
+      if (docSnap.exists()) {
+        return firestoreToOfficialShareholder(docSnap as QueryDocumentSnapshot<DocumentData>);
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting official shareholder:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get all official shareholders with optional filters
+   */
+  async getAll(filters?: {
+    status?: ShareholderStatusType;
+    limitCount?: number;
+  }): Promise<OfficialShareholder[]> {
+    try {
+      const constraints: QueryConstraint[] = [];
+      
+      if (filters?.status) {
+        constraints.push(where('status', '==', filters.status));
+      }
+      
+      // Order by updatedAt descending (most recent first)
+      try {
+        constraints.push(orderBy('updatedAt', 'desc'));
+      } catch (e) {
+        console.warn('Could not order by updatedAt, continuing without ordering:', e);
+      }
+      
+      if (filters?.limitCount) {
+        constraints.push(limit(filters.limitCount));
+      }
+      
+      const q = query(collection(db, COLLECTIONS.OFFICIAL_SHAREHOLDERS), ...constraints);
+      const querySnapshot = await getDocs(q);
+      
+      return querySnapshot.docs.map(firestoreToOfficialShareholder);
+    } catch (error) {
+      console.error('Error getting official shareholders:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Create or update an official shareholder
+   */
+  async upsert(shareholder: OfficialShareholder): Promise<void> {
+    try {
+      const docRef = doc(db, COLLECTIONS.OFFICIAL_SHAREHOLDERS, shareholder.id);
+      const now = new Date().toISOString();
+      
+      // Check if document exists
+      const existing = await getDoc(docRef);
+      const firestoreData = officialShareholderToFirestore({
+        ...shareholder,
+        updatedAt: now,
+        createdAt: existing.exists() ? shareholder.createdAt : now,
+      });
+      
+      await setDoc(docRef, firestoreData, { merge: true });
+    } catch (error) {
+      console.error('Error upserting official shareholder:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Update an existing official shareholder
+   */
+  async update(shareholderId: string, updates: Partial<OfficialShareholder>): Promise<void> {
+    try {
+      const docRef = doc(db, COLLECTIONS.OFFICIAL_SHAREHOLDERS, shareholderId);
+      const updateData = removeUndefined({
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      });
+      
+      await updateDoc(docRef, updateData);
+    } catch (error) {
+      console.error('Error updating official shareholder:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Delete an official shareholder
+   */
+  async delete(shareholderId: string): Promise<void> {
+    try {
+      const docRef = doc(db, COLLECTIONS.OFFICIAL_SHAREHOLDERS, shareholderId);
+      await deleteDoc(docRef);
+    } catch (error) {
+      console.error('Error deleting official shareholder:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Subscribe to real-time updates for official shareholders
+   */
+  subscribeToOfficialShareholders(
+    callback: (shareholders: OfficialShareholder[]) => void,
+    filters?: { status?: ShareholderStatusType }
+  ): Unsubscribe {
+    try {
+      const constraints: QueryConstraint[] = [];
+      
+      if (filters?.status) {
+        constraints.push(where('status', '==', filters.status));
+      }
+      
+      constraints.push(orderBy('updatedAt', 'desc'));
+      
+      const q = query(collection(db, COLLECTIONS.OFFICIAL_SHAREHOLDERS), ...constraints);
+      
+      // Use onSnapshot with includeMetadataChanges to get all updates including cache hits
+      return onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
+        try {
+          const shareholders = snapshot.docs.map(firestoreToOfficialShareholder);
+          callback(shareholders);
+        } catch (error) {
+          console.error('Error processing official shareholders snapshot:', error);
+          callback([]);
+        }
+      }, (error) => {
+        console.error('Error in official shareholders subscription:', error);
+        callback([]);
+      });
+    } catch (error) {
+      console.error('Error subscribing to official shareholders:', error);
+      // Return a no-op unsubscribe function
+      return () => {};
+    }
+  },
 };
 

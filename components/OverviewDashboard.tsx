@@ -2,12 +2,13 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Applicant, RegistrationStatus } from '../lib/types';
+import { Applicant, RegistrationStatus, GeneralAccountStatus, OfficialShareholder } from '../lib/types';
 import Tooltip from './Tooltip';
 import Chart from 'react-apexcharts';
 import HoldingsSummary from './HoldingsSummary';
 import { getWorkflowStatusInternal, getGeneralAccountStatus } from '../lib/shareholdingsVerification';
 import MetricCard from './MetricCard';
+import { officialShareholderService } from '../lib/firestore-service';
 
 // Engagement Activity Types
 interface EngagementActivity {
@@ -188,22 +189,27 @@ const generateEngagementData = (applicant: Applicant): EngagementActivity[] => {
 export const EngagementTabContent: React.FC<{ applicant: Applicant }> = ({ applicant }) => {
   const [engagementData] = useState<EngagementActivity[]>(() => generateEngagementData(applicant));
   const [expandedReplies, setExpandedReplies] = useState<Set<string>>(new Set());
+  const [accountStatus, setAccountStatus] = useState<GeneralAccountStatus>('UNVERIFIED');
   
-  // Get account status
-  const getAccountStatus = () => {
-    if (applicant.isPreVerified) {
-      // For pre-verified, use accountStatus if available
-      if (applicant.accountStatus) {
-        return applicant.accountStatus;
+  // Get account status asynchronously
+  useEffect(() => {
+    const getAccountStatus = async () => {
+      if (applicant.isPreVerified) {
+        // For pre-verified, use accountStatus if available
+        if (applicant.accountStatus) {
+          setAccountStatus(applicant.accountStatus as GeneralAccountStatus);
+          return;
+        }
+        setAccountStatus('PENDING');
+        return;
       }
-      return 'PENDING';
-    }
-    // For regular accounts, use workflow status
-    const internalStatus = getWorkflowStatusInternal(applicant);
-    return getGeneralAccountStatus(internalStatus);
-  };
-  
-  const accountStatus = getAccountStatus();
+      // For regular accounts, use workflow status
+      const internalStatus = await getWorkflowStatusInternal(applicant);
+      setAccountStatus(getGeneralAccountStatus(internalStatus));
+    };
+    
+    getAccountStatus();
+  }, [applicant]);
   
   const getStatusBadgeColor = (status: string) => {
     switch (status) {
@@ -909,6 +915,8 @@ const Avatar: React.FC<{ name: string; size?: number; profilePictureUrl?: string
 
 const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => {
   const [selectedInvestor, setSelectedInvestor] = useState<Applicant | null>(null);
+  const [officialShareholders, setOfficialShareholders] = useState<OfficialShareholder[]>([]);
+  const [statusCache, setStatusCache] = useState<Record<string, string>>({});
   
   // Get time-based greeting
   const getTimeBasedGreeting = (): string => {
@@ -924,6 +932,40 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
   const [activeDetailTab, setActiveDetailTab] = useState<'holdings' | 'engagement'>('holdings');
   const [isPulsing, setIsPulsing] = useState(false);
   const hasAnimatedRef = useRef(false);
+
+  // Subscribe to official shareholders for real-time updates
+  useEffect(() => {
+    const unsubscribe = officialShareholderService.subscribeToOfficialShareholders(
+      (shareholders) => {
+        setOfficialShareholders(shareholders);
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // Compute statuses asynchronously and cache them
+  useEffect(() => {
+    const computeStatuses = async () => {
+      const newCache: Record<string, string> = {};
+      await Promise.all(
+        applicants.map(async (applicant) => {
+          try {
+            const status = await getWorkflowStatusInternal(applicant);
+            newCache[applicant.id] = status;
+          } catch (error) {
+            console.error('Error computing status for applicant:', applicant.id, error);
+            newCache[applicant.id] = 'REGISTRATION_PENDING';
+          }
+        })
+      );
+      setStatusCache(newCache);
+    };
+    
+    computeStatuses();
+  }, [applicants]);
 
   // Trigger animation once when dashboard page is visited
   useEffect(() => {
@@ -1145,72 +1187,137 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
       </div>
 
       <div className="grid grid-cols-4 gap-8 overflow-visible">
-        {[
-          { 
-            label: 'Shareholders', 
-            value: '2,128', 
-            trend: { percent: 12, direction: 'up' as const },
-            chartColor: '#7C3AED'
-          },
-          { 
-            label: 'Engagement', 
-            value: '68%', 
-            trend: { percent: 5, direction: 'up' as const },
-            chartColor: '#10B981'
-          },
-          { 
-            label: 'Net Asset Delta', 
-            value: '3.2%', 
-            trend: { percent: 0.8, direction: 'down' as const },
-            chartColor: '#F59E0B'
-          },
-          { 
-            label: 'Queue Depth', 
-            value: '2,103', 
-            trend: { percent: 5, direction: 'down' as const },
-            chartColor: '#EF4444'
-          }
-        ].map((stat, i) => {
+        {(() => {
+          // Calculate new dashboard metrics
+          const totalOfficialShareholders = officialShareholders.length;
+          
+          const verifiedCount = officialShareholders.filter(sh => sh.status === 'VERIFIED').length;
+          const verifiedPercentage = totalOfficialShareholders > 0 
+            ? Math.round((verifiedCount / totalOfficialShareholders) * 100) 
+            : 0;
+          
+          // Active Users (Last 30 Days)
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+          const activeUsers30Days = applicants.filter(a => {
+            const internalStatus = (statusCache[a.id] || 'REGISTRATION_PENDING') as any;
+            const isVerified = getGeneralAccountStatus(internalStatus) === 'VERIFIED';
+            if (!isVerified) return false;
+            
+            if (a.lastActive && a.lastActive !== 'Never') {
+              try {
+                const lastActiveDate = new Date(a.lastActive);
+                if (!isNaN(lastActiveDate.getTime())) {
+                  return lastActiveDate >= thirtyDaysAgo;
+                }
+              } catch (e) {}
+            }
+            
+            const activityDate = a.accountClaimedAt 
+              ? new Date(a.accountClaimedAt)
+              : a.submissionDate 
+                ? new Date(a.submissionDate)
+                : null;
+            
+            if (activityDate && !isNaN(activityDate.getTime())) {
+              return activityDate >= thirtyDaysAgo;
+            }
+            
+            return true;
+          }).length;
+          
+          // Pending Activation (Pre-Verified accounts not yet claimed)
+          const pendingActivation = officialShareholders.filter(sh => sh.status === 'PRE-VERIFIED').length;
+          
+          // Calculate trends (simplified - comparing last 30 days vs previous 30 days)
+          const calculateTrend = (current: number, previous: number) => {
+            if (previous === 0) {
+              return current > 0 ? { percent: 100, direction: 'up' as const } : { percent: 0, direction: 'neutral' as const };
+            }
+            const percent = ((current - previous) / previous) * 100;
+            return { 
+              percent: Math.abs(percent), 
+              direction: percent > 0 ? 'up' as const : percent < 0 ? 'down' as const : 'neutral' as const 
+            };
+          };
+          
+          // For trends, we'll use a simple calculation based on recent additions
+          // In a real implementation, you'd compare periods
+          const totalTrend = calculateTrend(totalOfficialShareholders, Math.max(0, totalOfficialShareholders - 10));
+          const verifiedTrend = calculateTrend(verifiedCount, Math.max(0, verifiedCount - 5));
+          const activeTrend = calculateTrend(activeUsers30Days, Math.max(0, activeUsers30Days - 3));
+          const pendingTrend = calculateTrend(pendingActivation, Math.max(0, pendingActivation - 2));
+          
+          const metrics = [
+            {
+              label: 'Total Official Shareholders',
+              value: totalOfficialShareholders,
+              trend: totalTrend,
+              subtitle: 'Base universe of investors',
+              chartColor: '#4F46E5'
+            },
+            {
+              label: 'Verified Accounts Rate',
+              value: `${verifiedPercentage}%`,
+              trend: verifiedTrend,
+              subtitle: `${verifiedCount} / ${totalOfficialShareholders} activated`,
+              chartColor: '#10B981',
+              tooltipSymbol: '%'
+            },
+            {
+              label: 'Active Users (Last 30 Days)',
+              value: activeUsers30Days,
+              trend: activeTrend,
+              subtitle: 'Users who logged in or interacted',
+              chartColor: '#3B82F6'
+            },
+            {
+              label: 'Pending Activation',
+              value: pendingActivation,
+              trend: pendingTrend,
+              subtitle: 'Pre-verified accounts awaiting claim',
+              chartColor: '#F59E0B'
+            }
+          ];
+          
           // Deterministic seeded random — stable across re-renders, changes weekly.
           const seededRandom = (seed: number): number => {
             const x = Math.sin(seed * 9301 + 49297) * 233280;
             return x - Math.floor(x);
           };
-          const baseValue = typeof stat.value === 'string' 
-            ? parseFloat(stat.value.replace(/[^0-9.]/g, '')) || 100 
-            : stat.value;
-          const weekSeed = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
-          const chartData = Array.from({ length: 7 }, (_, idx) => {
-            const progress = idx / 6;
-            const trendMultiplier = stat.trend.direction === 'up' 
-              ? 1 + (stat.trend.percent / 100) * progress
-              : stat.trend.direction === 'down'
-              ? 1 - (stat.trend.percent / 100) * progress
-              : 1;
-            return baseValue * trendMultiplier * (1 + (seededRandom(weekSeed + i * 7 + idx) - 0.5) * 0.1);
-          });
-
-          // Determine tooltip symbol based on label - only currency and percentage
-          const getTooltipSymbol = (label: string) => {
-            const lowerLabel = label.toLowerCase();
-            if (lowerLabel.includes('asset') || lowerLabel.includes('delta') || lowerLabel.includes('engagement')) {
-              return '%'; // Percentage values
-            }
-            return undefined; // No symbol for other values
-          };
           
-          return (
-            <MetricCard
-              key={i}
-              title={stat.label}
-              value={stat.value}
-              trend={stat.trend}
-              chartData={chartData}
-              chartColor={stat.chartColor}
-              tooltipSymbol={getTooltipSymbol(stat.label)}
-            />
-          );
-        })}
+          return metrics.map((stat, i) => {
+            const numericValue = typeof stat.value === 'string' && stat.value.includes('%')
+              ? parseFloat(stat.value.replace('%', ''))
+              : typeof stat.value === 'number'
+                ? stat.value
+                : 0;
+            
+            const weekSeed = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
+            const chartData = Array.from({ length: 7 }, (_, idx) => {
+              const progress = idx / 6;
+              const trendMultiplier = stat.trend.direction === 'up' 
+                ? 1 + (stat.trend.percent / 100) * progress
+                : stat.trend.direction === 'down'
+                ? 1 - (stat.trend.percent / 100) * progress
+                : 1;
+              return numericValue * trendMultiplier * (1 + (seededRandom(weekSeed + i * 7 + idx) - 0.5) * 0.1);
+            });
+            
+            return (
+              <MetricCard
+                key={i}
+                title={stat.label}
+                value={stat.value}
+                trend={stat.trend}
+                subtitle={stat.subtitle || 'compared to last week'}
+                chartData={chartData}
+                chartColor={stat.chartColor}
+                tooltipSymbol={stat.tooltipSymbol}
+              />
+            );
+          });
+        })()}
       </div>
 
       {/* Shareholder Snapshot */}

@@ -3,7 +3,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Applicant, RegistrationStatus, ComplianceStatus } from '../lib/types';
-import { MOCK_SHAREHOLDERS } from '../lib/mockShareholders';
+import { shareholderService } from '../lib/firestore-service';
+import { Shareholder } from '../lib/types';
 import { applicantService } from '../lib/firestore-service';
 import { getWorkflowStatusInternal, markUserResponse, markComplianceComplete } from '../lib/shareholdingsVerification';
 import Tooltip from './Tooltip';
@@ -180,34 +181,49 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
   };
 
   // Shareholder match finder state
+  const [registrationId, setRegistrationId] = useState<string>('');
+  const [statusForRegId, setStatusForRegId] = useState<string>('REGISTRATION_PENDING');
+
+  useEffect(() => {
+    const computeRegistrationId = async () => {
+      const internalStatus = await getWorkflowStatusInternal(applicant);
+      setStatusForRegId(internalStatus);
+      
+      // Don't show registration ID for invalid/wrong holdings (FURTHER_INFO_REQUIRED)
+      if (internalStatus === 'FURTHER_INFO_REQUIRED') {
+        setRegistrationId('');
+        return;
+      }
+      
+      // Priority: shareholdingsId from step2 > registrationId > applicant.id
+      // Only show if holdings are valid (VERIFIED or UNDER_REVIEW)
+      if (internalStatus === 'VERIFIED' || internalStatus === 'UNDER_REVIEW') {
+        setRegistrationId(
+          applicant.shareholdingsVerification?.step2?.shareholdingsId || 
+          applicant.registrationId || 
+          applicant.id
+        );
+        return;
+      }
+      
+      // For other statuses, only show if pre-verified
+      if (applicant.isPreVerified && applicant.registrationId) {
+        setRegistrationId(applicant.registrationId);
+        return;
+      }
+      
+      setRegistrationId(applicant.id);
+    };
+    computeRegistrationId();
+  }, [applicant]);
+
   const getRegistrationId = (): string => {
-    // Don't show registration ID for invalid/wrong holdings (RESUBMISSION_REQUIRED)
-    const internalStatus = getWorkflowStatusInternal(applicant);
-    if (internalStatus === 'RESUBMISSION_REQUIRED') {
-      // Return empty string to hide registration ID for invalid holdings
-      return '';
-    }
-    
-    // Priority: shareholdingsId from step2 > registrationId > applicant.id
-    // Only show if holdings are valid (VERIFIED or AWAITING_IRO_REVIEW)
-    if (internalStatus === 'VERIFIED' || internalStatus === 'AWAITING_IRO_REVIEW') {
-      return applicant.shareholdingsVerification?.step2?.shareholdingsId || 
-             applicant.registrationId || 
-             applicant.id;
-    }
-    
-    // For other statuses, only show if pre-verified
-    if (applicant.isPreVerified && applicant.registrationId) {
-      return applicant.registrationId;
-    }
-    
-    return applicant.id;
+    return registrationId;
   };
 
-  const [registrationId, setRegistrationId] = useState('');
   const [hasAutoFilled, setHasAutoFilled] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
-  const [matchedShareholder, setMatchedShareholder] = useState<typeof MOCK_SHAREHOLDERS[0] | null>(null);
+  const [matchedShareholder, setMatchedShareholder] = useState<Shareholder | null>(null);
   const [showMatchDetails, setShowMatchDetails] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
@@ -250,12 +266,23 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
     setIsSearching(true);
     setLoadingMessageIndex(0);
     
-    // Simulate search delay with rotating messages
+    // Search for shareholder in Firestore
+    const searchShareholder = async () => {
+      try {
+        const match = await shareholderService.getById(registrationId.trim());
+        setMatchedShareholder(match);
+      } catch (error) {
+        console.error('Error searching for shareholder:', error);
+        setMatchedShareholder(null);
+      } finally {
+        setIsSearching(false);
+      }
+    };
+    
+    // Add a small delay to show loading messages
     setTimeout(() => {
-      const match = MOCK_SHAREHOLDERS.find(sh => sh.id === registrationId.trim());
-      setMatchedShareholder(match || null);
-      setIsSearching(false);
-    }, 2000); // 2 seconds to show loading messages
+      searchShareholder();
+    }, 2000);
   };
 
 
@@ -468,8 +495,7 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
                     // Don't show registration ID for invalid holdings
                     if (!regId || regId === applicant.id) {
                       // Only show applicant.id if it's not an invalid holdings case
-                      const internalStatus = getWorkflowStatusInternal(applicant);
-                      if (internalStatus === 'RESUBMISSION_REQUIRED') {
+                      if (statusForRegId === 'FURTHER_INFO_REQUIRED') {
                         return 'N/A'; // Hide for invalid holdings
                       }
                       return applicant.id;

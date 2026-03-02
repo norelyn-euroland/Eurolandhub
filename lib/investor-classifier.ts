@@ -22,6 +22,17 @@ export interface ClassifyInvestorsResult {
   suspected: Array<{ investor: ExtractedInvestor; similarTo: string; reason: string; existingId: string }>;
 }
 
+/**
+ * Match result with confidence scoring
+ */
+interface MatchResult {
+  existingId: string;
+  confidence: number; // 0-100
+  matchType: 'exact' | 'high' | 'medium' | 'low';
+  matchedFields: string[];
+  source: 'shareholder' | 'applicant';
+}
+
 /** Normalize holdingId: digits only, last 6 digits (for matching) */
 function normalizeHoldingId(value: string): string {
   const digits = (value || '').replace(/\D/g, '');
@@ -60,17 +71,81 @@ function levenshtein(a: string, b: string): number {
   return d[m][n];
 }
 
+/** Normalize name for better matching (removes titles, suffixes, punctuation) */
+function normalizeName(name: string): string {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ') // Multiple spaces to single
+    .replace(/[.,]/g, '') // Remove punctuation
+    .replace(/\b(jr|sr|ii|iii|iv|v)\b/gi, '') // Remove suffixes
+    .replace(/\b(mr|mrs|ms|miss|dr|prof|professor)\b/gi, '') // Remove titles
+    .trim();
+}
+
 /** Name similarity: true if Levenshtein <= 2 or ratio > 0.85 */
 function namesSimilar(name1: string, name2: string): boolean {
-  const a = (name1 || '').trim();
-  const b = (name2 || '').trim();
+  const a = normalizeName(name1);
+  const b = normalizeName(name2);
   if (!a || !b) return false;
+  
+  // Exact match after normalization
+  if (a === b) return true;
+  
   const dist = levenshtein(a, b);
   const maxLen = Math.max(a.length, b.length);
   if (maxLen <= 4) return dist <= 1;
   if (maxLen <= 8) return dist <= 2;
   const ratio = 1 - dist / maxLen;
-  return ratio >= 0.85 || dist <= 2;
+  
+  // Higher threshold for longer names
+  if (maxLen > 15) return ratio >= 0.90;
+  if (maxLen > 10) return ratio >= 0.85;
+  return ratio >= 0.80 || dist <= 2;
+}
+
+/** Normalize phone number for matching */
+function normalizePhone(phone: string): string {
+  if (!phone) return '';
+  // Remove all non-digits
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 0) return '';
+  
+  // Common country codes to detect and remove
+  const commonCodes = ['63', '1', '44', '49', '33', '86', '852', '65', '61', '91', '46', '31', '41'];
+  
+  // Try to detect and remove country code
+  for (const code of commonCodes) {
+    if (digits.startsWith(code) && digits.length - code.length >= 10) {
+      return digits.slice(code.length);
+    }
+  }
+  
+  // If no country code detected, take last 10 digits (or all if less than 10)
+  return digits.length >= 10 ? digits.slice(-10) : digits;
+}
+
+/** Normalize country name for matching */
+function normalizeCountry(country: string): string {
+  if (!country) return '';
+  return country
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[.,]/g, '');
+}
+
+/** Normalize address for matching */
+function normalizeAddress(address: string): string {
+  if (!address) return '';
+  return address
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[.,#]/g, '')
+    .replace(/\b(street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln|way|wy)\b/gi, '')
+    .trim();
 }
 
 /** Generate ID variations for stricter matching (handles format differences) */
@@ -216,6 +291,313 @@ async function findSuspectedMatch(
 }
 
 /**
+ * Comprehensive multi-field matching with confidence scoring
+ * Uses ALL available fields: Registration ID, Name, Email, Phone, Country, Address, Account Type
+ */
+async function findExistingInvestorComprehensive(
+  investor: ExtractedInvestor,
+  allShareholders: Shareholder[],
+  allApplicants: Applicant[]
+): Promise<MatchResult | null> {
+  const results: MatchResult[] = [];
+  
+  // Normalize input data
+  const normHoldingId = normalizeHoldingId(investor.holdingId || '');
+  const normName = normalizeName(investor.investorName || '');
+  const normEmail = investor.email?.toLowerCase().trim() || '';
+  const normPhone = normalizePhone(investor.phone || '');
+  const normCountry = normalizeCountry(investor.country || '');
+  const normAddress = normalizeAddress(investor.coAddress || '');
+  const normAccountType = investor.accountType?.toUpperCase().trim() || '';
+  
+  // ============================================
+  // EXACT MATCHES (100% confidence)
+  // ============================================
+  
+  // 1. Exact Registration ID match
+  for (const s of allShareholders) {
+    const sId = normalizeHoldingId(s.id || '');
+    if (sId === normHoldingId && sId.length >= 6) {
+      results.push({
+        existingId: s.id,
+        confidence: 100,
+        matchType: 'exact',
+        matchedFields: ['registrationId'],
+        source: 'shareholder'
+      });
+      break; // Highest confidence, return immediately
+    }
+  }
+  
+  for (const a of allApplicants) {
+    const aRegId = normalizeHoldingId(a.registrationId || '');
+    if (aRegId === normHoldingId && aRegId.length >= 6) {
+      results.push({
+        existingId: a.registrationId || a.id,
+        confidence: 100,
+        matchType: 'exact',
+        matchedFields: ['registrationId'],
+        source: 'applicant'
+      });
+      break;
+    }
+  }
+  
+  // If exact ID match found, return it
+  if (results.length > 0 && results[0].confidence === 100) {
+    return results[0];
+  }
+  
+  // ============================================
+  // HIGH CONFIDENCE MATCHES (90-99%)
+  // ============================================
+  
+  // 2. Email + Name match (95% confidence)
+  if (normEmail && normName) {
+    for (const a of allApplicants) {
+      if (a.email?.toLowerCase().trim() === normEmail) {
+        const aName = normalizeName(a.fullName || '');
+        if (aName && (aName === normName || namesSimilar(normName, aName))) {
+          const matchedFields = ['email', 'name'];
+          let confidence = 95;
+          
+          // Boost confidence if country also matches
+          if (normCountry && a.location) {
+            const aCountry = normalizeCountry(a.location);
+            if (aCountry === normCountry) {
+              matchedFields.push('country');
+              confidence = 97;
+            }
+          }
+          
+          results.push({
+            existingId: a.registrationId || a.id,
+            confidence,
+            matchType: 'high',
+            matchedFields,
+            source: 'applicant'
+          });
+        }
+      }
+    }
+  }
+  
+  // 3. Phone + Name match (93% confidence)
+  if (normPhone && normPhone.length >= 10 && normName) {
+    for (const a of allApplicants) {
+      if (a.phoneNumber) {
+        const aPhone = normalizePhone(a.phoneNumber);
+        if (aPhone === normPhone) {
+          const aName = normalizeName(a.fullName || '');
+          if (aName && (aName === normName || namesSimilar(normName, aName))) {
+            const matchedFields = ['phone', 'name'];
+            let confidence = 93;
+            
+            // Boost if country matches
+            if (normCountry && a.location) {
+              const aCountry = normalizeCountry(a.location);
+              if (aCountry === normCountry) {
+                matchedFields.push('country');
+                confidence = 95;
+              }
+            }
+            
+            results.push({
+              existingId: a.registrationId || a.id,
+              confidence,
+              matchType: 'high',
+              matchedFields,
+              source: 'applicant'
+            });
+          }
+        }
+      }
+    }
+  }
+  
+  // 4. Email + Phone match (92% confidence) - even without name
+  if (normEmail && normPhone && normPhone.length >= 10) {
+    for (const a of allApplicants) {
+      if (a.email?.toLowerCase().trim() === normEmail && a.phoneNumber) {
+        const aPhone = normalizePhone(a.phoneNumber);
+        if (aPhone === normPhone) {
+          results.push({
+            existingId: a.registrationId || a.id,
+            confidence: 92,
+            matchType: 'high',
+            matchedFields: ['email', 'phone'],
+            source: 'applicant'
+          });
+        }
+      }
+    }
+  }
+  
+  // ============================================
+  // MEDIUM CONFIDENCE MATCHES (70-89%)
+  // ============================================
+  
+  // 5. Registration ID (1 digit diff) + Name match (85% confidence)
+  if (normHoldingId.length >= 6 && normName) {
+    for (const s of allShareholders) {
+      const sId = normalizeHoldingId(s.id || '');
+      if (sId.length >= 6) {
+        const diff = digitDiffCount(normHoldingId, sId);
+        if (diff === 1) {
+          const sName = normalizeName(s.name || '');
+          if (sName && (sName === normName || namesSimilar(normName, sName))) {
+            const matchedFields = ['registrationId', 'name'];
+            let confidence = 85;
+            
+            // Boost if country matches
+            if (normCountry && s.country) {
+              const sCountry = normalizeCountry(s.country);
+              if (sCountry === normCountry) {
+                matchedFields.push('country');
+                confidence = 88;
+              }
+            }
+            
+            results.push({
+              existingId: s.id,
+              confidence,
+              matchType: 'medium',
+              matchedFields,
+              source: 'shareholder'
+            });
+          }
+        }
+      }
+    }
+  }
+  
+  // 6. Name + Country + Address match (80% confidence)
+  if (normName && normCountry && normAddress) {
+    for (const s of allShareholders) {
+      const sName = normalizeName(s.name || '');
+      const sCountry = normalizeCountry(s.country || '');
+      const sAddress = normalizeAddress(s.coAddress || '');
+      
+      if (sName && sCountry === normCountry && sAddress) {
+        const nameMatch = sName === normName || namesSimilar(normName, sName);
+        const addressMatch = sAddress === normAddress || 
+                            levenshtein(sAddress, normAddress) <= 5;
+        
+        if (nameMatch && addressMatch) {
+          results.push({
+            existingId: s.id,
+            confidence: 80,
+            matchType: 'medium',
+            matchedFields: ['name', 'country', 'address'],
+            source: 'shareholder'
+          });
+        }
+      }
+    }
+  }
+  
+  // 7. Name + Country + Account Type match (75% confidence)
+  if (normName && normCountry && normAccountType) {
+    for (const s of allShareholders) {
+      const sName = normalizeName(s.name || '');
+      const sCountry = normalizeCountry(s.country || '');
+      const sAccountType = (s.accountType || '').toUpperCase().trim();
+      
+      if (sName && sCountry === normCountry && sAccountType === normAccountType) {
+        if (sName === normName || namesSimilar(normName, sName)) {
+          results.push({
+            existingId: s.id,
+            confidence: 75,
+            matchType: 'medium',
+            matchedFields: ['name', 'country', 'accountType'],
+            source: 'shareholder'
+          });
+        }
+      }
+    }
+  }
+  
+  // 8. Email only match (70% confidence) - if no other fields match
+  if (normEmail && results.length === 0) {
+    for (const a of allApplicants) {
+      if (a.email?.toLowerCase().trim() === normEmail) {
+        results.push({
+          existingId: a.registrationId || a.id,
+          confidence: 70,
+          matchType: 'medium',
+          matchedFields: ['email'],
+          source: 'applicant'
+        });
+        break; // Only one email match needed
+      }
+    }
+  }
+  
+  // ============================================
+  // LOW CONFIDENCE MATCHES (50-69%)
+  // ============================================
+  
+  // 9. Name + Country match (65% confidence)
+  if (normName && normCountry && results.length === 0) {
+    for (const s of allShareholders) {
+      const sName = normalizeName(s.name || '');
+      const sCountry = normalizeCountry(s.country || '');
+      
+      if (sName && sCountry === normCountry) {
+        if (sName === normName || namesSimilar(normName, sName)) {
+          results.push({
+            existingId: s.id,
+            confidence: 65,
+            matchType: 'low',
+            matchedFields: ['name', 'country'],
+            source: 'shareholder'
+          });
+        }
+      }
+    }
+  }
+  
+  // 10. Phone only match (60% confidence) - if no other matches
+  if (normPhone && normPhone.length >= 10 && results.length === 0) {
+    for (const a of allApplicants) {
+      if (a.phoneNumber) {
+        const aPhone = normalizePhone(a.phoneNumber);
+        if (aPhone === normPhone) {
+          results.push({
+            existingId: a.registrationId || a.id,
+            confidence: 60,
+            matchType: 'low',
+            matchedFields: ['phone'],
+            source: 'applicant'
+          });
+          break;
+        }
+      }
+    }
+  }
+  
+  // ============================================
+  // RETURN BEST MATCH
+  // ============================================
+  
+  if (results.length === 0) {
+    return null;
+  }
+  
+  // Sort by confidence (highest first)
+  results.sort((a, b) => b.confidence - a.confidence);
+  
+  // Return highest confidence match
+  // Only return if confidence >= 60 (threshold for "existing")
+  const bestMatch = results[0];
+  if (bestMatch.confidence >= 60) {
+    return bestMatch;
+  }
+  
+  return null;
+}
+
+/**
  * Classify investors as New, Existing, or Suspected Existing.
  * Existing = exact match. Suspected = similar ID or name (possible typo).
  */
@@ -224,8 +606,9 @@ export async function classifyInvestors(
 ): Promise<ClassifyInvestorsResult> {
   const newInvestors: ExtractedInvestor[] = [];
   const existingInvestors: Array<{ investor: ExtractedInvestor; existingId: string }> = [];
-  const suspectedInvestors: Array<{ investor: ExtractedInvestor; similarTo: string; reason: string }> = [];
+  const suspectedInvestors: Array<{ investor: ExtractedInvestor; similarTo: string; reason: string; existingId: string }> = [];
 
+  // Load all data once at the start (shared across all investors)
   const [allShareholders, allApplicants] = await Promise.all([
     shareholderService.getAll({ limitCount: 5000 }),
     applicantService.getAll({ limitCount: 5000 }),
@@ -238,19 +621,53 @@ export async function classifyInvestors(
       continue;
     }
 
-    const existingId = await findExistingId(
-      holdingId,
-      investor.email,
-      investor.investorName
+    // First try comprehensive multi-field matching
+    const comprehensiveMatch = await findExistingInvestorComprehensive(
+      investor,
+      allShareholders,
+      allApplicants
     );
-    if (existingId) {
-      existingInvestors.push({ investor, existingId });
-    } else {
-      const suspected = await findSuspectedMatch(investor, allShareholders, allApplicants);
-      if (suspected) {
-        suspectedInvestors.push({ investor, ...suspected });
+
+    if (comprehensiveMatch) {
+      if (comprehensiveMatch.confidence >= 90) {
+        // High confidence = existing
+        existingInvestors.push({ 
+          investor, 
+          existingId: comprehensiveMatch.existingId 
+        });
+      } else if (comprehensiveMatch.confidence >= 70) {
+        // Medium confidence = existing (with note)
+        existingInvestors.push({ 
+          investor, 
+          existingId: comprehensiveMatch.existingId 
+        });
       } else {
-        newInvestors.push(investor);
+        // Low confidence = suspected
+        suspectedInvestors.push({
+          investor,
+          similarTo: `Matched by: ${comprehensiveMatch.matchedFields.join(', ')}`,
+          reason: `${comprehensiveMatch.confidence}% confidence match (${comprehensiveMatch.matchType})`,
+          existingId: comprehensiveMatch.existingId
+        });
+      }
+    } else {
+      // Fallback to legacy matching for backward compatibility
+      const existingId = await findExistingId(
+        holdingId,
+        investor.email,
+        investor.investorName
+      );
+      
+      if (existingId) {
+        existingInvestors.push({ investor, existingId });
+      } else {
+        // Check for suspected matches
+        const suspected = await findSuspectedMatch(investor, allShareholders, allApplicants);
+        if (suspected) {
+          suspectedInvestors.push({ investor, ...suspected });
+        } else {
+          newInvestors.push(investor);
+        }
       }
     }
   }

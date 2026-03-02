@@ -3,9 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import { applicantService } from '../lib/firestore-service';
 import { submitShareholdingInfo } from '../lib/shareholdingsVerification';
-import { MOCK_SHAREHOLDERS } from '../lib/mockShareholders';
 import { Applicant, RegistrationStatus } from '../lib/types';
 import { getWorkflowStatusInternal } from '../lib/shareholdingsVerification';
+import { addHoldingsUpdateTimestamp } from '../lib/holdings-update-logger';
 
 interface HoldingsResubmissionFormProps {
   applicant: Applicant;
@@ -28,20 +28,33 @@ const HoldingsResubmissionForm: React.FC<HoldingsResubmissionFormProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [workflowStatus, setWorkflowStatus] = useState<string>('REGISTRATION_PENDING');
+  const [statusLoading, setStatusLoading] = useState(true);
+
+  // Check workflow status asynchronously
+  useEffect(() => {
+    getWorkflowStatusInternal(applicant).then(status => {
+      setWorkflowStatus(status);
+      setStatusLoading(false);
+    });
+  }, [applicant]);
 
   // Check if user has a pending IRO request
-  const workflowStatus = getWorkflowStatusInternal(applicant);
   const hasPendingRequest = 
-    applicant.status === RegistrationStatus.FURTHER_INFO || 
+    applicant.status === RegistrationStatus.FURTHER_INFO_REQUIRED || 
     applicant.status === RegistrationStatus.REJECTED ||
-    workflowStatus === 'AWAITING_USER_RESPONSE';
+    workflowStatus === 'FURTHER_INFO_REQUIRED';
 
   const iroDecision = applicant.shareholdingsVerification?.step4?.iroDecision;
   const needsResubmission = iroDecision && 
     (iroDecision.decision === 'REJECTED' || iroDecision.decision === 'REQUEST_INFO') &&
     iroDecision.complianceStatus === 'AWAITING_USER_RESPONSE';
 
-  // If no pending request, don't show the form
+  // If no pending request, don't show the form (wait for status to load)
+  if (statusLoading) {
+    return null;
+  }
+
   if (!hasPendingRequest && !needsResubmission) {
     return null;
   }
@@ -101,14 +114,16 @@ const HoldingsResubmissionForm: React.FC<HoldingsResubmissionFormProps> = ({
 
       // Update holdings information using submitShareholdingInfo
       // This will automatically handle compliance tracking
+      // For resubmissions, auto-verification is skipped and goes directly to IRO review
+      // Shareholders data is fetched from Firestore when needed
       const updatedApplicant = submitShareholdingInfo(
         applicant,
         {
           shareholdingsId: formData.registrationId.trim(),
           companyName: companyName,
           country: applicant.shareholdingsVerification?.step2?.country,
-        },
-        MOCK_SHAREHOLDERS // Pass shareholders for auto-verification if needed
+        }
+        // shareholders parameter removed - system uses Firestore data when needed
       );
 
       // Update holdings record with new values
@@ -123,6 +138,8 @@ const HoldingsResubmissionForm: React.FC<HoldingsResubmissionFormProps> = ({
           companyName: companyName,
           registrationDate: new Date().toISOString(),
         },
+        // Add timestamp to holdings update history
+        holdingsUpdateHistory: addHoldingsUpdateTimestamp(applicant.holdingsUpdateHistory),
       };
 
       // Save to Firestore

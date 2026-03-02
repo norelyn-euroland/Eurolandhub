@@ -1,6 +1,6 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { getAuth, Auth } from 'firebase/auth';
-import { getFirestore, Firestore } from 'firebase/firestore';
+import { getFirestore, Firestore, enableNetwork, disableNetwork, connectFirestoreEmulator } from 'firebase/firestore';
 
 // Helper function to get environment variables
 // Works in both Vite client (import.meta.env) and Node.js serverless (process.env)
@@ -38,7 +38,18 @@ if (getApps().length === 0) {
 
 // Initialize Firebase services (Auth and Firestore only - no Storage)
 export const auth: Auth = getAuth(app);
+
+// Initialize Firestore with cache disabled for real-time updates
+// Note: Firestore v9+ doesn't have a direct way to disable persistence,
+// but we can ensure network is always enabled and use onSnapshot with source: 'server'
 export const db: Firestore = getFirestore(app);
+
+// Ensure network is always enabled (prevents offline cache)
+if (typeof window !== 'undefined') {
+  enableNetwork(db).catch((error) => {
+    console.warn('Failed to enable Firestore network:', error);
+  });
+}
 
 export default app;
 

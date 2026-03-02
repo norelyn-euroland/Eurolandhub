@@ -4,16 +4,16 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { Line } from 'react-chartjs-2';
 // Side-effect: registers Chart.js scales/elements once
 import '../lib/chartjs-setup';
-import { fetchHoldingsData } from '../lib/mockHoldingsData';
 import { HoldingsDataPoint } from '../lib/types';
 
 interface HoldingsChartProps {
   companyId: string;
+  currentSharesHeld?: number; // Current actual shares held from database
 }
 
 type Timeframe = '1d' | '1w' | '1M' | '3M' | '6M' | 'YTD' | 'ALL';
 
-const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
+const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId, currentSharesHeld }) => {
   const isDark =
     typeof window !== 'undefined' &&
     window.document.documentElement.classList.contains('dark');
@@ -31,19 +31,48 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId }) => {
     sharesHeld: number;
   } | null>(null);
 
-  // Fetch data when companyId or timeframe changes
+  // Generate minimal chart data from current shares held
+  // Since we're using Firestore data, we'll create a simple data point from current value
   useEffect(() => {
     setLoading(true);
-    fetchHoldingsData(companyId, timeframe)
-      .then((fetchedData) => {
-        setData(fetchedData);
-        setLoading(false);
-      })
-      .catch((error) => {
-        console.error('Error fetching holdings data:', error);
-        setLoading(false);
-      });
-  }, [companyId, timeframe]);
+    
+    // Generate minimal time-series data from current shares held
+    // This creates a simple chart with the current value
+    if (currentSharesHeld !== undefined && currentSharesHeld > 0) {
+      const now = new Date();
+      const dataPoints: HoldingsDataPoint[] = [];
+      
+      // Create data points for the last 12 months (monthly data)
+      for (let i = 11; i >= 0; i--) {
+        const date = new Date(now);
+        date.setMonth(date.getMonth() - i);
+        
+        // Use current shares held for all points (or could interpolate if needed)
+        // For now, using current value for simplicity
+        dataPoints.push({
+          timestamp: date.toISOString(),
+          share_price: 100.0 + (Math.random() * 20 - 10), // Placeholder price variation
+          shares_held: currentSharesHeld,
+          total_shares_outstanding: currentSharesHeld * 10, // Placeholder
+        });
+      }
+      
+      // Update last point with current timestamp
+      if (dataPoints.length > 0) {
+        dataPoints[dataPoints.length - 1] = {
+          ...dataPoints[dataPoints.length - 1],
+          shares_held: currentSharesHeld,
+          timestamp: now.toISOString(),
+        };
+      }
+      
+      setData(dataPoints);
+    } else {
+      setData([]);
+    }
+    
+    setLoading(false);
+  }, [companyId, timeframe, currentSharesHeld]);
 
   // Update current values when data changes
   useEffect(() => {

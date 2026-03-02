@@ -2,7 +2,6 @@ import React, { useEffect, useLayoutEffect, useMemo, useState, startTransition, 
 // @google/genai guidelines: Import ViewType from shared types
 import { RegistrationStatus, Applicant, ViewType, RegistrationsTabType, BreadcrumbItem, Theme } from './lib/types';
 import { ensureWorkflow, recordManualReview, recordRequestInfo } from './lib/shareholdingsVerification';
-import { MOCK_SHAREHOLDERS } from './lib/mockShareholders';
 import { useApplicants } from './hooks/useApplicants';
 import { applicantService } from './lib/firestore-service';
 import { useAuth } from './hooks/useAuth';
@@ -246,6 +245,18 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
         step6VerifiedAt: updatedApplicant.shareholdingsVerification?.step6?.verifiedAt,
         fullShareholdingsVerification: updatedApplicant.shareholdingsVerification
       });
+
+      // Sync verified applicants to official shareholders collection
+      // When a frontend-registered applicant gets verified, they should be transferred to official shareholders
+      if (updatedApplicant.status === RegistrationStatus.APPROVED) {
+        try {
+          const { syncVerifiedApplicantToOfficialShareholders } = await import('./lib/official-shareholder-sync.js');
+          await syncVerifiedApplicantToOfficialShareholders(updatedApplicant);
+        } catch (syncError) {
+          console.error('Error syncing verified applicant to official shareholders:', syncError);
+          // Don't fail the request if sync fails
+        }
+      }
 
       // Always show a status update toast (email sending is secondary and may fail independently).
       if (status === RegistrationStatus.APPROVED) {

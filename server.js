@@ -1457,7 +1457,7 @@ Euroland Team`;
           const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
           const fullName = `${actualFirstName || ''} ${actualLastName || ''}`.trim() || 'Unknown';
 
-          await applicantService.create({
+          const newApplicant = {
             id: newId,
             fullName,
             email: String(toEmail).trim().toLowerCase(),
@@ -1478,9 +1478,21 @@ Euroland Team`;
             // Email tracking fields
             emailSentAt: new Date().toISOString(),
             emailSentCount: 1,
-          });
+          };
 
+          await applicantService.create(newApplicant);
           console.log('Created pre-verified applicant on email send:', newId);
+
+          // Sync to official shareholders collection
+          if (newApplicant.registrationId) {
+            try {
+              const { syncOfficialShareholderOnCreate } = require('./lib/official-shareholder-sync.js');
+              await syncOfficialShareholderOnCreate(newApplicant);
+            } catch (syncError) {
+              console.error('Error syncing official shareholder on create:', syncError);
+              // Don't fail the request if sync fails
+            }
+          }
         } else {
           // Get current email sent count or default to 0
           const currentEmailSentCount = existingApplicant.emailSentCount || 0;

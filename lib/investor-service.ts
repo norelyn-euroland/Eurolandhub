@@ -7,6 +7,7 @@ import { ExtractedInvestor } from './investor-extractor.js';
 import { Shareholder, Applicant, RegistrationStatus, WorkflowStage, AccountStatus, SystemStatus } from './types.js';
 import { shareholderService } from './firestore-service.js';
 import { applicantService } from './firestore-service.js';
+import { addHoldingsUpdateTimestamp } from './holdings-update-logger.js';
 
 export interface SaveInvestorResult {
   shareholderId: string;
@@ -147,12 +148,33 @@ export async function saveInvestor(investor: ExtractedInvestor): Promise<SaveInv
     
     // Check if shareholder already exists
     const existingShareholder = await shareholderService.getById(shareholder.id);
-    if (existingShareholder) {
+    const isUpdate = !!existingShareholder;
+    
+    if (isUpdate) {
       // Update existing shareholder
       await shareholderService.update(shareholder.id, shareholder);
     } else {
       // Create new shareholder
       await shareholderService.create(shareholder);
+    }
+    
+    // Sync to official shareholders collection (for no-contact investors or when email doesn't exist)
+    if (!hasEmail) {
+      try {
+        const { createOfficialShareholderFromMasterlist } = await import('./official-shareholder-sync.js');
+        await createOfficialShareholderFromMasterlist(
+          shareholder.id,
+          shareholder.name,
+          undefined, // no email
+          undefined, // no phone
+          shareholder.country,
+          shareholder.holdings,
+          shareholder.stake,
+          shareholder.accountType
+        );
+      } catch (syncError) {
+        console.error('Error creating official shareholder from masterlist:', syncError);
+      }
     }
     
     const result: SaveInvestorResult = {
@@ -173,15 +195,59 @@ export async function saveInvestor(investor: ExtractedInvestor): Promise<SaveInv
         
         if (existingApplicant) {
           // Update existing applicant with pre-verified fields
-          await applicantService.update(existingApplicant.id, {
+          const applicantUpdate: Partial<Applicant> = {
             ...applicant,
             id: existingApplicant.id, // Keep existing ID
-          });
+          };
+          
+          // If this is an update (existing shareholder), update holdingsRecord and log timestamp
+          if (isUpdate) {
+            // Calculate ownership percentage from holdings and stake
+            const totalSharesOutstanding = 25_381_100; // Fixed value from issuer
+            const holdings = parseNumeric(investor.holdings || '0');
+            const ownershipPercent = holdings > 0 ? (holdings / totalSharesOutstanding) * 100 : 0;
+            
+            // Update holdingsRecord to match shareholder data
+            applicantUpdate.holdingsRecord = {
+              companyId: shareholder.id,
+              companyName: shareholder.name,
+              sharesHeld: holdings,
+              ownershipPercentage: ownershipPercent,
+              sharesClass: shareholder.accountType || 'Ordinary',
+              registrationDate: existingApplicant.holdingsRecord?.registrationDate || new Date().toISOString(),
+            };
+            
+            // Log timestamp to holdings update history
+            applicantUpdate.holdingsUpdateHistory = addHoldingsUpdateTimestamp(
+              existingApplicant.holdingsUpdateHistory
+            );
+          }
+          
+          await applicantService.update(existingApplicant.id, applicantUpdate);
           result.applicantId = existingApplicant.id;
+          
+          // Sync to official shareholders collection
+          try {
+            const { syncOfficialShareholderOnStatusChange } = await import('./official-shareholder-sync.js');
+            const updatedApplicant = await applicantService.getById(existingApplicant.id);
+            if (updatedApplicant) {
+              await syncOfficialShareholderOnStatusChange(updatedApplicant);
+            }
+          } catch (syncError) {
+            console.error('Error syncing official shareholder:', syncError);
+          }
         } else {
           // Create new applicant
           await applicantService.create(applicant);
           result.applicantId = applicant.id;
+          
+          // Sync to official shareholders collection
+          try {
+            const { syncOfficialShareholderOnCreate } = await import('./official-shareholder-sync.js');
+            await syncOfficialShareholderOnCreate(applicant);
+          } catch (syncError) {
+            console.error('Error syncing official shareholder on create:', syncError);
+          }
         }
       } catch (error: any) {
         // If there's an error creating/updating applicant, log it but don't fail the whole operation

@@ -1,27 +1,20 @@
 import { Applicant, RegistrationStatus, HoldingsRecord } from './types';
-import { MOCK_SHAREHOLDERS } from './mockShareholders';
 import { ensureWorkflow, setWantsVerification, submitShareholdingInfo, recordManualReview } from './shareholdingsVerification';
 
 /**
  * Create HoldingsRecord for an applicant if they are a verified shareholder
+ * Note: This function is kept for backward compatibility but no longer uses mock data.
+ * Holdings records should be created from Firestore shareholder data.
  */
 function createHoldingsRecord(applicant: Applicant): HoldingsRecord | undefined {
   if (applicant.status !== RegistrationStatus.APPROVED) {
     return undefined;
   }
   
-  // Find matching shareholder by ID
-  const shareholder = MOCK_SHAREHOLDERS.find(sh => sh.id === applicant.id);
-  if (!shareholder) return undefined;
-  
-  return {
-    companyId: shareholder.id,
-    companyName: shareholder.name,
-    sharesHeld: shareholder.holdings,
-    ownershipPercentage: shareholder.stake,
-    sharesClass: shareholder.accountType,
-    registrationDate: applicant.submissionDate,
-  };
+  // Holdings records should be created from Firestore data, not mock data
+  // This function is kept for backward compatibility but returns undefined
+  // Real holdings records should come from Firestore shareholder data
+  return undefined;
 }
 
 const BASE_APPLICANTS: Applicant[] = [
@@ -391,7 +384,7 @@ export const MOCK_APPLICANTS: Applicant[] = BASE_APPLICANTS.map((a) => {
         shareholdingsId: '201234',
         companyName: 'BDO UNIBANK INC.',
         country: 'Philippines',
-      }, MOCK_SHAREHOLDERS); // Pass shareholders for automatic verification
+      }); // shareholders parameter removed - system uses Firestore data
       break;
     }
 
@@ -403,7 +396,7 @@ export const MOCK_APPLICANTS: Applicant[] = BASE_APPLICANTS.map((a) => {
         shareholdingsId: '201567',
         companyName: 'METROBANKK', // intentional mismatch
         country: 'Philippines',
-      }, MOCK_SHAREHOLDERS); // Pass shareholders for automatic verification
+      }); // shareholders parameter removed - system uses Firestore data
       break;
     }
 
@@ -415,7 +408,7 @@ export const MOCK_APPLICANTS: Applicant[] = BASE_APPLICANTS.map((a) => {
         shareholdingsId: '199876',
         companyName: 'JOLLIBEE FOODS CORPORATION',
         country: 'Philippines',
-      }, MOCK_SHAREHOLDERS); // Pass shareholders for automatic verification
+      }); // shareholders parameter removed - system uses Firestore data
       next = recordManualReview(next, true); // IRO approved
       break;
     }
@@ -430,7 +423,7 @@ export const MOCK_APPLICANTS: Applicant[] = BASE_APPLICANTS.map((a) => {
         shareholdingsId: '202456',
         companyName: 'WRONG COMPANY NAME', // intentional mismatch
         country: 'Philippines',
-      }, MOCK_SHAREHOLDERS);
+      }); // shareholders parameter removed - system uses Firestore data
       // Simulate 2 more failed attempts to reach lockout threshold
       if (next.shareholdingsVerification) {
         const now = new Date().toISOString();
@@ -458,7 +451,7 @@ export const MOCK_APPLICANTS: Applicant[] = BASE_APPLICANTS.map((a) => {
         shareholdingsId: '202388',
         companyName: 'AYALA CORPORATION',
         country: 'Philippines',
-      }, MOCK_SHAREHOLDERS); // Pass shareholders for automatic verification
+      }); // shareholders parameter removed - system uses Firestore data
       // Step 4 not done yet - awaiting IRO review
       break;
     }
@@ -478,7 +471,7 @@ export const MOCK_APPLICANTS: Applicant[] = BASE_APPLICANTS.map((a) => {
         shareholdingsId: '123456',
         companyName: 'SM INVESTMENTS CORPORATION',
         country: 'Philippines',
-      }, MOCK_SHAREHOLDERS);
+      }); // shareholders parameter removed - system uses Firestore data
       break;
     }
 
@@ -489,7 +482,7 @@ export const MOCK_APPLICANTS: Applicant[] = BASE_APPLICANTS.map((a) => {
         shareholdingsId: '234567',
         companyName: 'AYALA CORPORATION',
         country: 'Philippines',
-      }, MOCK_SHAREHOLDERS);
+      }); // shareholders parameter removed - system uses Firestore data
       break;
     }
 
@@ -500,7 +493,7 @@ export const MOCK_APPLICANTS: Applicant[] = BASE_APPLICANTS.map((a) => {
         shareholdingsId: '345678',
         companyName: 'WRONG COMPANY NAME', // Intentional mismatch
         country: 'Philippines',
-      }, MOCK_SHAREHOLDERS);
+      }); // shareholders parameter removed - system uses Firestore data
       break;
     }
 
@@ -511,24 +504,23 @@ export const MOCK_APPLICANTS: Applicant[] = BASE_APPLICANTS.map((a) => {
         shareholdingsId: '456789',
         companyName: 'SAN MIGUEL CORPORATION',
         country: 'Philippines',
-      }, MOCK_SHAREHOLDERS);
+      }); // shareholders parameter removed - system uses Firestore data
       next = recordManualReview(next, true); // IRO approved
       // Create holdings record for verified account
-      const smcShareholder = MOCK_SHAREHOLDERS.find(sh => sh.name === 'SAN MIGUEL CORPORATION');
-      if (smcShareholder) {
-        next = {
-          ...next,
-          status: RegistrationStatus.APPROVED,
-          holdingsRecord: {
-            companyId: smcShareholder.id,
-            companyName: smcShareholder.name,
-            sharesHeld: Math.floor(Math.random() * 500000) + 100000, // Random shares between 100k-600k
-            ownershipPercentage: Math.random() * 5 + 1, // Random percentage between 1-6%
-            sharesClass: smcShareholder.accountType,
-            registrationDate: next.submissionDate,
-          },
-        };
-      }
+      // Holdings record should be created from Firestore shareholder data
+      // For mock data, we'll create a basic holdings record without shareholder lookup
+      next = {
+        ...next,
+        status: RegistrationStatus.APPROVED,
+        holdingsRecord: {
+          companyId: '456789',
+          companyName: 'SAN MIGUEL CORPORATION',
+          sharesHeld: Math.floor(Math.random() * 500000) + 100000, // Random shares between 100k-600k
+          ownershipPercentage: Math.random() * 5 + 1, // Random percentage between 1-6%
+          sharesClass: 'Ordinary',
+          registrationDate: next.submissionDate,
+        },
+      };
       break;
     }
 
@@ -546,7 +538,7 @@ export const MOCK_APPLICANTS: Applicant[] = BASE_APPLICANTS.map((a) => {
         shareholdingsId: '678901',
         companyName: 'JOLLIBEE FOODS CORPORATION',
         country: 'Philippines',
-      }, MOCK_SHAREHOLDERS);
+      }); // shareholders parameter removed - system uses Firestore data
       break;
     }
 
@@ -557,7 +549,7 @@ export const MOCK_APPLICANTS: Applicant[] = BASE_APPLICANTS.map((a) => {
         shareholdingsId: '789012',
         companyName: 'INVALID COMPANY', // Intentional mismatch
         country: 'Philippines',
-      }, MOCK_SHAREHOLDERS);
+      }); // shareholders parameter removed - system uses Firestore data
       // Simulate 3 failed attempts to reach lockout threshold
       if (next.shareholdingsVerification) {
         const lockedUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();

@@ -2,13 +2,14 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Applicant, RegistrationStatus } from '../lib/types';
+import { Applicant, RegistrationStatus, OfficialShareholder } from '../lib/types';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import Tooltip from './Tooltip';
 import { getWorkflowStatusInternal, getGeneralAccountStatus, getWorkflowStatusFrontendLabel } from '../lib/shareholdingsVerification';
 import AddInvestorModal from './AddInvestorModal';
 import MetricCard from './MetricCard';
+import { officialShareholderService } from '../lib/firestore-service';
 
 // Helper function to get initials (first letter of first name and last name)
 const getInitials = (fullName: string): string => {
@@ -120,9 +121,48 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
   const [isAddInvestorModalOpen, setIsAddInvestorModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || '');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [statusCache, setStatusCache] = useState<Record<string, string>>({});
+  const [officialShareholders, setOfficialShareholders] = useState<OfficialShareholder[]>([]);
   
   const exportRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLDivElement>(null);
+
+  // Compute statuses asynchronously and cache them
+  // Updates automatically when applicants change (via real-time subscription)
+  useEffect(() => {
+    const computeStatuses = async () => {
+      const newCache: Record<string, string> = {};
+      await Promise.all(
+        applicants.map(async (applicant) => {
+          try {
+            const status = await getWorkflowStatusInternal(applicant);
+            newCache[applicant.id] = status;
+          } catch (error) {
+            console.error('Error computing status for applicant:', applicant.id, error);
+            newCache[applicant.id] = 'REGISTRATION_PENDING';
+          }
+        })
+      );
+      setStatusCache(newCache);
+    };
+    
+    // Compute immediately when applicants change
+    // Real-time subscription will trigger this automatically
+    computeStatuses();
+  }, [applicants]);
+
+  // Subscribe to official shareholders for real-time updates
+  useEffect(() => {
+    const unsubscribe = officialShareholderService.subscribeToOfficialShareholders(
+      (shareholders) => {
+        setOfficialShareholders(shareholders);
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   // Close dropdowns on click outside
   useEffect(() => {
@@ -162,7 +202,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
     }
   };
 
-  // Use useMemo to recalculate filteredData when applicants or filters change
+  // Use useMemo to recalculate filteredData when applicants, filters, or status cache changes
   // This ensures the queue updates automatically when status changes
   const filteredData = useMemo(() => {
     return applicants.filter((applicant) => {
@@ -197,7 +237,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
       // Tab Filter - Use General Account Status for categorization (only for non-pre-verified accounts)
       if (activeTab === 'ALL') return true;
       
-      const internalStatus = getWorkflowStatusInternal(applicant);
+      const internalStatus = (statusCache[applicant.id] || 'REGISTRATION_PENDING') as any;
       const generalStatus = getGeneralAccountStatus(internalStatus);
       
       const matchesTab = 
@@ -207,7 +247,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
 
       return matchesTab;
     });
-  }, [applicants, searchQuery, activeTab]);
+  }, [applicants, searchQuery, activeTab, statusCache]);
 
   const filterOptions: Array<{ id: TabType; label: string }> = [
     { id: 'ALL', label: 'All' },
@@ -263,49 +303,65 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
     return date.getTime() >= minDate.getTime() && date.getTime() < maxDate.getTime();
   };
 
-  // Helper functions to calculate counts
-  const getUnverifiedCount = (): number => {
+  // New metric calculation functions for the 4 dashboard cards
+  
+  // 1. Total Official Shareholders
+  const getTotalOfficialShareholders = (): number => {
+    return officialShareholders.length;
+  };
+
+  // 2. Verified Accounts Rate (%)
+  const getVerifiedAccountsRate = (): { count: number; percentage: number } => {
+    const verifiedCount = officialShareholders.filter(sh => sh.status === 'VERIFIED').length;
+    const total = officialShareholders.length;
+    const percentage = total > 0 ? Math.round((verifiedCount / total) * 100) : 0;
+    return { count: verifiedCount, percentage };
+  };
+
+  // 3. Active Users (Last 30 Days)
+  const getActiveUsersLast30Days = (): number => {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
     return applicants.filter(a => {
-      const internalStatus = getWorkflowStatusInternal(a);
-      return getGeneralAccountStatus(internalStatus) === 'UNVERIFIED';
+      // Check if account is verified/claimed
+      const internalStatus = (statusCache[a.id] || 'REGISTRATION_PENDING') as any;
+      const isVerified = getGeneralAccountStatus(internalStatus) === 'VERIFIED';
+      
+      if (!isVerified) return false;
+      
+      // Check lastActive field if available
+      if (a.lastActive && a.lastActive !== 'Never') {
+        try {
+          // Try to parse lastActive (could be date string or "X days ago" format)
+          const lastActiveDate = new Date(a.lastActive);
+          if (!isNaN(lastActiveDate.getTime())) {
+            return lastActiveDate >= thirtyDaysAgo;
+          }
+        } catch (e) {
+          // If parsing fails, check accountClaimedAt as fallback
+        }
+      }
+      
+      // Fallback: Use accountClaimedAt or submissionDate for verified accounts
+      const activityDate = a.accountClaimedAt 
+        ? new Date(a.accountClaimedAt)
+        : a.submissionDate 
+          ? new Date(a.submissionDate)
+          : null;
+      
+      if (activityDate && !isNaN(activityDate.getTime())) {
+        return activityDate >= thirtyDaysAgo;
+      }
+      
+      // If no date available but account is verified, assume active
+      return true;
     }).length;
   };
 
-  const getVerifiedCount = (): number => {
-    return applicants.filter(a => {
-      const internalStatus = getWorkflowStatusInternal(a);
-      return getGeneralAccountStatus(internalStatus) === 'VERIFIED';
-    }).length;
-  };
-
-  const getPendingCount = (): number => {
-    return applicants.filter(a => {
-      const internalStatus = getWorkflowStatusInternal(a);
-      return getGeneralAccountStatus(internalStatus) === 'PENDING';
-    }).length;
-  };
-
-  const getAwaitingIROCount = (): number => {
-    return applicants.filter(a => {
-      const internalStatus = getWorkflowStatusInternal(a);
-      return internalStatus === 'AWAITING_IRO_REVIEW';
-    }).length;
-  };
-
-  const getAwaitingUserActionsCount = (): number => {
-    return applicants.filter(a => {
-      const internalStatus = getWorkflowStatusInternal(a);
-      return ['REGISTRATION_PENDING', 'RESUBMISSION_REQUIRED'].includes(internalStatus);
-    }).length;
-  };
-
-  const getOverdueReviewsCount = (): number => {
-    return applicants.filter(a => {
-      const internalStatus = getWorkflowStatusInternal(a);
-      const generalStatus = getGeneralAccountStatus(internalStatus);
-      // Count pending verifications older than 3 days
-      return generalStatus === 'PENDING' && isOlderThanDays(a.submissionDate, 3);
-    }).length;
+  // 4. Pending Activation (Pre-Verified accounts not yet claimed)
+  const getPendingActivation = (): number => {
+    return officialShareholders.filter(sh => sh.status === 'PRE-VERIFIED').length;
   };
 
   // Helper function to calculate 7-day trend based on current data
@@ -354,54 +410,84 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
     return { percent: Math.abs(percent), direction };
   };
 
-  // Calculate all metrics and trends
-  const unverifiedCount = getUnverifiedCount();
-  const verifiedCount = getVerifiedCount();
-  const pendingCount = getPendingCount();
-  const awaitingIROCount = getAwaitingIROCount();
-  const awaitingUserActionsCount = getAwaitingUserActionsCount();
-  const overdueCount = getOverdueReviewsCount();
+  // Calculate new dashboard metrics
+  const totalOfficialShareholders = getTotalOfficialShareholders();
+  const verifiedAccounts = getVerifiedAccountsRate();
+  const activeUsers30Days = getActiveUsersLast30Days();
+  const pendingActivation = getPendingActivation();
 
-  const unverifiedTrend = calculateTrend(unverifiedCount, (a) => {
-    const internalStatus = getWorkflowStatusInternal(a);
-    return getGeneralAccountStatus(internalStatus) === 'UNVERIFIED';
-  });
+  // Calculate trends for new metrics
+  // For total official shareholders, calculate trend based on when they were created
+  const totalOfficialTrend = (() => {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const recentCount = officialShareholders.filter(sh => {
+      const createdAt = sh.createdAt ? new Date(sh.createdAt) : null;
+      return createdAt && createdAt >= thirtyDaysAgo;
+    }).length;
+    
+    const previousCount = officialShareholders.filter(sh => {
+      const createdAt = sh.createdAt ? new Date(sh.createdAt) : null;
+      if (!createdAt) return false;
+      const sixtyDaysAgo = new Date();
+      sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+      return createdAt >= sixtyDaysAgo && createdAt < thirtyDaysAgo;
+    }).length;
+    
+    if (previousCount === 0) {
+      return recentCount > 0 ? { percent: 100, direction: 'up' as const } : { percent: 0, direction: 'neutral' as const };
+    }
+    
+    const percent = ((recentCount - previousCount) / previousCount) * 100;
+    return { percent: Math.abs(percent), direction: percent > 0 ? 'up' as const : percent < 0 ? 'down' as const : 'neutral' as const };
+  })();
 
-  const verifiedTrend = calculateTrend(verifiedCount, (a) => {
-    const internalStatus = getWorkflowStatusInternal(a);
+  const verifiedRateTrend = calculateTrend(verifiedAccounts.count, (a) => {
+    const internalStatus = (statusCache[a.id] || 'REGISTRATION_PENDING') as any;
     return getGeneralAccountStatus(internalStatus) === 'VERIFIED';
   });
 
-  const pendingTrend = calculateTrend(pendingCount, (a) => {
-    const internalStatus = getWorkflowStatusInternal(a);
-    return getGeneralAccountStatus(internalStatus) === 'PENDING';
+  const activeUsersTrend = calculateTrend(activeUsers30Days, (a) => {
+    const internalStatus = (statusCache[a.id] || 'REGISTRATION_PENDING') as any;
+    const isVerified = getGeneralAccountStatus(internalStatus) === 'VERIFIED';
+    if (!isVerified) return false;
+    
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const activityDate = a.accountClaimedAt 
+      ? new Date(a.accountClaimedAt)
+      : a.submissionDate 
+        ? new Date(a.submissionDate)
+        : null;
+    
+    return activityDate && activityDate >= thirtyDaysAgo;
   });
 
-  const overdueTrend = calculateTrend(overdueCount, (a) => {
-    const internalStatus = getWorkflowStatusInternal(a);
-    const generalStatus = getGeneralAccountStatus(internalStatus);
-    return generalStatus === 'PENDING' && isOlderThanDays(a.submissionDate, 3);
+  const pendingActivationTrend = calculateTrend(pendingActivation, (a) => {
+    return a.isPreVerified && !a.accountClaimedAt;
   });
 
-  // Helper function to get workflow status from shareholdingsVerification state
+  // Helper function to get workflow status from cache
   // Maps internal workflow status to frontend display label with appropriate colors
   const getWorkflowStatus = (applicant: Applicant): { label: string; color: string; bgColor: string } => {
-    const internalStatus = getWorkflowStatusInternal(applicant);
+    const internalStatus = (statusCache[applicant.id] || 'REGISTRATION_PENDING') as any;
     const frontendLabel = getWorkflowStatusFrontendLabel(internalStatus);
 
     // Color mapping based on internal status (light/dark mode)
     const statusColors: Record<string, { color: string; bgColor: string }> = {
-      'EMAIL_VERIFICATION_PENDING': { color: 'text-blue-700 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-900/30' },
-      'EMAIL_VERIFIED': { color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-50 dark:bg-green-900/30' },
-      'SHAREHOLDINGS_DECLINED': { color: 'text-[#9A3412] dark:text-orange-400', bgColor: 'bg-[#FEF3E7] dark:bg-orange-900/30' },
+      'SENT_EMAIL': { color: 'text-blue-700 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-900/30' },
       'REGISTRATION_PENDING': { color: 'text-indigo-700 dark:text-indigo-400', bgColor: 'bg-indigo-50 dark:bg-indigo-900/30' },
-      'AWAITING_IRO_REVIEW': { color: 'text-purple-700 dark:text-purple-400', bgColor: 'bg-purple-50 dark:bg-purple-900/30' },
-      'AWAITING_USER_RESPONSE': { color: 'text-orange-700 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
-      'RESUBMISSION_REQUIRED': { color: 'text-orange-700 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
+      'UNDER_REVIEW': { color: 'text-purple-700 dark:text-purple-400', bgColor: 'bg-purple-50 dark:bg-purple-900/30' },
+      'FURTHER_INFO_REQUIRED': { color: 'text-orange-700 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
+      'LOCKED_FOR_7_DAYS': { color: 'text-red-700 dark:text-red-400', bgColor: 'bg-red-50 dark:bg-red-900/30' },
       'VERIFIED': { color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-50 dark:bg-green-900/30' },
+      'ACCOUNT_CLAIMED': { color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-50 dark:bg-green-900/30' },
+      'INVITATION_EXPIRED': { color: 'text-neutral-500 dark:text-neutral-400', bgColor: 'bg-neutral-100 dark:bg-neutral-700' },
     };
 
-                          const colors = statusColors[internalStatus] || { color: 'text-neutral-500 dark:text-neutral-400', bgColor: 'bg-neutral-100 dark:bg-neutral-700' };
+    const colors = statusColors[internalStatus] || { color: 'text-neutral-500 dark:text-neutral-400', bgColor: 'bg-neutral-100 dark:bg-neutral-700' };
 
     return {
       label: frontendLabel,
@@ -464,38 +550,40 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
     setIsExportOpen(false);
   };
 
-  // Metrics array with new structure
+  // New dashboard metrics - 4 cards as specified
   const metrics = [
     {
-      label: 'Unverified Accounts',
-      value: unverifiedCount,
-      trend: unverifiedTrend,
-      purpose: 'Drop-off / friction',
-      type: 'unverified'
+      label: 'Total Official Shareholders',
+      value: totalOfficialShareholders,
+      trend: totalOfficialTrend,
+      subtitle: 'Base universe of investors',
+      type: 'total',
+      chartColor: '#4F46E5'
     },
     {
-      label: 'Verified Accounts',
-      value: verifiedCount,
-      trend: verifiedTrend,
-      purpose: 'Trust & success',
-      type: 'verified'
+      label: 'Verified Accounts Rate',
+      value: `${verifiedAccounts.percentage}%`,
+      trend: verifiedRateTrend,
+      subtitle: `${verifiedAccounts.count} / ${totalOfficialShareholders} activated`,
+      type: 'verified-rate',
+      chartColor: '#10B981',
+      tooltipSymbol: '%'
     },
     {
-      label: 'Pending Verification',
-      value: pendingCount,
-      trend: pendingTrend,
-      purpose: 'Requires review',
-      awaitingIRO: awaitingIROCount,
-      awaitingUser: awaitingUserActionsCount,
-      subLabel: 'Requires IRO action',
-      type: 'pending'
+      label: 'Active Users (Last 30 Days)',
+      value: activeUsers30Days,
+      trend: activeUsersTrend,
+      subtitle: 'Users who logged in or interacted',
+      type: 'active',
+      chartColor: '#3B82F6'
     },
     {
-      label: 'Verification Aging/SLA Risk',
-      value: overdueCount,
-      trend: overdueTrend,
-      purpose: 'SLA breach risk',
-      type: 'overdue'
+      label: 'Pending Activation',
+      value: pendingActivation,
+      trend: pendingActivationTrend,
+      subtitle: 'Pre-verified accounts awaiting claim',
+      type: 'pending',
+      chartColor: '#F59E0B'
     }
   ];
 
@@ -546,25 +634,36 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
 
   // Chart colors for each metric type
   const chartColors: Record<string, string> = {
-    'unverified': '#EC4899', // pink
-    'verified': '#10B981', // emerald
+    'total': '#4F46E5', // indigo
+    'verified-rate': '#10B981', // emerald
+    'active': '#3B82F6', // blue
     'pending': '#F59E0B', // amber
-    'overdue': '#EF4444', // red
   };
 
   return (
     <div className="space-y-10 max-w-7xl mx-auto">
       <div className="grid grid-cols-4 gap-8 overflow-visible">
-        {metrics.map((metric, i) => (
-          <MetricCard
-            key={i}
-            title={metric.label}
-            value={metric.value}
-            trend={metric.trend}
-            chartData={generateChartData(metric.value, metric.trend, i)}
-            chartColor={chartColors[metric.type] || '#7C3AED'}
-          />
-        ))}
+        {metrics.map((metric, i) => {
+          // For verified rate, extract numeric value for chart
+          const numericValue = typeof metric.value === 'string' && metric.value.includes('%')
+            ? parseFloat(metric.value.replace('%', ''))
+            : typeof metric.value === 'number'
+              ? metric.value
+              : 0;
+          
+          return (
+            <MetricCard
+              key={i}
+              title={metric.label}
+              value={metric.value}
+              trend={metric.trend}
+              subtitle={metric.subtitle || 'compared to last week'}
+              chartData={generateChartData(numericValue, metric.trend, i)}
+              chartColor={metric.chartColor || chartColors[metric.type] || '#7C3AED'}
+              tooltipSymbol={metric.tooltipSymbol}
+            />
+          );
+        })}
       </div>
 
       <div className="bg-white dark:bg-neutral-800 rounded-xl border border-neutral-200 dark:border-neutral-700 shadow-sm">
@@ -694,8 +793,8 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
           <tbody className="divide-y divide-neutral-200 dark:divide-neutral-700">
             {filteredData.length > 0 ? (
               filteredData.map((applicant) => {
-                // Calculate status for key to force re-render when status changes
-                const internalStatus = getWorkflowStatusInternal(applicant);
+                // Get status from cache
+                const internalStatus = (statusCache[applicant.id] || 'REGISTRATION_PENDING') as any;
                 // Include all relevant status fields in key to ensure re-render on any status change
                 const statusKey = `${applicant.id}-${applicant.status}-${internalStatus}-${applicant.shareholdingsVerification?.step6?.verifiedAt || ''}-${applicant.shareholdingsVerification?.step4?.lastResult || ''}-${applicant.shareholdingsVerification?.step4?.lastReviewedAt || ''}`;
                 
@@ -771,17 +870,17 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                       </td>
                       <td className="px-8 py-5">
                         {(() => {
-                          const internalStatus = getWorkflowStatusInternal(applicant);
+                          const internalStatus = (statusCache[applicant.id] || 'REGISTRATION_PENDING') as any;
                           // Color mapping for internal status (light/dark mode)
                           const statusColors: Record<string, { color: string; bgColor: string }> = {
-                            'EMAIL_VERIFICATION_PENDING': { color: 'text-blue-700 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-900/30' },
-                            'EMAIL_VERIFIED': { color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-50 dark:bg-green-900/30' },
-                            'SHAREHOLDINGS_DECLINED': { color: 'text-[#9A3412] dark:text-orange-400', bgColor: 'bg-[#FEF3E7] dark:bg-orange-900/30' },
+                            'SENT_EMAIL': { color: 'text-blue-700 dark:text-blue-400', bgColor: 'bg-blue-50 dark:bg-blue-900/30' },
                             'REGISTRATION_PENDING': { color: 'text-indigo-700 dark:text-indigo-400', bgColor: 'bg-indigo-50 dark:bg-indigo-900/30' },
-                            'AWAITING_IRO_REVIEW': { color: 'text-purple-700 dark:text-purple-400', bgColor: 'bg-purple-50 dark:bg-purple-900/30' },
-                            'AWAITING_USER_RESPONSE': { color: 'text-orange-700 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
-                            'RESUBMISSION_REQUIRED': { color: 'text-orange-700 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
+                            'UNDER_REVIEW': { color: 'text-purple-700 dark:text-purple-400', bgColor: 'bg-purple-50 dark:bg-purple-900/30' },
+                            'FURTHER_INFO_REQUIRED': { color: 'text-orange-700 dark:text-orange-400', bgColor: 'bg-orange-50 dark:bg-orange-900/30' },
+                            'LOCKED_FOR_7_DAYS': { color: 'text-red-700 dark:text-red-400', bgColor: 'bg-red-50 dark:bg-red-900/30' },
                             'VERIFIED': { color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-50 dark:bg-green-900/30' },
+                            'ACCOUNT_CLAIMED': { color: 'text-green-700 dark:text-green-400', bgColor: 'bg-green-50 dark:bg-green-900/30' },
+                            'INVITATION_EXPIRED': { color: 'text-neutral-500 dark:text-neutral-400', bgColor: 'bg-neutral-100 dark:bg-neutral-700' },
                           };
                           const colors = statusColors[internalStatus] || { color: 'text-neutral-500 dark:text-neutral-400', bgColor: 'bg-neutral-100 dark:bg-neutral-700' };
                           return (
@@ -794,9 +893,8 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
                       <td className="px-8 py-5 text-right">
                         {(() => {
                           // Check if user declined holdings verification - hide Audit button if declined
-                          const workflowStatus = getWorkflowStatusInternal(applicant);
-                          const isHoldingsDeclined = workflowStatus === 'SHAREHOLDINGS_DECLINED' || 
-                                                     applicant.shareholdingsVerification?.step1?.wantsVerification === false;
+                          const workflowStatus = (statusCache[applicant.id] || 'REGISTRATION_PENDING') as any;
+                          const isHoldingsDeclined = applicant.shareholdingsVerification?.step1?.wantsVerification === false;
                           
                           // Don't show Audit button if holdings verification was declined
                           if (isHoldingsDeclined) {

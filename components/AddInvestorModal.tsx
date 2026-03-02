@@ -1534,22 +1534,25 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       {!privacyNoticeAccepted && (
         <div 
           className={`fixed inset-0 z-[60] flex items-center justify-center ${sidebarWidthClass} transition-all duration-300`}
-          onClick={(e) => {
-            // Close when clicking outside the modal
-            if (e.target === e.currentTarget) {
-              onClose();
-            }
-          }}
         >
           <div 
             className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Privacy Notice Header */}
-            <div className="px-8 py-6 border-b border-neutral-200 dark:border-neutral-700">
+            <div className="px-8 py-6 flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700">
               <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100">
                 Investor Privacy & Data Use Notice
               </h2>
+              <button
+                onClick={onClose}
+                className="p-2 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors"
+                aria-label="Close modal"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
 
             {/* Privacy Notice Content */}

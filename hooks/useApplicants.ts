@@ -35,7 +35,7 @@ export const useApplicants = (options: UseApplicantsOptions = { autoFetch: true,
     }
   }, [options.status, options.limitCount]);
 
-  // Set up real-time subscription
+  // Set up real-time subscription with polling
   useEffect(() => {
     if (options.autoFetch === false) return;
     
@@ -58,6 +58,9 @@ export const useApplicants = (options: UseApplicantsOptions = { autoFetch: true,
         );
         
         unsubscribeRef.current = unsubscribe;
+        
+        // Real-time subscription handles all updates automatically
+        // No polling needed - Firestore onSnapshot pushes updates immediately
         
         return () => {
           if (unsubscribeRef.current) {

@@ -1,8 +1,12 @@
 
 export enum RegistrationStatus {
-  PENDING = 'PENDING',
+  DRAFT = 'DRAFT',
+  PENDING_REVIEW = 'PENDING_REVIEW',
+  FURTHER_INFO_REQUIRED = 'FURTHER_INFO_REQUIRED',
   APPROVED = 'APPROVED',
   REJECTED = 'REJECTED',
+  // Legacy statuses for backward compatibility
+  PENDING = 'PENDING',
   FURTHER_INFO = 'FURTHER_INFO'
 }
 
@@ -43,15 +47,14 @@ export interface IRODecision {
  * Internal workflow status states (used by system logic)
  */
 export type WorkflowStatusInternal =
-  | 'EMAIL_VERIFICATION_PENDING'
-  | 'EMAIL_VERIFIED'
-  | 'SHAREHOLDINGS_DECLINED'
-  | 'REGISTRATION_PENDING'
-  | 'AWAITING_IRO_REVIEW'
-  | 'AWAITING_USER_RESPONSE' // New: User needs to respond to IRO decision
-  | 'RESUBMISSION_REQUIRED'
-  | 'LOCKED_FOR_7_DAYS'
-  | 'VERIFIED';
+  | 'SENT_EMAIL'              // Email not verified (gate)
+  | 'REGISTRATION_PENDING'    // Email verified, ready to register
+  | 'UNDER_REVIEW'            // Application submitted, awaiting IRO
+  | 'FURTHER_INFO_REQUIRED'   // IRO requested corrections
+  | 'LOCKED_FOR_7_DAYS'       // Locked due to rejection or 3 failed attempts
+  | 'VERIFIED'                // IRO approved
+  | 'ACCOUNT_CLAIMED'         // Pre-verified account claimed
+  | 'INVITATION_EXPIRED';     // Pre-verified invitation expired
 
 /**
  * Frontend display labels for workflow status
@@ -195,6 +198,10 @@ export interface HoldingsRecord {
   registrationDate: string;
 }
 
+export interface HoldingsUpdateHistoryEntry {
+  updatedAt: string; // ISO timestamp
+}
+
 export interface HoldingsSummary {
   companyId: string;
   companyName: string;
@@ -219,6 +226,7 @@ export interface Applicant {
   idDocumentUrl: string;
   taxDocumentUrl: string;
   holdingsRecord?: HoldingsRecord; // Optional, only for verified shareholders
+  holdingsUpdateHistory?: HoldingsUpdateHistoryEntry[]; // History of holdings updates (timestamps only)
   emailOtpVerification?: EmailOtpVerificationState;
   shareholdingsVerification?: ShareholdingsVerificationState;
   // Pre-verified account workflow fields
@@ -254,6 +262,35 @@ export interface Shareholder {
   coAddress: string;
   country: string;
   accountType: AccountType | string;
+}
+
+/**
+ * Shareholder Status for official investors tracking
+ */
+export type ShareholderStatusType = 'PRE-VERIFIED' | 'VERIFIED' | 'NULL';
+
+/**
+ * Official Shareholder Record
+ * Tracks official investors from masterlist (pre-verified, verified, no-contact)
+ * This collection persists independently of applicants collection
+ */
+export interface OfficialShareholder {
+  id: string; // Registration ID (holdingId) - primary key
+  name: string; // Full name
+  email?: string; // Email if available
+  phone?: string; // Phone if available
+  country?: string; // Country if available
+  status: ShareholderStatusType; // PRE-VERIFIED, VERIFIED, or NULL
+  applicantId?: string; // Link to applicants collection if account exists
+  holdings?: number; // Number of shares held
+  stake?: number; // Ownership percentage
+  accountType?: string; // Account type (Ordinary, etc.)
+  // Timestamps
+  createdAt: string; // ISO timestamp when record was created
+  updatedAt: string; // ISO timestamp when record was last updated
+  // Status-specific fields
+  emailSentAt?: string; // ISO timestamp when invitation email was sent (for PRE-VERIFIED)
+  accountClaimedAt?: string; // ISO timestamp when account was claimed (for VERIFIED)
 }
 
 export interface AIAnalysisResult {
