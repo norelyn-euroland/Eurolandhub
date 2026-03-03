@@ -4,7 +4,7 @@
  * Helper functions to log holdings updates to history
  */
 
-import { HoldingsUpdateHistoryEntry } from './types';
+import { HoldingsUpdateHistoryEntry } from './types.js';
 
 /**
  * Add a new timestamp entry to holdings update history

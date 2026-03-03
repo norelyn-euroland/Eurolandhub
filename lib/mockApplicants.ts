@@ -1,5 +1,5 @@
-import { Applicant, RegistrationStatus, HoldingsRecord } from './types';
-import { ensureWorkflow, setWantsVerification, submitShareholdingInfo, recordManualReview } from './shareholdingsVerification';
+import { Applicant, RegistrationStatus, HoldingsRecord } from './types.js';
+import { ensureWorkflow, setWantsVerification, submitShareholdingInfo, recordManualReview } from './shareholdingsVerification.js';
 
 /**
  * Create HoldingsRecord for an applicant if they are a verified shareholder

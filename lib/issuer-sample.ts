@@ -1,4 +1,4 @@
-import { Shareholder } from './types';
+import { Shareholder } from './types.js';
 
 /**
  * Sample Issuer Data - SM INVESTMENTS CORPORATION

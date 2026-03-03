@@ -39,6 +39,39 @@ export interface SendEmailResult {
   error?: string;
 }
 
+export interface BatchEmailRecipient {
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  customData?: Record<string, any>; // For personalization
+}
+
+export interface BatchEmailOptions {
+  recipients: BatchEmailRecipient[];
+  subject: string | ((recipient: BatchEmailRecipient) => string); // Can be dynamic per recipient
+  html: string | ((recipient: BatchEmailRecipient) => string); // Can be dynamic per recipient
+  text?: string | ((recipient: BatchEmailRecipient) => string);
+  from?: string;
+  fromName?: string;
+  replyTo?: string;
+  tags?: Array<{ name: string; value: string }>;
+  batchSize?: number; // Default: 50
+  delayBetweenBatches?: number; // Milliseconds, default: 1000 (1 second)
+  delayBetweenEmails?: number; // Milliseconds, default: 100 (for rate limiting)
+}
+
+export interface BatchEmailResult {
+  total: number;
+  successful: number;
+  failed: number;
+  results: Array<{
+    email: string;
+    success: boolean;
+    messageId?: string;
+    error?: string;
+  }>;
+}
+
 /**
  * Send email via Resend
  * 
@@ -154,5 +187,224 @@ export async function sendEmail(options: SendEmailOptions): Promise<SendEmailRes
       error: error?.message || String(error),
     };
   }
+}
+
+/**
+ * Send emails to unlimited recipients with automatic batching and rate limiting
+ * First batch is limited to 50 recipients, subsequent batches can be configured
+ * 
+ * @param options - Batch email options
+ * @returns Batch result with success/failure counts
+ */
+export async function sendBatchEmails(options: BatchEmailOptions): Promise<BatchEmailResult> {
+  const {
+    recipients,
+    subject,
+    html,
+    text,
+    from,
+    fromName,
+    replyTo,
+    tags,
+    batchSize = 50, // Default batch size (limited to 50 for first batch)
+    delayBetweenBatches = 1000, // 1 second between batches
+    delayBetweenEmails = 100, // 100ms between individual emails (for rate limiting)
+  } = options;
+
+  // Ensure batch size doesn't exceed 50
+  const effectiveBatchSize = Math.min(batchSize, 50);
+
+  const results: BatchEmailResult['results'] = [];
+  let successful = 0;
+  let failed = 0;
+
+  console.log(`Starting batch email send: ${recipients.length} total recipients, ${effectiveBatchSize} per batch`);
+
+  // Process recipients in batches
+  for (let i = 0; i < recipients.length; i += effectiveBatchSize) {
+    const batch = recipients.slice(i, i + effectiveBatchSize);
+    const batchNumber = Math.floor(i / effectiveBatchSize) + 1;
+    const totalBatches = Math.ceil(recipients.length / effectiveBatchSize);
+    
+    console.log(`Processing batch ${batchNumber}/${totalBatches}: ${batch.length} recipients`);
+
+    // Process each recipient in the batch
+    for (let j = 0; j < batch.length; j++) {
+      const recipient = batch[j];
+      
+      try {
+        // Resolve dynamic subject/html if they're functions
+        const resolvedSubject = typeof subject === 'function' 
+          ? subject(recipient) 
+          : subject;
+        
+        const resolvedHtml = typeof html === 'function' 
+          ? html(recipient) 
+          : html;
+        
+        const resolvedText = text 
+          ? (typeof text === 'function' ? text(recipient) : text)
+          : undefined;
+
+        // Send individual email for privacy
+        const result = await sendEmail({
+          to: recipient.email,
+          subject: resolvedSubject,
+          html: resolvedHtml,
+          text: resolvedText,
+          from,
+          fromName,
+          replyTo,
+          tags,
+        });
+
+        if (result.success) {
+          successful++;
+          results.push({
+            email: recipient.email,
+            success: true,
+            messageId: result.messageId,
+          });
+          console.log(`✓ Email sent to ${recipient.email} (${successful}/${recipients.length})`);
+        } else {
+          failed++;
+          results.push({
+            email: recipient.email,
+            success: false,
+            error: result.error,
+          });
+          console.error(`✗ Failed to send email to ${recipient.email}:`, result.error);
+        }
+
+        // Rate limiting: delay between individual emails (except for the last email in the last batch)
+        if (delayBetweenEmails > 0 && (i + j + 1 < recipients.length)) {
+          await new Promise(resolve => setTimeout(resolve, delayBetweenEmails));
+        }
+      } catch (error: any) {
+        failed++;
+        const errorMessage = error?.message || String(error);
+        results.push({
+          email: recipient.email,
+          success: false,
+          error: errorMessage,
+        });
+        console.error(`✗ Exception sending email to ${recipient.email}:`, errorMessage);
+      }
+    }
+
+    // Delay between batches (except for the last batch)
+    if (i + effectiveBatchSize < recipients.length && delayBetweenBatches > 0) {
+      console.log(`Waiting ${delayBetweenBatches}ms before next batch...`);
+      await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
+    }
+  }
+
+  console.log(`Batch email send completed: ${successful} successful, ${failed} failed out of ${recipients.length} total`);
+
+  return {
+    total: recipients.length,
+    successful,
+    failed,
+    results,
+  };
+}
+
+/**
+ * Send one email to multiple recipients (all recipients see each other)
+ * Use this only if privacy is not a concern
+ * Limited to 50 recipients per API call
+ * 
+ * @param recipients - Array of email addresses
+ * @param subject - Email subject
+ * @param html - Email HTML content
+ * @param options - Additional options
+ * @returns Batch result with success/failure counts
+ */
+export async function sendBulkEmail(
+  recipients: string[],
+  subject: string,
+  html: string,
+  options?: {
+    from?: string;
+    fromName?: string;
+    replyTo?: string;
+    tags?: Array<{ name: string; value: string }>;
+    batchSize?: number; // Max recipients per API call (default: 50, max: 50)
+  }
+): Promise<BatchEmailResult> {
+  const batchSize = Math.min(options?.batchSize || 50, 50); // Enforce 50 limit
+  const results: BatchEmailResult['results'] = [];
+  let successful = 0;
+  let failed = 0;
+
+  console.log(`Starting bulk email send: ${recipients.length} total recipients, ${batchSize} per batch`);
+
+  // Split into batches
+  for (let i = 0; i < recipients.length; i += batchSize) {
+    const batch = recipients.slice(i, i + batchSize);
+    const batchNumber = Math.floor(i / batchSize) + 1;
+    const totalBatches = Math.ceil(recipients.length / batchSize);
+    
+    console.log(`Processing bulk batch ${batchNumber}/${totalBatches}: ${batch.length} recipients`);
+    
+    try {
+      const result = await sendEmail({
+        to: batch, // Array of emails
+        subject,
+        html,
+        from: options?.from,
+        fromName: options?.fromName,
+        replyTo: options?.replyTo,
+        tags: options?.tags,
+      });
+
+      if (result.success) {
+        successful += batch.length;
+        batch.forEach(email => {
+          results.push({
+            email,
+            success: true,
+            messageId: result.messageId,
+          });
+        });
+        console.log(`✓ Bulk email sent to batch ${batchNumber}: ${batch.length} recipients`);
+      } else {
+        failed += batch.length;
+        batch.forEach(email => {
+          results.push({
+            email,
+            success: false,
+            error: result.error,
+          });
+        });
+        console.error(`✗ Failed to send bulk email batch ${batchNumber}:`, result.error);
+      }
+    } catch (error: any) {
+      failed += batch.length;
+      const errorMessage = error?.message || String(error);
+      batch.forEach(email => {
+        results.push({
+          email,
+          success: false,
+          error: errorMessage,
+        });
+      });
+      console.error(`✗ Exception sending bulk email batch ${batchNumber}:`, errorMessage);
+    }
+
+    // Rate limiting between batches
+    if (i + batchSize < recipients.length) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+
+  console.log(`Bulk email send completed: ${successful} successful, ${failed} failed out of ${recipients.length} total`);
+
+  return {
+    total: recipients.length,
+    successful,
+    failed,
+    results,
+  };
 }
 

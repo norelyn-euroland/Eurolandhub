@@ -5,8 +5,8 @@
  * Statuses are auto-computed and NOT manually editable.
  */
 
-import { Applicant, Shareholder, RegistrationStatus } from './types';
-import { getWorkflowStatusInternal } from './shareholdingsVerification';
+import { Applicant, Shareholder, RegistrationStatus } from './types.js';
+import { getWorkflowStatusInternal } from './shareholdingsVerification.js';
 
 export type ShareholderStatus = 'VERIFIED' | 'PRE-VERIFIED' | null;
 
