@@ -1191,15 +1191,57 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       if (response.ok && data?.subject && data?.body) {
         setGeneratedSubject(data.subject);
         setGeneratedMessage(data.body);
+        if (data.warning) {
+          triggerToast(data.warning, 'warning');
+        }
       } else {
-        triggerToast(`Failed to generate message: ${data?.error || response.status || 'Unknown error'}`);
+        triggerToast(`Failed to generate message: ${data?.error || response.status || 'Unknown error'}`, 'error');
       }
     } catch (error: any) {
-      triggerToast(`Error: ${error.message || 'Failed to generate message'}`);
+      triggerToast(`Error: ${error.message || 'Failed to generate message'}`, 'error');
     } finally {
       setIsGeneratingMessage(false);
     }
   };
+
+  // Auto-generate message when style changes (only if we're on SEND_INVITATION step)
+  useEffect(() => {
+    if (currentStep === 'SEND_INVITATION' && messageStyle && !isGeneratingMessage) {
+      // Small delay to avoid rapid regeneration when user is still selecting
+      const timeoutId = setTimeout(async () => {
+        setIsGeneratingMessage(true);
+        try {
+          const response = await fetch('/api/generate-invitation-message', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              messageStyle,
+            }),
+          });
+
+          const rawText = await response.text();
+          const data = rawText ? (() => { try { return JSON.parse(rawText); } catch { return null; } })() : null;
+
+          if (response.ok && data?.subject && data?.body) {
+            setGeneratedSubject(data.subject);
+            setGeneratedMessage(data.body);
+            if (data.warning) {
+              triggerToast(data.warning, 'warning');
+            }
+          } else {
+            triggerToast(`Failed to generate message: ${data?.error || response.status || 'Unknown error'}`, 'error');
+          }
+        } catch (error: any) {
+          triggerToast(`Error: ${error.message || 'Failed to generate message'}`, 'error');
+        } finally {
+          setIsGeneratingMessage(false);
+        }
+      }, 300);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [messageStyle, currentStep, isGeneratingMessage]);
 
   // Helper function to trigger toast notification
   const triggerToast = (message: string, variant: 'success' | 'warning' | 'error' | 'info' = 'success') => {
