@@ -193,6 +193,8 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
   const [selectedInvestorsForEmail, setSelectedInvestorsForEmail] = useState<Set<string>>(new Set()); // Multiple selection
   const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false); // Track if in "Send To" selection mode
   const [sentEmailsTo, setSentEmailsTo] = useState<Set<string>>(new Set());
+  const [sentEmailContent, setSentEmailContent] = useState<Map<string, { subject: string; message: string; sentAt: string }>>(new Map()); // Store email content for preview
+  const [previewEmailInvestorId, setPreviewEmailInvestorId] = useState<string | null>(null); // Track which investor's email to preview
   const [isGeneratingMessage, setIsGeneratingMessage] = useState(false);
   const [isSendingEmails, setIsSendingEmails] = useState(false);
   const [generatedSubject, setGeneratedSubject] = useState<string>('');
@@ -1224,11 +1226,19 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
   };
 
   // Handle select all recipients (With Email tab - selection only, no send)
+  // Only select investors who haven't received emails yet
   const handleSelectAll = () => {
     const newInvestorsWithEmail = investorForms.filter(
-      f => (f.classification === 'new' || f.classification === 'suspected') && f.email && f.email.trim()
+      f => (f.classification === 'new' || f.classification === 'suspected') && 
+           f.email && f.email.trim() && 
+           !sentEmailsTo.has(f.id) // Exclude already sent
     );
     setSelectedInvestorsForEmail(new Set(newInvestorsWithEmail.map(f => f.id)));
+  };
+
+  // Handle deselect all recipients
+  const handleDeselectAll = () => {
+    setSelectedInvestorsForEmail(new Set());
   };
 
   // Handle sending invitations to selected NEW investors (real-time, no delay)
@@ -1291,9 +1301,23 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       const results = await Promise.all(sendPromises);
       const successful = results.filter(r => r.success);
       
-      // Mark successfully sent investors
+      // Mark successfully sent investors and store email content for preview
       const sentIds = new Set(successful.map(r => r.investorId));
       setSentEmailsTo(prev => new Set([...prev, ...sentIds]));
+      
+      // Store email content for each successfully sent investor
+      const newEmailContent = new Map(sentEmailContent);
+      successful.forEach((result) => {
+        const investor = investorsToSend.find(inv => inv.id === result.investorId);
+        if (investor) {
+          newEmailContent.set(result.investorId, {
+            subject: generatedSubject,
+            message: generatedMessage,
+            sentAt: new Date().toISOString(),
+          });
+        }
+      });
+      setSentEmailContent(newEmailContent);
       
       // Clear selection and exit selection mode
       setSelectedInvestorsForEmail(new Set());
@@ -2448,7 +2472,7 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                 {emailRecipientTab === 'with-email' && (
                   <div className="px-6 py-3 border-b border-neutral-200 dark:border-neutral-700 flex flex-wrap items-center justify-between gap-2">
                     <h3 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
-                      Selected {selectedInvestorsForEmail.size} of {investorForms.filter(f => (f.classification === 'new' || f.classification === 'suspected') && f.email && f.email.trim()).length}
+                      Selected {selectedInvestorsForEmail.size} of {investorForms.filter(f => (f.classification === 'new' || f.classification === 'suspected') && f.email && f.email.trim() && !sentEmailsTo.has(f.id)).length}
                     </h3>
                     <div className="flex items-center gap-2">
                       <button
@@ -2456,6 +2480,12 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                         className="text-xs text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 font-bold"
                       >
                         Select All
+                      </button>
+                      <button
+                        onClick={handleDeselectAll}
+                        className="text-xs text-neutral-600 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300 font-bold"
+                      >
+                        Deselect All
                       </button>
                       <button
                         onClick={handleSendInvitations}
@@ -2483,7 +2513,9 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                 )}
 
                 {/* Recipient List filtered by tab — With Email & No Email = NEW investors only */}
-                <div className="overflow-y-auto p-4 space-y-2 flex-1" style={{ maxHeight: 'calc(10 * (3.5rem + 0.5rem))' }}>
+                {/* Fixed height: 10 items * (3.5rem height + 0.5rem gap) = 40rem = 640px */}
+                {/* Each item is approximately 3.5rem (56px) + 0.5rem (8px) gap = 64px per item */}
+                <div className="overflow-y-auto p-4 space-y-2 flex-1" style={{ maxHeight: '40rem', minHeight: '40rem' }}>
                   {(() => {
                     const isNewOrSuspected = (f: InvestorFormData) => f.classification === 'new' || f.classification === 'suspected';
                     const withEmail = investorForms.filter(f => isNewOrSuspected(f) && f.email && f.email.trim());
@@ -2502,10 +2534,12 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                       tabInvestors.map((investor) => {
                         const hasEmail = !!(investor.email && investor.email.trim());
                         const isSelected = selectedInvestorsForEmail.has(investor.id);
+                        const hasSentEmail = sentEmailsTo.has(investor.id);
+                        const emailContent = hasSentEmail ? sentEmailContent.get(investor.id) : null;
 
                         const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
                           e.stopPropagation();
-                          if (!isSelectable) return;
+                          if (!isSelectable || hasSentEmail) return; // Don't allow selection if email already sent
                           setSelectedInvestorsForEmail(prev => {
                             const newSet = new Set(prev);
                             if (isSelected) newSet.delete(investor.id);
@@ -2516,6 +2550,13 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
 
                         const handleRowClick = () => {
                           if (!isSelectable) return;
+                          // If email was already sent, show preview instead of selecting
+                          if (hasSentEmail && emailContent) {
+                            setPreviewEmailInvestorId(investor.id);
+                            return;
+                          }
+                          // Only allow selection if email hasn't been sent
+                          if (hasSentEmail) return;
                           setSelectedInvestorsForEmail(prev => {
                             const newSet = new Set(prev);
                             if (isSelected) newSet.delete(investor.id);
@@ -2531,13 +2572,15 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                             className={`p-3 rounded-lg border transition-all ${
                               !isSelectable
                                 ? 'bg-neutral-50 dark:bg-neutral-700/50 border-neutral-200 dark:border-neutral-600 cursor-default opacity-90'
+                                : hasSentEmail
+                                ? 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800 cursor-pointer hover:border-green-300 dark:hover:border-green-700'
                                 : isSelected
                                 ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-300 dark:border-purple-700 cursor-pointer hover:border-purple-400 dark:hover:border-purple-600'
                                 : 'bg-neutral-50 dark:bg-neutral-700/50 border-neutral-200 dark:border-neutral-600 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer'
                             }`}
                           >
                             <div className="flex items-center gap-3">
-                              {isSelectable && (
+                              {isSelectable && !hasSentEmail && (
                                 <input
                                   type="checkbox"
                                   checked={isSelected}
@@ -2545,6 +2588,13 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                                   onClick={(e) => e.stopPropagation()}
                                   className="w-4 h-4 text-purple-600 border-neutral-300 rounded focus:ring-purple-500 cursor-pointer"
                                 />
+                              )}
+                              {isSelectable && hasSentEmail && (
+                                <div className="w-4 h-4 flex items-center justify-center">
+                                  <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                </div>
                               )}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
@@ -2574,6 +2624,80 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
                   })()}
                 </div>
               </div>
+
+              {/* Email Preview Modal */}
+              {previewEmailInvestorId && sentEmailContent.has(previewEmailInvestorId) && (
+                <div className="fixed inset-0 bg-black/50 dark:bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setPreviewEmailInvestorId(null)}>
+                  <div className="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+                    {/* Header */}
+                    <div className="px-6 py-4 border-b border-neutral-200 dark:border-neutral-700 flex items-center justify-between">
+                      <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
+                        <svg className="w-5 h-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                        Email Preview - Sent Email
+                      </h3>
+                      <button
+                        onClick={() => setPreviewEmailInvestorId(null)}
+                        className="text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors"
+                      >
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                      {(() => {
+                        const investor = investorForms.find(f => f.id === previewEmailInvestorId);
+                        const content = sentEmailContent.get(previewEmailInvestorId)!;
+                        const sentDate = new Date(content.sentAt);
+                        
+                        return (
+                          <>
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
+                                <span className="font-bold">To:</span>
+                                <span>{investor?.email || 'N/A'}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
+                                <span className="font-bold">Investor:</span>
+                                <span>{investor?.investorName || 'N/A'}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
+                                <span className="font-bold">Sent:</span>
+                                <span>{sentDate.toLocaleString()}</span>
+                              </div>
+                            </div>
+
+                            <div className="border-t border-neutral-200 dark:border-neutral-700 pt-4 space-y-3">
+                              <div>
+                                <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
+                                  Subject
+                                </label>
+                                <div className="px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                                  {content.subject}
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-2">
+                                  Message
+                                </label>
+                                <div 
+                                  className="px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-600 rounded-lg text-sm text-neutral-900 dark:text-neutral-100 whitespace-pre-wrap max-h-96 overflow-y-auto"
+                                  dangerouslySetInnerHTML={{ __html: content.message }}
+                                />
+                              </div>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Right Panel: Email Message Container */}
               <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg flex flex-col overflow-hidden">
