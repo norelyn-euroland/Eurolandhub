@@ -9,6 +9,21 @@ import HoldingsSummary from './HoldingsSummary';
 import { getWorkflowStatusInternal, getGeneralAccountStatus } from '../lib/shareholdingsVerification';
 import MetricCard from './MetricCard';
 import { officialShareholderService } from '../lib/firestore-service';
+import { PressReleasePreview, PressReleaseDetail, AllPressReleasesView } from './PressReleaseSection';
+import type { PressRelease } from './PressReleaseSection';
+import { getAllPressReleases } from '../services/pressReleaseService';
+import { getDataByRange, getLatestPrice, getPriceStats, type ShareDataPoint, type TimeRange } from '../services/shareDataService';
+import { releasedDocumentsService, DOCUMENT_TAGS, getDocumentTypeLabel, type ReleasedDocument } from '../services/releasedDocumentsService';
+import {
+  shouldTriggerGreetingAnimation,
+  getCurrentTimeContext,
+  getGreetingTheme,
+  getGreetingSubtitle,
+  type TimeContext,
+  type TimeSegment,
+  type GreetingTheme,
+} from '../services/greetingTimeService';
+import { ResponsiveContainer, AreaChart, Area, Tooltip as RechartsTooltip, XAxis } from 'recharts';
 
 // Engagement Activity Types
 interface EngagementActivity {
@@ -562,36 +577,23 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
   const chartRef = useRef<HTMLDivElement>(null);
   const hasAnimatedRef = useRef(false);
 
-  // Trigger animation when chart container comes into view
   useEffect(() => {
     if (!chartRef.current) return;
-
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting && !hasAnimatedRef.current) {
-            // Reset and trigger animation when chart comes into view
             setChartKey(prev => prev + 1);
             hasAnimatedRef.current = true;
           } else if (!entry.isIntersecting && hasAnimatedRef.current) {
-            // Reset flag when chart leaves viewport so it can animate again
             hasAnimatedRef.current = false;
           }
         });
       },
-      {
-        threshold: 0.3, // Trigger when 30% of the chart is visible
-        rootMargin: '0px'
-      }
+      { threshold: 0.3, rootMargin: '0px' }
     );
-
     observer.observe(chartRef.current);
-
-    return () => {
-      if (chartRef.current) {
-        observer.unobserve(chartRef.current);
-      }
-    };
+    return () => { if (chartRef.current) observer.unobserve(chartRef.current); };
   }, []);
 
   // Calculate data from actual applicants (include all accounts for dashboard)
@@ -614,12 +616,15 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
   const registeredNoHoldingsPercentage = Math.round((registeredNoHoldings / totalUsers) * 100 * 10) / 10;
   const registeredWithHoldingsPercentage = Math.round((registeredWithHoldings / totalUsers) * 100 * 10) / 10;
   
-  // Prepare data for ApexCharts
+  // Prepare data for ApexCharts (design system: Gray=Guest, Blue=NoHoldings, Green=WithHoldings)
   const chartData = [
-    { name: 'Guest Users', value: guestCount, percentage: guestPercentage, color: '#f97316' },
-    { name: 'Registered (No Holdings)', value: registeredNoHoldings, percentage: registeredNoHoldingsPercentage, color: '#f1dd3f' },
-    { name: 'Registered (With Holdings)', value: registeredWithHoldings, percentage: registeredWithHoldingsPercentage, color: '#86efac' },
+    { name: 'Guest Users', value: guestCount, percentage: guestPercentage, color: '#9ca3af' },
+    { name: 'Registered (No Holdings)', value: registeredNoHoldings, percentage: registeredNoHoldingsPercentage, color: '#3b82f6' },
+    { name: 'Registered (With Holdings)', value: registeredWithHoldings, percentage: registeredWithHoldingsPercentage, color: '#10b981' },
   ];
+
+  const verifiedShareholders = registeredWithHoldings;
+  const conversionRate = totalUsers > 0 ? Math.round((verifiedShareholders / totalUsers) * 100 * 10) / 10 : 0;
 
   const chartOptions = {
     chart: {
@@ -637,11 +642,7 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
           speed: 350
         }
       },
-      events: {
-        dataPointMouseEnter: function(event: any, chartContext: any, config: any) {
-          // Smooth hover animation is handled by ApexCharts
-        }
-      },
+      events: { dataPointMouseEnter: function(_event: any) {} },
       offsetX: 0,
       offsetY: 0
     },
@@ -649,29 +650,28 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
     colors: chartData.map(item => item.color),
     dataLabels: {
       enabled: true,
-      formatter: function(val: number, opts: any) {
-        return Math.round(val) + '%';
-      },
-      style: {
-        fontSize: '18px',
-        fontWeight: 900,
-        fontFamily: 'Inter, sans-serif',
-        colors: chartData.map(item => item.color)
-      },
-      dropShadow: {
-        enabled: true,
-        top: 1,
-        left: 1,
-        blur: 4,
-        opacity: 0.4
-      }
+      formatter: function(val: number) { return Math.round(val) + '%'; },
+      style: { fontSize: '11px', fontWeight: 700, fontFamily: 'Inter, sans-serif', colors: ['#fff'] },
+      dropShadow: { enabled: true, top: 1, left: 1, blur: 3, opacity: 0.3 }
     },
     plotOptions: {
       pie: {
         donut: {
-          size: '70%',
+          size: '68%',
           labels: {
-            show: false
+            show: true,
+            name: { show: true, fontSize: '10px', fontFamily: 'Inter, sans-serif', fontWeight: 600, color: undefined, offsetY: -5 },
+            value: { show: true, fontSize: '22px', fontFamily: 'Inter, sans-serif', fontWeight: 900, color: undefined, offsetY: 4 },
+            total: {
+              show: true,
+              showAlways: true,
+              label: 'Total Users',
+              fontSize: '10px',
+              fontFamily: 'Inter, sans-serif',
+              fontWeight: 600,
+              color: '#9ca3af',
+              formatter: function() { return totalUsers.toLocaleString(); }
+            }
           }
         },
         expandOnClick: false,
@@ -688,8 +688,8 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
       show: true,
       curve: 'smooth' as const,
       lineCap: 'butt' as const,
-      colors: ['#fff'],
-      width: 2,
+      colors: ['transparent'],
+      width: 3,
       dashArray: 0
     },
     tooltip: {
@@ -700,13 +700,11 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
         fontSize: '12px',
         fontFamily: 'Inter, sans-serif'
       },
-      custom: function({ series, seriesIndex, dataPointIndex, w }: any) {
+      custom: function({ seriesIndex }: any) {
         const dataPoint = chartData[seriesIndex];
-        return `
-          <div style="padding: 8px 12px; background: #262626; border: 1px solid #404040; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); color: #e5e5e5; font-size: 12px; font-family: Inter, sans-serif; white-space: nowrap;">
-            ${dataPoint.name} : ${dataPoint.value.toLocaleString()} (${dataPoint.percentage}%)
-          </div>
-        `;
+        return `<div style="padding: 8px 12px; background: #262626; border: 1px solid #404040; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); color: #e5e5e5; font-size: 12px; font-family: Inter, sans-serif; white-space: nowrap;">
+          <span style="color: ${dataPoint.color}; font-weight: 900;">●</span>&nbsp; ${dataPoint.name}: <strong>${dataPoint.value.toLocaleString()}</strong> (${dataPoint.percentage}%)
+        </div>`;
       }
     },
     legend: {
@@ -740,33 +738,271 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
   const chartSeries = chartData.map(item => item.value);
 
   return (
-    <div className="flex flex-col items-center">
-      <div ref={chartRef} className="relative" style={{ width: '100%', maxWidth: '500px', padding: '40px' }}>
-        <Chart
-          key={`chart-${chartKey}`}
-          options={chartOptions}
-          series={chartSeries}
-          type="donut"
-          width="100%"
-          height="400"
-        />
+    <div className="flex flex-col h-full">
+      {/* Chart centered */}
+      <div className="flex-1 flex items-center justify-center">
+        <div ref={chartRef} className="relative">
+          <Chart
+            key={`chart-${chartKey}`}
+            options={chartOptions}
+            series={chartSeries}
+            type="donut"
+            width="240"
+            height="240"
+          />
+        </div>
       </div>
-      
-      <div className="flex items-center justify-center gap-10 mt-4">
+
+      {/* Legend below chart */}
+      <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-neutral-100 dark:border-neutral-800/50">
         {chartData.map((item, index) => (
-          <div
-            key={index}
-            className="flex items-center gap-3"
-          >
-            <div 
-              className="w-4 h-4 rounded-full shrink-0"
-              style={{ backgroundColor: item.color }}
-            />
-            <span className="text-xs font-black uppercase tracking-tight whitespace-nowrap text-neutral-900 dark:text-neutral-100">
-              {item.name}
-            </span>
+          <div key={index} className="flex items-center justify-between group/legend">
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 rounded-full shrink-0 transition-transform duration-200 group-hover/legend:scale-110" style={{ backgroundColor: item.color }} />
+              <span className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400">{item.name}</span>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xs font-bold text-neutral-900 dark:text-white">{item.value.toLocaleString()}</span>
+              <span className="text-[9px] font-medium text-neutral-400 dark:text-neutral-500">{item.percentage}%</span>
+            </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+};
+
+// ── Released Documents Panel ──────────────────────────────────────────
+
+/**
+ * Tag color mapping for document type labels
+ */
+const TAG_COLORS: Record<string, string> = {
+  'Earnings': 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800',
+  'Dividend': 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800',
+  'Disclosure': 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800',
+  'Press Release': 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800',
+  'AGM': 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800',
+  'Governance': 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800',
+  'ESG': 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-900/30 dark:text-teal-400 dark:border-teal-800',
+  'Presentation': 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800',
+  'Silent Period': 'bg-neutral-100 text-neutral-700 border-neutral-300 dark:bg-neutral-700/30 dark:text-neutral-400 dark:border-neutral-600',
+};
+
+/**
+ * Format document date from ISO timestamp
+ */
+const formatDocDate = (isoTimestamp: string): string => {
+  const date = new Date(isoTimestamp);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' \u2022 ' + date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+};
+
+interface ReleasedDocumentsPanelProps {
+  onViewAll?: () => void;
+}
+
+const ReleasedDocumentsPanel: React.FC<ReleasedDocumentsPanelProps> = ({ onViewAll }) => {
+  const [documents, setDocuments] = useState<ReleasedDocument[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [activeTag, setActiveTag] = useState<string>('All');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [showFilterDropdown, setShowFilterDropdown] = useState<boolean>(false);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const itemsPerPage = 5;
+  const filterDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fetch documents on mount
+  useEffect(() => {
+    const loadDocuments = async () => {
+      try {
+        setLoading(true);
+        const publishedDocs = await releasedDocumentsService.getPublishedDocuments();
+        setDocuments(publishedDocs);
+      } catch (error) {
+        console.error('Error loading released documents:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadDocuments();
+  }, []);
+
+  // Filter documents by tag (type)
+  const filteredByTag = activeTag === 'All' 
+    ? documents 
+    : documents.filter(d => getDocumentTypeLabel(d.type) === activeTag);
+
+  // Filter by search query
+  const filteredBySearch = searchQuery.trim() === '' 
+    ? filteredByTag 
+    : filteredByTag.filter(d => 
+        d.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        d.summary.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+  
+  const totalPages = Math.ceil(filteredBySearch.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const displayDocs = filteredBySearch.slice(startIndex, startIndex + itemsPerPage);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTag, searchQuery]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target as Node)) {
+        setShowFilterDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Search Bar + Filter Dropdown */}
+      <div className="flex items-center gap-1.5 mb-2.5">
+        <div className="flex-1 relative">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search documents..."
+            className="w-full px-3 py-1.5 text-[11px] bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200/80 dark:border-neutral-700/50 rounded-lg text-neutral-900 dark:text-white placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-primary/50 dark:focus:ring-primary-light/50 focus:border-transparent transition-all"
+          />
+          <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-300 dark:text-neutral-600 pointer-events-none" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+        </div>
+        <div className="relative" ref={filterDropdownRef}>
+          <button
+            onClick={() => setShowFilterDropdown(!showFilterDropdown)}
+            className={`px-2.5 py-1.5 rounded-lg border transition-all duration-200 ${
+              activeTag !== 'All'
+                ? 'bg-primary dark:bg-primary-light text-white dark:text-neutral-900 border-primary dark:border-primary-light'
+                : 'bg-neutral-50 dark:bg-neutral-800/60 text-neutral-400 dark:text-neutral-500 border-neutral-200/80 dark:border-neutral-700/50 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+            }`}
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+              <path d="M22 3H2l3 9h14l-3 9"/><path d="M6 12h12"/>
+            </svg>
+          </button>
+          {showFilterDropdown && (
+            <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-neutral-800 border border-neutral-200/80 dark:border-neutral-700/50 rounded-lg shadow-lg z-50 max-h-56 overflow-y-auto">
+              {DOCUMENT_TAGS.map(tag => (
+                <button
+                  key={tag}
+                  onClick={() => {
+                    setActiveTag(tag);
+                    setShowFilterDropdown(false);
+                  }}
+                  className={`w-full text-left px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors duration-200 ${
+                    activeTag === tag
+                      ? 'bg-primary dark:bg-primary-light text-white dark:text-neutral-900'
+                      : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700'
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Document List — flex-1 ensures it takes remaining space so pagination stays pinned */}
+      <div className="flex-1 space-y-0 divide-y divide-neutral-100/80 dark:divide-neutral-800/50">
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : displayDocs.length > 0 ? displayDocs.map((doc) => {
+          const docTypeLabel = getDocumentTypeLabel(doc.type);
+          const views = doc.views || 0;
+          const comments = doc.comments || 0;
+          const engagement = views + (comments * 3);
+          return (
+            <div key={doc.id} className="py-2 first:pt-0 group/doc cursor-pointer transition-all duration-200 hover:bg-neutral-50/50 dark:hover:bg-neutral-800/20 -mx-1 px-1 rounded">
+              {/* Title + Tag */}
+              <div className="flex items-center justify-between gap-2 mb-0.5">
+                <h4 className="text-[11px] font-bold text-neutral-900 dark:text-white leading-tight group-hover/doc:text-primary dark:group-hover/doc:text-primary-light transition-colors line-clamp-1 flex-1">{doc.title}</h4>
+                <span className={`shrink-0 px-1.5 py-px text-[7px] font-bold uppercase tracking-wider rounded border ${TAG_COLORS[docTypeLabel] || 'bg-neutral-100 text-neutral-600 border-neutral-200'}`}>{docTypeLabel}</span>
+              </div>
+
+              {/* Upload Date + Metrics inline */}
+              <div className="flex items-center gap-2.5">
+                <span className="text-[9px] text-neutral-400 dark:text-neutral-500 font-medium">
+                  {formatDocDate(doc.createdAt)}
+                </span>
+                {views > 0 && (
+                  <>
+                    <span className="text-neutral-200 dark:text-neutral-700">·</span>
+                    <span className="flex items-center gap-0.5 text-[9px] text-neutral-400 dark:text-neutral-500">
+                      <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>
+                      <span className="font-medium">{views.toLocaleString()}</span>
+                    </span>
+                  </>
+                )}
+                {comments > 0 && (
+                  <>
+                    <span className="text-neutral-200 dark:text-neutral-700">·</span>
+                    <span className="flex items-center gap-0.5 text-[9px] text-neutral-400 dark:text-neutral-500">
+                      <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+                      <span className="font-medium">{comments}</span>
+                    </span>
+                  </>
+                )}
+                {engagement > 0 && (
+                  <span className="flex items-center gap-0.5 text-[9px] text-neutral-400 dark:text-neutral-500 ml-auto">
+                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
+                    <span className="font-medium">{engagement.toLocaleString()}</span>
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        }) : (
+          <div className="flex items-center justify-center py-5">
+            <p className="text-[10px] font-medium text-neutral-400 dark:text-neutral-500 uppercase tracking-widest">No documents found</p>
+          </div>
+        )}
+      </div>
+
+      {/* Pagination — pinned to bottom via mt-auto */}
+      <div className="flex items-center justify-center gap-2 mt-auto pt-2.5 border-t border-neutral-100/80 dark:border-neutral-800/50">
+        {totalPages > 1 ? (
+          <>
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className={`px-1.5 py-1 rounded text-[9px] font-bold transition-all duration-200 ${
+                currentPage === 1
+                  ? 'text-neutral-300 dark:text-neutral-600 cursor-not-allowed'
+                  : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+              }`}
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+            </button>
+            <span className="px-1 text-[9px] font-medium text-neutral-400 dark:text-neutral-500">
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+              className={`px-1.5 py-1 rounded text-[9px] font-bold transition-all duration-200 ${
+                currentPage === totalPages
+                  ? 'text-neutral-300 dark:text-neutral-600 cursor-not-allowed'
+                  : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+              }`}
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+            </button>
+          </>
+        ) : (
+          <span className="px-1 text-[9px] font-medium text-neutral-400 dark:text-neutral-500">1 / 1</span>
+        )}
       </div>
     </div>
   );
@@ -876,6 +1112,114 @@ const getAvatarColor = (name: string): string => {
   return colors[Math.abs(hash) % colors.length];
 };
 
+// ── Dynamic Time-of-Day Icon ────────────────────────────────────────
+// Contextual SVG icons per time segment: filled + stroked for visual depth.
+// Inspired by weather-card UIs — visible, warm/cool fills with clean strokes.
+// Future: getWeatherIconOverride() can override these for strong weather.
+const TimeOfDayIcon: React.FC<{
+  segment: TimeSegment;
+  className?: string;
+  fillColor?: string;   // CSS fill color (e.g. rgba)
+}> = ({ segment, className = '', fillColor = 'currentColor' }) => {
+  const baseClass = `${className}`;
+
+  switch (segment) {
+    case 'dawn':
+      // Rising sun — half circle above horizon with warm fill and rays
+      return (
+        <svg className={baseClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+          {/* Sun body — filled half-circle */}
+          <path d="M6 16a6 6 0 0 1 12 0" fill={fillColor} />
+          {/* Horizon */}
+          <path d="M2 16h20" />
+          {/* Rays */}
+          <path d="M12 2v4" />
+          <path d="M4.93 5.93l2.83 2.83" />
+          <path d="M19.07 5.93l-2.83 2.83" />
+          {/* Small upward ray from center */}
+          <path d="M12 10v2" strokeWidth="1" />
+        </svg>
+      );
+
+    case 'morning':
+      // Clean sun — filled circle with short rays, warm and crisp
+      return (
+        <svg className={baseClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+          {/* Sun core — filled */}
+          <circle cx="12" cy="12" r="4.5" fill={fillColor} />
+          {/* Rays */}
+          <path d="M12 2.5v3" />
+          <path d="M12 18.5v3" />
+          <path d="M4.93 4.93l2.12 2.12" />
+          <path d="M16.95 16.95l2.12 2.12" />
+          <path d="M2.5 12h3" />
+          <path d="M18.5 12h3" />
+          <path d="M4.93 19.07l2.12-2.12" />
+          <path d="M16.95 7.05l2.12-2.12" />
+        </svg>
+      );
+
+    case 'afternoon':
+      // Stronger sun — larger filled circle with bolder rays
+      return (
+        <svg className={baseClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+          {/* Sun core — filled, larger */}
+          <circle cx="12" cy="12" r="5" fill={fillColor} />
+          {/* Rays — longer */}
+          <path d="M12 1v3.5" />
+          <path d="M12 19.5v3.5" />
+          <path d="M3.87 3.87l2.47 2.47" />
+          <path d="M17.66 17.66l2.47 2.47" />
+          <path d="M1 12h3.5" />
+          <path d="M19.5 12h3.5" />
+          <path d="M3.87 20.13l2.47-2.47" />
+          <path d="M17.66 6.34l2.47-2.47" />
+        </svg>
+      );
+
+    case 'evening':
+      // Sunset — sun sinking below horizon, warm fading light
+      return (
+        <svg className={baseClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+          {/* Sun body — filled, below horizon */}
+          <path d="M6 18a6 6 0 0 1 12 0" fill={fillColor} />
+          {/* Horizon line */}
+          <path d="M2 18h20" />
+          {/* Upper rays (fading) */}
+          <path d="M12 4v4" />
+          <path d="M5.64 7.64l2.12 2.12" />
+          <path d="M18.36 7.64l-2.12 2.12" />
+          {/* Soft downward indicator */}
+          <path d="M12 14v2" strokeWidth="1" />
+        </svg>
+      );
+
+    case 'night':
+      // Crescent moon with stars — filled crescent, elegant night feel
+      return (
+        <svg className={baseClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+          {/* Moon crescent — filled */}
+          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" fill={fillColor} />
+          {/* Star — cross shape */}
+          <path d="M19 2v4" strokeWidth="1" />
+          <path d="M21 4h-4" strokeWidth="1" />
+          {/* Small star dot */}
+          <circle cx="16" cy="8" r="0.5" fill="currentColor" />
+          {/* Tiny star dot */}
+          <circle cx="20" cy="10" r="0.4" fill="currentColor" />
+        </svg>
+      );
+
+    default:
+      // Fallback — simple filled circle
+      return (
+        <svg className={baseClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="4" fill={fillColor} />
+        </svg>
+      );
+  }
+};
+
 // Avatar component
 const Avatar: React.FC<{ name: string; size?: number; profilePictureUrl?: string }> = ({ name, size = 40, profilePictureUrl }) => {
   const [imageError, setImageError] = React.useState(false);
@@ -918,20 +1262,51 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
   const [officialShareholders, setOfficialShareholders] = useState<OfficialShareholder[]>([]);
   const [statusCache, setStatusCache] = useState<Record<string, string>>({});
   
-  // Get time-based greeting
-  const getTimeBasedGreeting = (): string => {
-    const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) {
-      return 'Good morning';
-    } else if (hour >= 12 && hour < 18) {
-      return 'Good afternoon';
-    } else {
-      return 'Good evening';
+  // Press Release state
+  const [pressReleaseView, setPressReleaseView] = useState<'none' | 'all' | 'detail'>('none');
+  const [selectedPressRelease, setSelectedPressRelease] = useState<PressRelease | null>(null);
+  const [relatedReleases, setRelatedReleases] = useState<PressRelease[]>([]);
+
+  // Handle press release selection
+  const handleSelectPressRelease = async (release: PressRelease) => {
+    setSelectedPressRelease(release);
+    setPressReleaseView('detail');
+    // Fetch related releases (same category, excluding current)
+    const all = await getAllPressReleases();
+    const related = all.filter(r => r.id !== release.id && r.category === release.category).slice(0, 3);
+    // If not enough from same category, add from others
+    if (related.length < 3) {
+      const others = all.filter(r => r.id !== release.id && r.category !== release.category).slice(0, 3 - related.length);
+      related.push(...others);
     }
+    setRelatedReleases(related);
   };
+
+  // ── Time-Aware Greeting State ──────────────────────────────────────
   const [activeDetailTab, setActiveDetailTab] = useState<'holdings' | 'engagement'>('holdings');
   const [isPulsing, setIsPulsing] = useState(false);
+  const [timeContext, setTimeContext] = useState<TimeContext>(() => getCurrentTimeContext());
+  const [segmentAnimating, setSegmentAnimating] = useState(false);
   const hasAnimatedRef = useRef(false);
+  const segmentCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Simple share price widget state
+  const [shareData, setShareData] = useState<ShareDataPoint[]>([]);
+  const [shareStats, setShareStats] = useState<{ current: number; change: number; changePercent: number } | null>(null);
+  const [shareRange, setShareRange] = useState<TimeRange>('6M');
+
+  // Fetch share price data
+  useEffect(() => {
+    const fetchShareData = async () => {
+      const [data, stats] = await Promise.all([
+        getDataByRange(shareRange),
+        getPriceStats(shareRange),
+      ]);
+      setShareData(data);
+      setShareStats({ current: stats.current, change: stats.change, changePercent: stats.changePercent });
+    };
+    fetchShareData();
+  }, [shareRange]);
 
   // Subscribe to official shareholders for real-time updates
   useEffect(() => {
@@ -967,22 +1342,65 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
     computeStatuses();
   }, [applicants]);
 
-  // Trigger animation once when dashboard page is visited
+  // ── Time-Segment Aware Animation Trigger ──────────────────────────
+  // Only triggers when a meaningful time-based transition happens,
+  // NOT on every page visit or refresh.
   useEffect(() => {
     if (!selectedInvestor) {
-      // Only animate if we haven't animated yet for this visit
       if (!hasAnimatedRef.current) {
-        hasAnimatedRef.current = true;
-        setIsPulsing(true);
-        // Keep isPulsing true after animation completes - don't reset it
-        // This keeps the calendar icon on the right side
+        const { shouldAnimate, context } = shouldTriggerGreetingAnimation();
+        setTimeContext(context);
+
+        if (shouldAnimate) {
+          hasAnimatedRef.current = true;
+          setIsPulsing(true);
+          setSegmentAnimating(true);
+          // End segment-change animation class after it plays
+          const timer = setTimeout(() => setSegmentAnimating(false), 900);
+          return () => clearTimeout(timer);
+        } else {
+          // Same segment, no animation — but still set isPulsing for layout
+          hasAnimatedRef.current = true;
+          setIsPulsing(true);
+        }
       }
     } else {
-      // Reset flag when navigating to detail view so it animates again when returning
+      // Reset flag when navigating to detail view so it re-checks on return
       hasAnimatedRef.current = false;
       setIsPulsing(false);
     }
   }, [selectedInvestor]);
+
+  // ── Live Time Segment Checker (every 5 minutes) ─────────────────
+  // Detects real-time transitions (e.g., morning → afternoon) while
+  // the user stays on the dashboard.
+  useEffect(() => {
+    segmentCheckIntervalRef.current = setInterval(() => {
+      const newContext = getCurrentTimeContext();
+      setTimeContext(prev => {
+        if (prev.segment !== newContext.segment || prev.weather !== newContext.weather) {
+          // Time segment or weather changed while on page
+          setIsPulsing(true);
+          setSegmentAnimating(true);
+          setTimeout(() => setSegmentAnimating(false), 900);
+          // Update localStorage so next page load won't re-animate
+          try {
+            localStorage.setItem('eurolandHub_lastGreetingSegment', newContext.segment);
+            localStorage.setItem('eurolandHub_lastGreetingWeather', newContext.weather);
+            localStorage.setItem('eurolandHub_lastGreetingAnimatedAt', Date.now().toString());
+          } catch { /* ignore */ }
+          return newContext;
+        }
+        return prev;
+      });
+    }, 5 * 60 * 1000); // Check every 5 minutes
+
+    return () => {
+      if (segmentCheckIntervalRef.current) {
+        clearInterval(segmentCheckIntervalRef.current);
+      }
+    };
+  }, []);
 
   // Calculate status for regular accounts
   const getAccountStatus = (applicant: Applicant) => {
@@ -1013,7 +1431,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
     const initials = getInitials(selectedInvestor.fullName);
 
     return (
-      <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="max-w-screen-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <button onClick={() => setSelectedInvestor(null)} className="flex items-center gap-2 text-[10px] font-black text-neutral-500 dark:text-neutral-400 hover:text-primary transition-colors uppercase tracking-widest group">
           <svg className="w-3 h-3 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7"/></svg>
           Master Dashboard
@@ -1124,69 +1542,257 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
     );
   }
 
+  // ── Press Release Sub-Views ─────────────────────────────────────────
+  if (pressReleaseView === 'all') {
+    return (
+      <div className="space-y-10 max-w-screen-2xl mx-auto pb-12">
+        <AllPressReleasesView
+          onBack={() => setPressReleaseView('none')}
+          onSelectRelease={handleSelectPressRelease}
+        />
+      </div>
+    );
+  }
+
+  if (pressReleaseView === 'detail' && selectedPressRelease) {
+    return (
+      <div className="space-y-10 max-w-screen-2xl mx-auto pb-12">
+        <PressReleaseDetail
+          release={selectedPressRelease}
+          relatedReleases={relatedReleases}
+          onBack={() => {
+            setSelectedPressRelease(null);
+            setPressReleaseView('none');
+          }}
+          onSelectRelated={handleSelectPressRelease}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-10 max-w-7xl mx-auto pb-12">
-      {/* EXACT CODE FOR ANIMATED GREETINGS CARD */}
-      <div className={`bg-neutral-100 dark:bg-black p-12 rounded-xl text-neutral-900 dark:text-white relative overflow-hidden group transition-all duration-700 cursor-default premium-ease
-        ${isPulsing ? 'shadow-neutral-900/20 dark:shadow-black/60' : 'shadow-2xl hover:shadow-neutral-900/20 dark:hover:shadow-black/60'}
-      `}
-      onMouseEnter={() => setIsPulsing(true)}
-      onMouseLeave={() => setIsPulsing(false)}
-      >
-        {/* Micro-texture overlay for dark mode */}
-        <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden">
-          <svg className="absolute inset-0 w-full h-full opacity-[0.03] dark:opacity-[0.08]">
-            <filter id="greetings-noise-filter">
-              <feTurbulence 
-                type="fractalNoise" 
-                baseFrequency="0.9" 
-                numOctaves="4" 
-                stitchTiles="stitch"
+    <div className="space-y-6 max-w-screen-2xl mx-auto pb-10">
+      {/* Greetings Card + Share Price Widget Side by Side */}
+      <div className="flex gap-5 items-stretch">
+        {/* Left: Greetings Card — Dynamic Time & Theme Aware */}
+        {(() => {
+          const theme = getGreetingTheme(timeContext.segment);
+          const subtitle = getGreetingSubtitle(timeContext.segment);
+          const isNight = timeContext.segment === 'night' || timeContext.segment === 'evening';
+          const isDarkMode = typeof window !== 'undefined' && document.documentElement.classList.contains('dark');
+          const fillColor = isDarkMode ? theme.iconFillDark : theme.iconFill;
+          const glowColor = isDarkMode ? theme.glowColorDark : theme.glowColor;
+
+          return (
+            <div className={`flex-1 p-8 rounded-xl relative overflow-hidden group transition-all duration-[1000ms] cursor-default premium-ease ${theme.shadowClass}
+              ${theme.bgClass} ${theme.bgClassDark}
+              ${isPulsing ? '' : 'hover:shadow-lg'}
+            `}
+            onMouseEnter={() => setIsPulsing(true)}
+            onMouseLeave={() => setIsPulsing(false)}
+            >
+              {/* Micro-texture overlay */}
+              <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden">
+                <svg className="absolute inset-0 w-full h-full">
+                  <filter id="greetings-noise-filter">
+                    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch" />
+                    <feColorMatrix type="saturate" values="0" />
+                  </filter>
+                  <rect width="100%" height="100%" filter="url(#greetings-noise-filter)" className={`${theme.noiseOpacity} ${theme.noiseOpacityDark}`} />
+                </svg>
+              </div>
+
+              {/* Time-based ambient overlay (light mode) */}
+              <div className={`absolute inset-0 rounded-xl pointer-events-none transition-all duration-[2000ms] ease-in-out ${theme.overlayClass} dark:hidden`} />
+              {/* Time-based ambient overlay (dark mode) */}
+              <div className={`absolute inset-0 rounded-xl pointer-events-none transition-all duration-[2000ms] ease-in-out hidden dark:block ${theme.overlayClassDark}`} />
+
+              {/* Radial glow — warm/cool ambient light behind icon area */}
+              <div
+                className={`absolute inset-0 rounded-xl pointer-events-none transition-opacity duration-[2000ms] ease-in-out animate-glow-breathe`}
+                style={{
+                  background: `radial-gradient(ellipse 50% 80% at 80% 40%, ${glowColor}, transparent 70%)`,
+                  opacity: isPulsing ? 1 : 0.7,
+                }}
               />
-              <feColorMatrix type="saturate" values="0" />
-            </filter>
-            <rect width="100%" height="100%" filter="url(#greetings-noise-filter)" />
-          </svg>
-        </div>
 
-        {/* Animated Background Calendar Icon */}
-        <div className={`absolute left-0 top-1/2 -translate-y-1/2 pointer-events-none transition-all duration-[1800ms] premium-ease
-          ${isPulsing 
-            ? 'left-[calc(100%-11.5rem)] top-12 translate-y-0 rotate-12 scale-[1.7] opacity-20' 
-            : 'left-0 top-1/2 -translate-y-1/2 rotate-0 scale-100 opacity-5 group-hover:left-[calc(100%-11.5rem)] group-hover:top-12 group-hover:translate-y-0 group-hover:rotate-12 group-hover:scale-[1.7] group-hover:opacity-20'
-          }
-        `}>
-          <svg className="w-96 h-96 text-neutral-900 dark:text-white animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-          </svg>
-        </div>
+              {/* Animated Background Time Icon (large, decorative) */}
+              <div className={`absolute left-0 top-1/2 -translate-y-1/2 pointer-events-none transition-all duration-[1800ms] premium-ease
+                ${isPulsing
+                  ? 'left-[calc(100%-11.5rem)] top-6 translate-y-0 rotate-6 scale-[1.4] opacity-[0.20]'
+                  : 'left-0 top-1/2 -translate-y-1/2 rotate-0 scale-100 opacity-[0.08] group-hover:left-[calc(100%-11.5rem)] group-hover:top-6 group-hover:translate-y-0 group-hover:rotate-6 group-hover:scale-[1.4] group-hover:opacity-[0.20]'
+                }
+              `}>
+                <TimeOfDayIcon
+                  segment={timeContext.segment}
+                  fillColor={fillColor}
+                  className={`w-72 h-72 ${theme.iconColor} transition-colors duration-[1000ms]`}
+                />
+              </div>
 
-        {/* Light Sweep Animation Layer */}
-        <div className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${isPulsing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-neutral-900/5 dark:via-white/5 to-transparent animate-sweep"></div>
-        </div>
+              {/* Light Sweep / Ambient Pulse Animation */}
+              <div className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${isPulsing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                <div className={`absolute inset-0 bg-gradient-to-r from-transparent ${theme.sweepTint} to-transparent ${
+                  isNight ? 'animate-ambient-pulse' : 'animate-sweep'
+                }`} />
+              </div>
 
-        {/* Header and Static Icon Layer */}
-        <div className="relative z-10 flex items-center justify-between">
-          <div className="flex flex-col gap-1 pl-4">
-            <h1 className="text-4xl font-black tracking-tighter uppercase mb-1 transition-transform duration-500 premium-ease group-hover:translate-x-2 text-neutral-900 dark:text-white">{getTimeBasedGreeting()}, IR Team</h1>
-            <p className="text-neutral-600 dark:text-neutral-400 font-medium text-sm transition-transform duration-500 premium-ease group-hover:translate-x-2 delay-75">Your investor dashboard is primed and ready.</p>
-          </div>
-          
-          {/* Static Anchor Calendar Icon - Prominent size matching shield icon scale */}
-          <div className={`pr-4 opacity-10 transition-all duration-700 premium-ease ${isPulsing ? 'scale-110 opacity-40' : 'group-hover:opacity-40 group-hover:scale-110'}`}>
-            <svg className="w-24 h-28 text-neutral-900 dark:text-white" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path d="M8 2v4"/>
-              <path d="M16 2v4"/>
-              <path d="M21 14V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8"/>
-              <path d="M3 10h18"/>
-              <path d="m16 20 2 2 4-4"/>
+              {/* Greeting Content */}
+              <div className="relative z-10 flex items-center justify-between">
+                <div className={`flex flex-col gap-0.5 pl-2 ${segmentAnimating ? 'animate-segment-fade-in' : ''}`}>
+                  <h1 className={`text-3xl font-black tracking-tighter uppercase mb-0.5 transition-all duration-[1000ms] premium-ease group-hover:translate-x-1 ${theme.textColor}`}>
+                    {timeContext.greeting}, IR Team
+                  </h1>
+                  <p className={`font-medium text-xs transition-all duration-[1000ms] premium-ease group-hover:translate-x-1 delay-75 ${theme.subtitleColor}`}>
+                    {subtitle}
+                  </p>
+                </div>
+                {/* Dynamic Time-of-Day Icon (anchor position — visible, filled) */}
+                <div className={`pr-2 transition-all duration-700 premium-ease ${isPulsing ? 'scale-110 opacity-[0.30]' : 'opacity-[0.15] group-hover:opacity-[0.30] group-hover:scale-110'}`}>
+                  <TimeOfDayIcon
+                    segment={timeContext.segment}
+                    fillColor={fillColor}
+                    className={`w-20 h-24 ${theme.iconColor} transition-colors duration-[1000ms]`}
+                  />
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Right: Share Price Widget */}
+        <div className="flex-shrink-0 w-[340px] h-[220px] rounded-xl bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] shadow-md relative overflow-hidden">
+          {/* Noise texture */}
+          <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden z-0">
+            <svg className="absolute inset-0 w-full h-full opacity-[0.02] dark:opacity-[0.05]">
+              <filter id="share-widget-noise">
+                <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch" />
+                <feColorMatrix type="saturate" values="0" />
+              </filter>
+              <rect width="100%" height="100%" filter="url(#share-widget-noise)" />
             </svg>
+          </div>
+
+          {/* Edge-to-edge chart (fills left, right, bottom) */}
+          <div className="absolute inset-0 top-[64px] z-[1]">
+            {shareData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={shareData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="sharePriceGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={shareStats && shareStats.change >= 0 ? '#4F46E5' : '#c73630'} stopOpacity={0.2} />
+                      <stop offset="80%" stopColor={shareStats && shareStats.change >= 0 ? '#4F46E5' : '#c73630'} stopOpacity={0.05} />
+                      <stop offset="100%" stopColor={shareStats && shareStats.change >= 0 ? '#4F46E5' : '#c73630'} stopOpacity={0.01} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="date" hide />
+                  <RechartsTooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload;
+                        const price = data.price;
+                        const currentIndex = shareData.findIndex((d: any) => d.date === data.date);
+                        const prevPrice = currentIndex > 0 ? shareData[currentIndex - 1].price : price;
+                        const change = price - prevPrice;
+                        const changePct = prevPrice !== 0 ? ((change / prevPrice) * 100) : 0;
+                        return (
+                          <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-lg px-3 py-2 min-w-[130px]">
+                            <p className="text-[9px] text-neutral-400 dark:text-neutral-500 font-medium mb-0.5">{data.date}</p>
+                            <p className="text-xs font-black text-neutral-900 dark:text-white">₱{price.toFixed(2)}</p>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              {change >= 0 ? (
+                                <svg className="w-2.5 h-2.5 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941" />
+                                </svg>
+                              ) : (
+                                <svg className="w-2.5 h-2.5 text-red-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6 9 12.75l4.286-4.286a11.948 11.948 0 0 1 4.306 6.43l.776 2.898m0 0 3.182-5.511m-3.182 5.51-5.511-3.181" />
+                                </svg>
+                              )}
+                              <span className={`text-[9px] font-bold ${change >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                                {change >= 0 ? '+' : ''}{change.toFixed(2)} ({change >= 0 ? '+' : ''}{changePct.toFixed(2)}%)
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                    cursor={{ stroke: 'rgba(120,120,120,0.2)', strokeWidth: 1, strokeDasharray: '4 4' }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="price"
+                    stroke={shareStats && shareStats.change >= 0 ? '#4F46E5' : '#c73630'}
+                    strokeWidth={1.5}
+                    fill="url(#sharePriceGradient)"
+                    dot={false}
+                    activeDot={{ r: 3, strokeWidth: 2, stroke: shareStats && shareStats.change >= 0 ? '#4F46E5' : '#c73630', fill: '#fff' }}
+                    animationDuration={800}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+          </div>
+
+          {/* Header (above chart) */}
+          <div className="relative z-20 px-4 pt-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <svg className="w-3.5 h-3.5 text-primary dark:text-primary-light" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />
+              </svg>
+              <span className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-[0.12em]">Share Price</span>
+            </div>
+
+            {/* Filter Buttons */}
+            <div className="flex items-center gap-0.5">
+              {(['1M', '3M', '6M', '1Y', 'ALL'] as TimeRange[]).map(range => (
+                <button
+                  key={range}
+                  onClick={() => setShareRange(range)}
+                  className={`px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider rounded transition-all duration-200 ${
+                    shareRange === range
+                      ? 'bg-primary dark:bg-primary-light text-white dark:text-neutral-900'
+                      : 'text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                  }`}
+                >
+                  {range}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Price + Trend (overlaid on top of chart, bottom-left) */}
+          <div className="absolute bottom-3 left-4 z-20">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xl font-black text-neutral-900 dark:text-white tracking-tight">
+                {shareStats ? `₱${shareStats.current.toFixed(2)}` : '—'}
+              </span>
+              {shareStats && (
+                <span className={`flex items-center gap-0.5 text-[10px] font-bold ${shareStats.change >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {shareStats.change >= 0 ? (
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6 9 12.75l4.286-4.286a11.948 11.948 0 0 1 4.306 6.43l.776 2.898m0 0 3.182-5.511m-3.182 5.51-5.511-3.181" />
+                    </svg>
+                  )}
+                  {shareStats.change >= 0 ? '+' : ''}{shareStats.changePercent.toFixed(2)}%
+                </span>
+              )}
+            </div>
+            <p className="text-[8px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">Last updated</p>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-8 overflow-visible">
+      <div className="grid grid-cols-4 gap-5 overflow-visible">
         {(() => {
           // Calculate new dashboard metrics
           const totalOfficialShareholders = officialShareholders.length;
@@ -1320,45 +1926,75 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
         })()}
       </div>
 
-      {/* Shareholder Snapshot */}
-      <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl overflow-hidden shadow-sm p-10">
-        <div className="flex items-center justify-between mb-8">
-          <h3 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-tighter">Shareholder Snapshot</h3>
-          <div className="flex items-center gap-2 text-neutral-500 dark:text-neutral-400">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+      {/* Row 3: Shareholder Snapshot (40%) + Documents Released (60%) — fixed height to prevent layout shift */}
+      <div className="grid grid-cols-1 lg:grid-cols-10 gap-5" style={{ gridAutoRows: '1fr' }}>
+        {/* Left: Shareholder Snapshot (40% = 4/10) */}
+        <div className="lg:col-span-4 bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl shadow-md p-5 relative overflow-hidden min-h-[460px]">
+          {/* Noise texture */}
+          <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden">
+            <svg className="absolute inset-0 w-full h-full opacity-[0.02] dark:opacity-[0.05]">
+              <filter id="snapshot-noise"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch" /><feColorMatrix type="saturate" values="0" /></filter>
+              <rect width="100%" height="100%" filter="url(#snapshot-noise)" />
             </svg>
-            <span className="text-sm font-black uppercase tracking-widest">User Tier Breakdown</span>
+          </div>
+          <div className="relative z-10 h-full flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Shareholder Snapshot</h3>
+                <p className="text-[9px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">User Segmentation Overview</p>
+              </div>
+              <div className="flex items-center gap-2 text-neutral-300 dark:text-neutral-600">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+              </div>
+            </div>
+            <ShareholderSnapshot applicants={applicants} />
           </div>
         </div>
-        
-        <ShareholderSnapshot applicants={applicants} />
+
+        {/* Right: Documents Released Panel (60% = 6/10) */}
+        <div className="lg:col-span-6 bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl shadow-md p-5 relative overflow-hidden min-h-[460px]">
+          {/* Noise texture */}
+          <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden">
+            <svg className="absolute inset-0 w-full h-full opacity-[0.02] dark:opacity-[0.05]">
+              <filter id="docs-panel-noise"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch" /><feColorMatrix type="saturate" values="0" /></filter>
+              <rect width="100%" height="100%" filter="url(#docs-panel-noise)" />
+            </svg>
+          </div>
+          <div className="relative z-10 h-full flex flex-col">
+            <div className="mb-3">
+              <h3 className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Documents Released</h3>
+            </div>
+            <ReleasedDocumentsPanel />
+          </div>
+        </div>
       </div>
 
       {/* Top Engaged Retail Investors */}
-      <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl overflow-hidden shadow-sm">
-        <div className="px-10 py-8 border-b border-neutral-200 dark:border-neutral-700 flex items-center justify-between bg-neutral-50/30 dark:bg-neutral-900/30">
+      <div className="bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl overflow-hidden shadow-md">
+        <div className="px-6 py-5 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
           <div>
-            <h3 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-tighter">Top Engaged Retail Investors</h3>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Ranked by engagement score (activity frequency, content views, and recent interactions)</p>
+            <h3 className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Top Engaged Retail Investors</h3>
+            <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">Ranked by engagement score</p>
           </div>
-          <button className="px-4 py-2 text-xs font-bold bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-600 transition-colors uppercase tracking-wider">
-            View All Shareholders
+          <button className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider">
+            View All
           </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-neutral-50 dark:bg-neutral-900 text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.2em]">
-                <th className="px-10 py-5 w-16 text-center">RANK</th>
-                <th className="px-10 py-5">SHAREHOLDER</th>
-                <th className="px-10 py-5">STATUS</th>
-                <th className="px-10 py-5">HOLDINGS</th>
-                <th className="px-10 py-5">ENGAGEMENT SCORE</th>
-                <th className="px-10 py-5 text-right">LAST ACTIVITY</th>
+              <tr className="bg-neutral-50/50 dark:bg-neutral-800/50 text-[9px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-[0.12em]">
+                <th className="px-6 py-3 w-14 text-center">Rank</th>
+                <th className="px-6 py-3">Shareholder</th>
+                <th className="px-6 py-3">Status</th>
+                <th className="px-6 py-3">Holdings</th>
+                <th className="px-6 py-3">Engagement</th>
+                <th className="px-6 py-3 text-right">Last Activity</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
+            <tbody className="divide-y divide-neutral-100/80 dark:divide-neutral-800/50">
               {(() => {
                 // Calculate engagement scores for investors
                 const investorsWithScores = applicants
@@ -1412,78 +2048,72 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                 
                 return investorsWithScores.length > 0 ? (
                   investorsWithScores.map((item) => (
-                    <tr key={item.applicant.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors">
-                      <td className="px-10 py-7 text-center">
-                        <span className="text-sm font-black text-neutral-900 dark:text-neutral-100">#{item.rank}</span>
+                    <tr key={item.applicant.id} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
+                      <td className="px-6 py-3.5 text-center">
+                        <span className="text-xs font-bold text-neutral-500 dark:text-neutral-400">#{item.rank}</span>
                       </td>
-                      <td className="px-10 py-7">
-                        <div className="flex items-center gap-3">
-                          <Avatar name={item.applicant.fullName} size={40} profilePictureUrl={item.applicant.profilePictureUrl} />
+                      <td className="px-6 py-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <Avatar name={item.applicant.fullName} size={32} profilePictureUrl={item.applicant.profilePictureUrl} />
                           <div className="min-w-0 flex-1">
                             <Tooltip content={item.applicant.fullName}>
-                              <p className="text-sm font-black text-neutral-900 dark:text-neutral-100 truncate max-w-[200px]">{item.applicant.fullName}</p>
+                              <p className="text-xs font-bold text-neutral-900 dark:text-white truncate max-w-[180px]">{item.applicant.fullName}</p>
                             </Tooltip>
                           </div>
                         </div>
                       </td>
-                      <td className="px-10 py-7">
+                      <td className="px-6 py-3.5">
                         {item.status === 'VERIFIED' ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800">
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/40">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                               <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
                               <path d="m9 12 2 2 4-4"/>
                             </svg>
                             Verified
                           </span>
                         ) : item.status === 'PENDING' ? (
-                          <span className="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-semibold bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
-                            <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/40">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                               <circle cx="12" cy="12" r="10"/>
                               <path d="M12 6v6l4 2"/>
                             </svg>
                             Pending
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-800">
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 border border-neutral-200/60 dark:border-neutral-700/40">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                               <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
                             </svg>
                             Unverified
                           </span>
                         )}
                       </td>
-                      <td className="px-10 py-7">
+                      <td className="px-6 py-3.5">
                         {item.holdings > 0 ? (
-                          <div className="flex items-center gap-2">
-                            <svg className="w-4 h-4 text-neutral-500 dark:text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-                              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-                            </svg>
-                            <span className="text-sm font-black text-neutral-900 dark:text-neutral-100">{item.holdings.toLocaleString()}</span>
-                          </div>
+                          <span className="text-xs font-bold text-neutral-900 dark:text-white">{item.holdings.toLocaleString()}</span>
                         ) : (
-                          <span className="text-sm text-neutral-500 dark:text-neutral-400">Not connected</span>
+                          <span className="text-[10px] text-neutral-400 dark:text-neutral-500">—</span>
                         )}
                       </td>
-                      <td className="px-10 py-7">
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-black text-neutral-900 dark:text-neutral-100 min-w-[3rem]">{item.score}</span>
-                          <div className="flex-1 h-2 bg-neutral-200 dark:bg-neutral-700 rounded-full overflow-hidden">
+                      <td className="px-6 py-3.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-neutral-900 dark:text-white min-w-[2rem]">{item.score}</span>
+                          <div className="flex-1 h-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden max-w-[100px]">
                             <div 
-                              className="h-full bg-blue-500 dark:bg-blue-400 rounded-full transition-all duration-500"
+                              className="h-full bg-blue-500/70 dark:bg-blue-400/60 rounded-full transition-all duration-500"
                               style={{ width: `${item.score}%` }}
                             />
                           </div>
                         </div>
                       </td>
-                      <td className="px-10 py-7 text-right">
-                        <span className="text-xs text-neutral-600 dark:text-neutral-400">{item.lastActive}</span>
+                      <td className="px-6 py-3.5 text-right">
+                        <span className="text-[10px] text-neutral-400 dark:text-neutral-500">{item.lastActive}</span>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-10 py-12 text-center text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">
+                    <td colSpan={6} className="px-6 py-10 text-center text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest">
                       No engaged investors found
                     </td>
                   </tr>
@@ -1492,37 +2122,37 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
             </tbody>
           </table>
         </div>
-        <div className="px-10 py-4 border-t border-neutral-200 dark:border-neutral-700 bg-neutral-50/30 dark:bg-neutral-900/30">
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            <strong>Engagement Criteria:</strong> Based on activity frequency (logins, content views), recent interactions (last 30 days), holdings quantity, and communication engagement (opens, clicks, event attendance).
+        <div className="px-6 py-3 border-t border-neutral-100 dark:border-neutral-800">
+          <p className="text-[10px] text-neutral-400 dark:text-neutral-500">
+            <strong className="text-neutral-500 dark:text-neutral-400">Engagement Criteria:</strong> Activity frequency, content views, recent interactions, holdings quantity, and communication engagement.
           </p>
         </div>
       </div>
 
       {/* Top Content by Engagement */}
-      <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl overflow-hidden shadow-sm">
-        <div className="px-10 py-8 border-b border-neutral-200 dark:border-neutral-700 flex items-center justify-between bg-neutral-50/30 dark:bg-neutral-900/30">
+      <div className="bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl overflow-hidden shadow-md">
+        <div className="px-6 py-5 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
           <div>
-            <h3 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-tighter">Top Content by Engagement</h3>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Content ranked by total engagement across all user types (guest, registered verified, registered unverified)</p>
+            <h3 className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Top Content by Engagement</h3>
+            <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">Ranked by total engagement across all user types</p>
           </div>
-          <button className="px-4 py-2 text-xs font-bold bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-600 transition-colors uppercase tracking-wider">
-            View All Content
+          <button className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider">
+            View All
           </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-neutral-50 dark:bg-neutral-900 text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.2em]">
-                <th className="px-10 py-5">CONTENT</th>
-                <th className="px-10 py-5">PUBLISHED</th>
-                <th className="px-10 py-5 text-right">TOTAL OPENS</th>
-                <th className="px-10 py-5 text-right">UNIQUE USER OPENS</th>
-                <th className="px-10 py-5 text-right">AVERAGE TIME</th>
-                <th className="px-10 py-5">ENGAGEMENT BREAKDOWN</th>
+              <tr className="bg-neutral-50/50 dark:bg-neutral-800/50 text-[9px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-[0.12em]">
+                <th className="px-6 py-3">Content</th>
+                <th className="px-6 py-3">Published</th>
+                <th className="px-6 py-3 text-right">Total Opens</th>
+                <th className="px-6 py-3 text-right">Unique Opens</th>
+                <th className="px-6 py-3 text-right">Avg. Time</th>
+                <th className="px-6 py-3">Breakdown</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
+            <tbody className="divide-y divide-neutral-100/80 dark:divide-neutral-800/50">
               {(() => {
                 // Generate mock content engagement data
                 const contentData = [
@@ -1586,28 +2216,28 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                   ];
                   
                   return (
-                    <tr key={index} className="hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors">
-                      <td className="px-10 py-7">
+                    <tr key={index} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
+                      <td className="px-6 py-3.5">
                         <div>
-                          <p className="text-sm font-black text-neutral-900 dark:text-neutral-100">{content.title}</p>
-                          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">{content.type}</p>
+                          <p className="text-xs font-bold text-neutral-900 dark:text-white">{content.title}</p>
+                          <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5">{content.type}</p>
                         </div>
                       </td>
-                      <td className="px-10 py-7">
-                        <span className="text-xs text-neutral-600 dark:text-neutral-400">{content.published}</span>
+                      <td className="px-6 py-3.5">
+                        <span className="text-[10px] text-neutral-500 dark:text-neutral-400">{content.published}</span>
                       </td>
-                      <td className="px-10 py-7 text-right">
-                        <span className="text-sm font-black text-neutral-900 dark:text-neutral-100">{content.totalOpens.toLocaleString()}</span>
+                      <td className="px-6 py-3.5 text-right">
+                        <span className="text-xs font-bold text-neutral-900 dark:text-white">{content.totalOpens.toLocaleString()}</span>
                       </td>
-                      <td className="px-10 py-7 text-right">
-                        <span className="text-sm font-black text-neutral-900 dark:text-neutral-100">{content.uniqueOpens.toLocaleString()}</span>
+                      <td className="px-6 py-3.5 text-right">
+                        <span className="text-xs font-bold text-neutral-900 dark:text-white">{content.uniqueOpens.toLocaleString()}</span>
                       </td>
-                      <td className="px-10 py-7 text-right">
-                        <span className="text-sm font-black text-neutral-900 dark:text-neutral-100">{content.averageTime}</span>
+                      <td className="px-6 py-3.5 text-right">
+                        <span className="text-xs font-bold text-neutral-900 dark:text-white">{content.averageTime}</span>
                       </td>
-                      <td className="px-10 py-7">
-                        <div className="flex items-center gap-4">
-                          <div className="w-16 h-16 flex-shrink-0">
+                      <td className="px-6 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 flex-shrink-0">
                             <Chart
                               options={{
                                 chart: { type: 'donut' as const, animations: { enabled: false } },
@@ -1626,16 +2256,16 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                               }}
                               series={chartData.map(item => item.value)}
                               type="donut"
-                              width="64"
-                              height="64"
+                              width="48"
+                              height="48"
                             />
                           </div>
-                          <div className="flex flex-col gap-1">
+                          <div className="flex flex-col gap-0.5">
                             {chartData.map((item, idx) => (
-                              <div key={idx} className="flex items-center gap-2">
-                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
-                                <span className="text-xs text-neutral-600 dark:text-neutral-400">
-                                  {item.name}: <span className="font-black text-neutral-900 dark:text-neutral-100">{item.value.toLocaleString()}</span>
+                              <div key={idx} className="flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
+                                <span className="text-[10px] text-neutral-500 dark:text-neutral-400">
+                                  {item.name}: <span className="font-bold text-neutral-900 dark:text-white">{item.value.toLocaleString()}</span>
                                 </span>
                               </div>
                             ))}
@@ -1649,38 +2279,38 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
             </tbody>
           </table>
         </div>
-        <div className="px-10 py-4 border-t border-neutral-200 dark:border-neutral-700 bg-neutral-50/30 dark:bg-neutral-900/30 flex items-center justify-between">
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">
-            <strong>Engagement includes:</strong> Views, downloads, time spent, shares, and interactions across all user types.
+        <div className="px-6 py-3 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
+          <p className="text-[10px] text-neutral-400 dark:text-neutral-500">
+            <strong className="text-neutral-500 dark:text-neutral-400">Engagement:</strong> Views, downloads, time spent, shares, interactions.
           </p>
-          <button className="px-4 py-2 text-xs font-bold bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-600 transition-colors uppercase tracking-wider">
-            View Analytics →
+          <button className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider">
+            Analytics →
           </button>
         </div>
       </div>
 
       {/* Recent User Activities */}
-      <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl overflow-hidden shadow-sm">
-        <div className="px-10 py-8 border-b border-neutral-200 dark:border-neutral-700 flex items-center justify-between bg-neutral-50/30 dark:bg-neutral-900/30">
+      <div className="bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl overflow-hidden shadow-md">
+        <div className="px-6 py-5 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
           <div>
-            <h3 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-tighter">Recent User Activities</h3>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Recent activities from registered users (verified and unverified)</p>
+            <h3 className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Recent User Activities</h3>
+            <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">From registered users (verified and unverified)</p>
           </div>
-          <button className="px-4 py-2 text-xs font-bold bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-600 transition-colors uppercase tracking-wider">
-            View All User Activities
+          <button className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider">
+            View All
           </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-neutral-50 dark:bg-neutral-900 text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.2em]">
-                <th className="px-10 py-5">USER</th>
-                <th className="px-10 py-5">ACTIVITY</th>
-                <th className="px-10 py-5">CONTENT</th>
-                <th className="px-10 py-5 text-right">TIME</th>
+              <tr className="bg-neutral-50/50 dark:bg-neutral-800/50 text-[9px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-[0.12em]">
+                <th className="px-6 py-3">User</th>
+                <th className="px-6 py-3">Activity</th>
+                <th className="px-6 py-3">Content</th>
+                <th className="px-6 py-3 text-right">Time</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
+            <tbody className="divide-y divide-neutral-100/80 dark:divide-neutral-800/50">
               {(() => {
                 // Generate recent activities from applicants
                 const activities = applicants
@@ -1761,75 +2391,55 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                 
                 return activities.length > 0 ? (
                   activities.map((item, index) => (
-                    <tr key={item.applicant.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors">
-                      <td className="px-10 py-7">
-                        <div className="flex items-start gap-3">
-                          <Avatar name={item.applicant.fullName} size={40} profilePictureUrl={item.applicant.profilePictureUrl} />
+                    <tr key={item.applicant.id} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
+                      <td className="px-6 py-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <Avatar name={item.applicant.fullName} size={32} profilePictureUrl={item.applicant.profilePictureUrl} />
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <p className="text-sm font-black text-neutral-900 dark:text-neutral-100">{item.applicant.fullName}</p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-xs font-bold text-neutral-900 dark:text-white">{item.applicant.fullName}</p>
                               {item.status === 'VERIFIED' && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800">
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full text-[9px] font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/40">
+                                  <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                                     <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
                                     <path d="m9 12 2 2 4-4"/>
                                   </svg>
-                                  Verified
                                 </span>
                               )}
                               {item.status === 'PENDING' && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
-                                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full text-[9px] font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/40">
+                                  <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                                     <circle cx="12" cy="12" r="10"/>
                                     <path d="M12 6v6l4 2"/>
                                   </svg>
-                                  Pending
-                                </span>
-                              )}
-                              {item.status === 'UNVERIFIED' && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-50 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-800">
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                                    <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
-                                  </svg>
-                                  Unverified
                                 </span>
                               )}
                             </div>
                             {item.status === 'VERIFIED' && item.rank && (
-                              <div className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
-                                <span>Rank #{item.rank}</span>
-                                <svg className="w-3 h-3 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M5 12h14"/>
-                                  <path d="M12 5l7 7-7 7"/>
-                                </svg>
-                                <span>({item.holdings.toLocaleString()} shares)</span>
-                              </div>
+                              <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5">Rank #{item.rank} · {item.holdings.toLocaleString()} shares</p>
                             )}
                             {item.status !== 'VERIFIED' && (
-                              <p className="text-xs text-neutral-500 dark:text-neutral-400">{item.applicant.email}</p>
+                              <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5 truncate max-w-[160px]">{item.applicant.email}</p>
                             )}
                           </div>
                         </div>
                       </td>
-                      <td className="px-10 py-7">
-                        <div className="flex items-center gap-2">
+                      <td className="px-6 py-3.5">
+                        <div className="flex items-center gap-1.5">
                           {item.activityIcon === 'eye' && (
-                            <svg className="w-4 h-4 text-neutral-500 dark:text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <svg className="w-3 h-3 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                               <circle cx="12" cy="12" r="3"/>
                             </svg>
                           )}
                           {item.activityIcon === 'document' && (
-                            <svg className="w-4 h-4 text-neutral-500 dark:text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <svg className="w-3 h-3 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                               <path d="M14 2v6h6"/>
-                              <path d="M16 13H8"/>
-                              <path d="M16 17H8"/>
-                              <path d="M10 9H8"/>
                             </svg>
                           )}
                           {item.activityIcon === 'calendar' && (
-                            <svg className="w-4 h-4 text-neutral-500 dark:text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <svg className="w-3 h-3 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                               <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
                               <line x1="16" y1="2" x2="16" y2="6"/>
                               <line x1="8" y1="2" x2="8" y2="6"/>
@@ -1837,25 +2447,25 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                             </svg>
                           )}
                           {item.activityIcon === 'email' && (
-                            <svg className="w-4 h-4 text-neutral-500 dark:text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <svg className="w-3 h-3 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                               <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
                               <polyline points="22,6 12,13 2,6"/>
                             </svg>
                           )}
-                          <span className="text-sm text-neutral-900 dark:text-neutral-100">{item.activity}</span>
+                          <span className="text-[11px] text-neutral-700 dark:text-neutral-300">{item.activity}</span>
                         </div>
                       </td>
-                      <td className="px-10 py-7">
-                        <span className="text-sm text-neutral-900 dark:text-neutral-100">{item.content}</span>
+                      <td className="px-6 py-3.5">
+                        <span className="text-[11px] text-neutral-700 dark:text-neutral-300">{item.content}</span>
                       </td>
-                      <td className="px-10 py-7 text-right">
-                        <span className="text-xs text-neutral-600 dark:text-neutral-400">{item.timeAgo}</span>
+                      <td className="px-6 py-3.5 text-right">
+                        <span className="text-[10px] text-neutral-400 dark:text-neutral-500">{item.timeAgo}</span>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={4} className="px-10 py-12 text-center text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">
+                    <td colSpan={4} className="px-6 py-10 text-center text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest">
                       No recent activities found
                     </td>
                   </tr>

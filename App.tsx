@@ -786,7 +786,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
           breadcrumbItems={breadcrumbItems}
         />
         
-        <main className="flex-1 overflow-y-auto p-8 bg-white dark:bg-neutral-900">
+        <main className="flex-1 overflow-y-auto p-6 bg-white dark:bg-neutral-900">
           {view === 'dashboard' && (
             <OverviewDashboard applicants={applicants} />
           )}

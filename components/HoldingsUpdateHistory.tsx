@@ -83,3 +83,4 @@ const HoldingsUpdateHistory: React.FC<HoldingsUpdateHistoryProps> = ({ history }
 
 export default HoldingsUpdateHistory;
 
+

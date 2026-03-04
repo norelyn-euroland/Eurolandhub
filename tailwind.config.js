@@ -27,8 +27,44 @@ module.exports = {
           700: '#404040',
           800: '#262626',
           900: '#171717',
-        }
-      }
+        },
+        share: {
+          line: '#c73630',
+          positive: '#d2ff79',
+          bg: '#181210',
+          grid: '#b9c0bd',
+        },
+      },
+      keyframes: {
+        sweep: {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(100%)' },
+        },
+        'ambient-pulse': {
+          '0%, 100%': { opacity: '0.4' },
+          '50%': { opacity: '0.8' },
+        },
+        'glow-breathe': {
+          '0%, 100%': { opacity: '0.7', transform: 'scale(1)' },
+          '50%': { opacity: '1', transform: 'scale(1.04)' },
+        },
+        'rain-shimmer': {
+          '0%': { transform: 'translateY(-2px)', opacity: '0.3' },
+          '50%': { transform: 'translateY(2px)', opacity: '0.6' },
+          '100%': { transform: 'translateY(-2px)', opacity: '0.3' },
+        },
+        'segment-fade-in': {
+          '0%': { opacity: '0', transform: 'translateY(4px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+      },
+      animation: {
+        sweep: 'sweep 3s ease-in-out infinite',
+        'ambient-pulse': 'ambient-pulse 6s ease-in-out infinite',
+        'glow-breathe': 'glow-breathe 5s ease-in-out infinite',
+        'rain-shimmer': 'rain-shimmer 4s ease-in-out infinite',
+        'segment-fade-in': 'segment-fade-in 0.8s ease-out forwards',
+      },
     },
   },
   plugins: [],

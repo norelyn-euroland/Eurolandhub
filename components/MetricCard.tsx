@@ -320,11 +320,11 @@ const MetricCard: React.FC<MetricCardProps> = ({
   const valueText = typeof value === 'number' ? value.toLocaleString() : value;
 
   return (
-    <div className="group relative rounded-2xl bg-white dark:bg-[#1a1a1a] p-6 shadow-xl border border-neutral-200 dark:border-white/5 flex flex-col justify-between transition-all duration-300 hover:border-neutral-300 dark:hover:border-white/10 hover:bg-neutral-50 dark:hover:bg-[#1e1e1e] hover:-translate-y-1 h-[260px] overflow-visible">
+    <div className="group relative rounded-xl bg-white dark:bg-[#1a1a1a] p-5 shadow-md border border-neutral-200/80 dark:border-white/[0.04] flex flex-col justify-between transition-all duration-300 hover:border-neutral-300 dark:hover:border-white/10 hover:-translate-y-0.5 h-[220px] overflow-visible">
 
       {/* Micro-texture overlay for dark mode */}
-      <div className="absolute inset-0 rounded-2xl pointer-events-none overflow-hidden">
-        <svg className="absolute inset-0 w-full h-full opacity-[0.03] dark:opacity-[0.08]">
+      <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden">
+        <svg className="absolute inset-0 w-full h-full opacity-[0.02] dark:opacity-[0.05]">
           <filter id={`noise-${gradientId}`}>
             <feTurbulence 
               type="fractalNoise" 
@@ -340,61 +340,61 @@ const MetricCard: React.FC<MetricCardProps> = ({
 
       {/* Metric Header Section */}
       <div className="z-10 relative pointer-events-none" style={{ zIndex: 10 }}>
-        <h3 className="text-neutral-500 dark:text-gray-400 text-xs font-semibold mb-2 tracking-widest uppercase opacity-70">
+        <h3 className="text-neutral-400 dark:text-neutral-500 text-[10px] font-bold mb-1.5 tracking-[0.12em] uppercase">
           {title}
         </h3>
-        <div className="flex flex-wrap items-baseline gap-2 mb-1">
+        <div className="flex flex-wrap items-baseline gap-2 mb-0.5">
           <span
-            className="text-3xl font-black text-neutral-900 dark:text-white tracking-tight whitespace-nowrap"
+            className="text-2xl font-black text-neutral-900 dark:text-white tracking-tight whitespace-nowrap"
             title={valueText}
           >
             {valueText}
           </span>
           <div
-            className={`flex items-center px-2 py-0.5 rounded-full text-[11px] font-black shrink-0 ${trendClass} ${trendVisibilityClass}`}
+            className={`flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${trendClass} ${trendVisibilityClass}`}
           >
             <span>{isNeutral ? '•' : isUp ? '↑' : '↓'}</span>
             <span className="ml-0.5">{trendValue}</span>
             {trendLabel ? (
-              <span className="ml-1 text-[9px] font-black tracking-widest uppercase opacity-70">
+              <span className="ml-1 text-[8px] font-bold tracking-widest uppercase opacity-60">
                 {trendLabel}
               </span>
             ) : null}
           </div>
           {secondaryTrend ? (
             <div
-              className={`flex items-center px-2 py-0.5 rounded-full text-[11px] font-black shrink-0 ${secondaryTrendClass} ${secondaryVisibilityClass}`}
+              className={`flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${secondaryTrendClass} ${secondaryVisibilityClass}`}
             >
               <span>{secondaryIsNeutral ? '•' : secondaryIsUp ? '↑' : '↓'}</span>
               <span className="ml-0.5">{secondaryTrendValue}</span>
               {secondaryTrend.label ? (
-                <span className="ml-1 text-[9px] font-black tracking-widest uppercase opacity-70">
+                <span className="ml-1 text-[8px] font-bold tracking-widest uppercase opacity-60">
                   {secondaryTrend.label}
                 </span>
               ) : null}
             </div>
           ) : null}
         </div>
-        <p className="text-neutral-600 dark:text-gray-500 text-xs font-medium italic opacity-80">
+        <p className="text-neutral-500 dark:text-neutral-500 text-[11px] font-medium opacity-70">
           {subtitle}
         </p>
       </div>
 
       {/* Animated Sparkline Section — full-width, bottom section */}
-      <div className="absolute bottom-0 left-0 right-0 h-[42%] transition-opacity duration-500 group-hover:opacity-100 opacity-60 overflow-visible" style={{ zIndex: 5 }}>
+      <div className="absolute bottom-0 left-0 right-0 h-[38%] transition-opacity duration-500 group-hover:opacity-90 opacity-50 overflow-visible" style={{ zIndex: 5 }}>
         <div ref={chartContainerRef} className="w-full h-full">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={convertChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={theme.stroke} stopOpacity={0.4} />
+                  <stop offset="5%" stopColor={theme.stroke} stopOpacity={0.25} />
                   <stop offset="95%" stopColor={theme.stroke} stopOpacity={0} />
                 </linearGradient>
               </defs>
               <XAxis dataKey="date" hide />
               <Tooltip
                 content={<CustomTooltip themeColor={theme.stroke} containerRef={chartContainerRef} tooltipSymbol={tooltipSymbol} />}
-                cursor={{ stroke: theme.stroke, strokeWidth: 1.5, strokeDasharray: '4 4' }}
+                cursor={{ stroke: theme.stroke, strokeWidth: 1, strokeDasharray: '4 4' }}
                 allowEscapeViewBox={{ x: true, y: true }}
                 offset={10}
                 wrapperStyle={{ pointerEvents: 'none', outline: 'none' }}
@@ -404,18 +404,18 @@ const MetricCard: React.FC<MetricCardProps> = ({
                 type="monotone"
                 dataKey="value"
                 stroke={theme.stroke}
-                strokeWidth={3}
+                strokeWidth={2}
                 fillOpacity={1}
                 fill={`url(#${gradientId})`}
                 isAnimationActive={true}
                 animationDuration={1500}
                 animationEasing="cubic-bezier(0.16, 1, 0.3, 1)"
                 activeDot={{
-                  r: 6,
+                  r: 5,
                   fill: theme.stroke,
                   stroke: '#ffffff',
                   strokeWidth: 2,
-                  className: "dark:stroke-[#1a1a1a] drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]"
+                  className: "dark:stroke-[#1a1a1a]"
                 }}
               />
             </AreaChart>

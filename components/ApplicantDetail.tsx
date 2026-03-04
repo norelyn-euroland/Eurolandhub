@@ -311,7 +311,7 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
           }
         }
       `}</style>
-      <div className="max-w-7xl mx-auto pb-20 animate-in fade-in slide-in-from-bottom-2 duration-500">
+      <div className="max-w-screen-2xl mx-auto pb-20 animate-in fade-in slide-in-from-bottom-2 duration-500">
       <div className="flex items-center justify-between mb-10">
         <button 
           onClick={onBack}

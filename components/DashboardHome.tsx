@@ -641,7 +641,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
   };
 
   return (
-    <div className="space-y-10 max-w-7xl mx-auto">
+    <div className="space-y-10 max-w-screen-2xl mx-auto">
       <div className="grid grid-cols-4 gap-8 overflow-visible">
         {metrics.map((metric, i) => {
           // For verified rate, extract numeric value for chart

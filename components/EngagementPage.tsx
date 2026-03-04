@@ -9,7 +9,7 @@ interface EngagementPageProps {
 
 const EngagementPage: React.FC<EngagementPageProps> = () => {
   return (
-    <div className="space-y-8 max-w-7xl mx-auto">
+    <div className="space-y-8 max-w-screen-2xl mx-auto">
       {/* Header */}
       <div className="flex items-end justify-between">
         <div>
