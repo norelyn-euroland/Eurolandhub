@@ -750,10 +750,10 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     const initials = getInitials(selectedUser.fullName);
 
     return (
-      <div className="max-w-screen-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="max-w-screen-2xl mx-auto space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <button 
           onClick={() => setSelectedUser(null)} 
-          className="flex items-center gap-2 text-[10px] font-black text-neutral-500 dark:text-neutral-400 hover:text-primary transition-colors uppercase tracking-widest group"
+          className="flex items-center gap-1.5 text-[10px] font-black text-neutral-500 dark:text-neutral-400 hover:text-primary transition-colors uppercase tracking-widest group"
         >
           <svg className="w-3 h-3 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7"/>
@@ -761,40 +761,40 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
           Shareholders
         </button>
         
-        {/* Profile Card - Matching image style */}
-        <div className="bg-neutral-700 dark:bg-neutral-800 rounded-lg p-8 flex items-center gap-8">
-          {/* Avatar with teal-green background */}
-          <div className="w-20 h-20 rounded-full bg-teal-500 flex items-center justify-center text-white font-bold text-2xl shrink-0">
+        {/* Profile Card */}
+        <div className="bg-white dark:bg-[#1a1a1a] border border-neutral-200 dark:border-white/[0.04] rounded-lg p-5 flex items-center gap-5 shadow-sm">
+          {/* Avatar */}
+          <div className="w-14 h-14 rounded-full bg-teal-500 flex items-center justify-center text-white font-bold text-lg shrink-0">
             {initials}
           </div>
           <div className="flex-1">
-            <h2 className="text-3xl font-bold text-white uppercase tracking-tight mb-2">{selectedUser.fullName}</h2>
+            <h2 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 uppercase tracking-tight mb-1">{selectedUser.fullName}</h2>
             {/* Status with icon */}
-            <div className="flex items-center gap-2 mb-6">
+            <div className="flex items-center gap-1.5 mb-3">
               {displayStatus === 'VERIFIED INVESTOR' && (
-                <div className="flex items-center gap-2">
-                  <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <div className="flex items-center gap-1.5">
+                  <svg className="w-4 h-4 text-emerald-500 dark:text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                     <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
                     <path d="m9 12 2 2 4-4"/>
                   </svg>
-                  <p className="text-base text-emerald-400 font-medium uppercase tracking-wide">{displayStatus}</p>
+                  <p className="text-xs text-emerald-500 dark:text-emerald-400 font-medium uppercase tracking-wide">{displayStatus}</p>
                 </div>
               )}
               {displayStatus === 'PENDING INVESTOR' && (
-                <div className="flex items-center gap-2">
-                  <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <div className="flex items-center gap-1.5">
+                  <svg className="w-4 h-4 text-amber-500 dark:text-amber-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                     <circle cx="12" cy="12" r="10"/>
                     <path d="M12 6v6l4 2"/>
                   </svg>
-                  <p className="text-base text-amber-400 font-medium uppercase tracking-wide">{displayStatus}</p>
+                  <p className="text-xs text-amber-500 dark:text-amber-400 font-medium uppercase tracking-wide">{displayStatus}</p>
                 </div>
               )}
               {(displayStatus === 'UNVERIFIED INVESTOR' || !displayStatus.includes('VERIFIED') && !displayStatus.includes('PENDING')) && (
-                <div className="flex items-center gap-2">
-                  <svg className="w-5 h-5 text-neutral-400" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <div className="flex items-center gap-1.5">
+                  <svg className="w-4 h-4 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                     <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
                   </svg>
-                  <p className="text-base text-neutral-400 font-medium uppercase tracking-wide">{displayStatus}</p>
+                  <p className="text-xs text-neutral-400 dark:text-neutral-500 font-medium uppercase tracking-wide">{displayStatus}</p>
                 </div>
               )}
             </div>
@@ -814,26 +814,26 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
               const regId = getRegistrationId();
               const displayRegId = !regId ? '—' : regId.length > 6 ? regId.slice(-6) : regId;
               return (
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-6 md:gap-8 mt-6">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 md:gap-6 mt-3">
                   <div>
-                    <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Registration ID</p>
-                    <p className="text-sm text-white">{displayRegId}</p>
+                    <p className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1">Registration ID</p>
+                    <p className="text-xs text-neutral-800 dark:text-neutral-200">{displayRegId}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Email</p>
-                    <p className="text-sm text-white">{selectedUser.email}</p>
+                    <p className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1">Email</p>
+                    <p className="text-xs text-neutral-800 dark:text-neutral-200">{selectedUser.email}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Contact</p>
-                    <p className="text-sm text-white">{selectedUser.phoneNumber || 'Not provided'}</p>
+                    <p className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1">Contact</p>
+                    <p className="text-xs text-neutral-800 dark:text-neutral-200">{selectedUser.phoneNumber || 'Not provided'}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Network Origin</p>
-                    <p className="text-sm text-white">{selectedUser.location || 'Global Hub'}</p>
+                    <p className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1">Network Origin</p>
+                    <p className="text-xs text-neutral-800 dark:text-neutral-200">{selectedUser.location || 'Global Hub'}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-white/70 uppercase tracking-wider mb-2">Registry Date</p>
-                    <p className="text-sm text-white">
+                    <p className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-1">Registry Date</p>
+                    <p className="text-xs text-neutral-800 dark:text-neutral-200">
                       {selectedUser.submissionDate ? new Date(selectedUser.submissionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                     </p>
                   </div>
@@ -847,20 +847,20 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
           <div className="flex border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50/30 dark:bg-neutral-900/30">
             <button 
               onClick={() => setActiveDetailTab('holdings')} 
-              className={`px-10 py-5 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeDetailTab === 'holdings' ? 'text-blue-400' : 'text-neutral-400 hover:text-blue-400'}`}
+              className={`px-6 py-3 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeDetailTab === 'holdings' ? 'text-blue-400' : 'text-neutral-400 hover:text-blue-400'}`}
             >
               Holdings summary
-              {activeDetailTab === 'holdings' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-400"></div>}
+              {activeDetailTab === 'holdings' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-400"></div>}
             </button>
             <button 
               onClick={() => setActiveDetailTab('engagement')} 
-              className={`px-10 py-5 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeDetailTab === 'engagement' ? 'text-blue-400' : 'text-neutral-400 hover:text-blue-400'}`}
+              className={`px-6 py-3 text-[10px] font-black uppercase tracking-widest transition-all relative ${activeDetailTab === 'engagement' ? 'text-blue-400' : 'text-neutral-400 hover:text-blue-400'}`}
             >
               Engagement
-              {activeDetailTab === 'engagement' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-400"></div>}
+              {activeDetailTab === 'engagement' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-400"></div>}
             </button>
           </div>
-          <div className="p-10">
+          <div className="p-6">
             {activeDetailTab === 'holdings' ? (
               <HoldingsSummary applicant={selectedUser} />
             ) : (
@@ -873,23 +873,23 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
   }
 
   return (
-    <div className="space-y-8 max-w-screen-2xl mx-auto relative">
+    <div className="space-y-4 max-w-screen-2xl mx-auto relative">
       {/* Side Audit Drawer */}
       <div className={`fixed inset-0 z-[60] transition-opacity duration-300 ${isAuditOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
         <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsAuditOpen(false)}></div>
         <div className={`absolute top-0 right-0 h-full w-[400px] bg-white dark:bg-neutral-800 shadow-2xl transition-transform duration-500 transform ${isAuditOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-          <div className="p-8 h-full flex flex-col">
-            <div className="flex items-center justify-between mb-10">
+          <div className="p-6 h-full flex flex-col">
+            <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="text-sm font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-widest">Audit Trail</h3>
-                <p className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mt-1">Immutability Log</p>
+                <h3 className="text-xs font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-widest">Audit Trail</h3>
+                <p className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mt-0.5">Immutability Log</p>
               </div>
               <button onClick={() => setIsAuditOpen(false)} className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded-full transition-colors">
                 <svg className="w-5 h-5 text-neutral-500 dark:text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-6">
+            <div className="flex-1 overflow-y-auto space-y-4">
               {MOCK_AUDIT_LOGS.map((log) => (
                 <div key={log.id} className="relative pl-6 border-l border-neutral-200 dark:border-neutral-700">
                   <div className="absolute left-[-4px] top-1.5 w-2 h-2 rounded-full bg-[#082b4a] dark:bg-[#00adf0]"></div>
@@ -904,7 +904,7 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
               ))}
             </div>
 
-            <button className="w-full py-4 text-[10px] font-black bg-[#082b4a] dark:bg-[#00adf0] text-white uppercase tracking-widest rounded-lg mt-8 shadow-lg hover:bg-[#061d33] dark:hover:bg-[#0099d6] transition-all">
+            <button className="w-full py-3 text-[10px] font-black bg-[#082b4a] dark:bg-[#00adf0] text-white uppercase tracking-widest rounded-lg mt-4 shadow-lg hover:bg-[#061d33] dark:hover:bg-[#0099d6] transition-all">
               Download Full Security Log
             </button>
           </div>
@@ -912,14 +912,14 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
       </div>
 
       {/* Top Header Section */}
-      <div className="flex items-end justify-between">
+      <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 tracking-tighter uppercase">Shareholders</h2>
-          <p className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.2em] mt-1">
+          <h2 className="text-xl font-black text-neutral-900 dark:text-neutral-100 tracking-tighter uppercase">Shareholders</h2>
+          <p className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.2em] mt-0.5">
             {issuer ? `${issuer.name.toUpperCase()} • Issuer Information` : 'Issuer Information • Updated Today'}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button
             onClick={handleUploadToFirebase}
             disabled={isUploading}
@@ -963,8 +963,8 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
           </div>
       ) : issuer ? (
         <>
-          {/* Issuer Details Header - Enlarged like greeting card */}
-          <div className="bg-neutral-100 dark:bg-black p-12 rounded-xl shadow-xl relative overflow-hidden group hover:shadow-2xl transition-all duration-300 mb-6">
+          {/* Issuer Details Header */}
+          <div className="bg-neutral-100 dark:bg-black p-6 rounded-xl shadow-md relative overflow-hidden group hover:shadow-lg transition-all duration-300 mb-4">
             {/* Micro-texture overlay for dark mode */}
             <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden">
               <svg className="absolute inset-0 w-full h-full opacity-[0.03] dark:opacity-[0.08]">
@@ -981,9 +981,9 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
               </svg>
         </div>
         
-            <div className="absolute top-1/2 right-0 -translate-y-1/2 p-4 opacity-10 group-hover:opacity-20 group-hover:scale-110 transition-all duration-500">
+            <div className="absolute top-1/2 right-0 -translate-y-1/2 p-4 opacity-10 group-hover:opacity-15 group-hover:scale-105 transition-all duration-500">
               <svg 
-                className="w-24 h-24" 
+                className="w-16 h-16" 
                 viewBox="0 0 66.14583 66.141065" 
                 xmlns="http://www.w3.org/2000/svg"
                 preserveAspectRatio="xMidYMid meet"
@@ -1018,10 +1018,10 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
             <div className="relative z-10">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <h3 className="text-4xl font-black text-neutral-900 dark:text-white uppercase tracking-tight mb-4">
+                  <h3 className="text-2xl font-black text-neutral-900 dark:text-white uppercase tracking-tight mb-2">
                     {issuer.name.toUpperCase()}
                   </h3>
-                  <div className="flex flex-wrap gap-6 text-sm text-neutral-600 dark:text-neutral-400">
+                  <div className="flex flex-wrap gap-4 text-xs text-neutral-600 dark:text-neutral-400">
                     <div>
                       <span className="font-bold uppercase tracking-wider">Issuer ID:</span>{' '}
                       <span className="font-mono">{issuer.id}</span>
@@ -1045,7 +1045,7 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
         </div>
 
           {/* Dynamic Metric Cards Grid - Changes based on active tab */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             {displayTab === 'shareholder' ? (
               <>
                 {/* Shareholder Tab (Masterlist View) */}
@@ -1121,13 +1121,12 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
             )}
           </div>
 
-          {/* Tabs Section */}
           {/* Tab Headers */}
-          <div className="border-b border-neutral-200 dark:border-neutral-700 mb-6">
+          <div className="border-b border-neutral-200 dark:border-neutral-700 mb-3">
             <div className="flex">
               <button
                 onClick={() => handleTabChange('shareholder')}
-                className={`px-6 py-4 text-sm font-black uppercase tracking-wider transition-all duration-300 ${
+                className={`px-5 py-2.5 text-xs font-black uppercase tracking-wider transition-all duration-300 ${
                   activeTab === 'shareholder'
                     ? 'text-neutral-900 dark:text-neutral-100 border-b-2 border-neutral-900 dark:border-neutral-100'
                     : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
@@ -1137,7 +1136,7 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
               </button>
                <button
                  onClick={() => handleTabChange('all-users')}
-                 className={`px-6 py-4 text-sm font-black uppercase tracking-wider transition-all duration-300 ${
+                 className={`px-5 py-2.5 text-xs font-black uppercase tracking-wider transition-all duration-300 ${
                    activeTab === 'all-users'
                      ? 'text-neutral-900 dark:text-neutral-100 border-b-2 border-neutral-900 dark:border-neutral-100'
                      : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
@@ -1149,12 +1148,12 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
           </div>
 
           {/* Search and Filters */}
-          <div className="mb-6">
+          <div className="mb-3">
             {/* Search Input with Filter Icon */}
             <div className="relative flex items-center gap-2">
               <div className="relative flex-1">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <svg className="h-5 w-5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="h-4 w-4 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
                 </div>
@@ -1166,7 +1165,7 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                     setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
                   }}
                   placeholder="Search by name, email, or ID..."
-                  className="w-full pl-10 pr-4 py-2.5 text-sm border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 placeholder-neutral-500 dark:placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0] focus:border-transparent"
+                  className="w-full pl-10 pr-4 py-2 text-xs border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 placeholder-neutral-500 dark:placeholder-neutral-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0] focus:border-transparent"
                 />
               </div>
               
@@ -1175,7 +1174,7 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                 <button
                   type="button"
                   onClick={() => setIsFilterOpen(v => !v)}
-                  className={`h-[42px] w-[42px] inline-flex items-center justify-center bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors ${
+                  className={`h-[36px] w-[36px] inline-flex items-center justify-center bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors ${
                     statusFilter && statusFilter !== 'all' ? 'bg-[#082b4a] dark:bg-[#00adf0] border-[#082b4a] dark:border-[#00adf0]' : ''
                   }`}
                   aria-label="Filter by status"
@@ -1332,13 +1331,13 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                     <div>
                        <table className="w-full text-left border-collapse">
                          <thead>
-                           <tr className="bg-neutral-50 dark:bg-neutral-900/50 text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200 dark:border-neutral-700">
-                             <th className="px-4 py-5">NO.</th>
-                             <th className="px-4 py-5">NAME</th>
-                             <th className="px-4 py-5">EMAIL</th>
-                             <th className="px-4 py-5">REGISTRATION DATE</th>
-                             <th className="px-4 py-5">STATUS</th>
-                             <th className="px-4 py-5">LAST ACTIVE</th>
+                           <tr className="bg-neutral-50 dark:bg-neutral-900/50 text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200 dark:border-neutral-700">
+                             <th className="px-3 py-2.5">NO.</th>
+                             <th className="px-3 py-2.5">NAME</th>
+                             <th className="px-3 py-2.5">EMAIL</th>
+                             <th className="px-3 py-2.5">REGISTRATION DATE</th>
+                             <th className="px-3 py-2.5">STATUS</th>
+                             <th className="px-3 py-2.5">LAST ACTIVE</th>
                            </tr>
                          </thead>
                          <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
@@ -1385,38 +1384,38 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                                <tr 
                                  key={applicant.id} 
                                  onClick={() => setSelectedUser(applicant)}
-                                 className="group hover:bg-neutral-50 dark:hover:bg-neutral-700/80 transition-all cursor-pointer"
+                                 className="group hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition-all cursor-pointer"
                                >
-                                 <td className="px-4 py-5">
-                                   <span className="text-sm font-mono font-black text-neutral-900 dark:text-neutral-100">
+                                 <td className="px-3 py-2.5">
+                                   <span className="text-xs font-mono font-bold text-neutral-500 dark:text-neutral-400">
                                      {rowNumber}
                                    </span>
                                  </td>
-                                 <td className="px-4 py-5">
+                                 <td className="px-3 py-2.5">
                                    <Tooltip content={applicant.fullName}>
-                                     <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 truncate">{applicant.fullName}</p>
+                                     <p className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 truncate max-w-[180px]">{applicant.fullName}</p>
                                    </Tooltip>
                                  </td>
-                                 <td className="px-4 py-5">
+                                 <td className="px-3 py-2.5">
                                    <Tooltip content={applicant.email || 'No email'}>
-                                     <span className="text-xs text-neutral-600 dark:text-neutral-400 truncate block">{applicant.email || '—'}</span>
+                                     <span className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate block max-w-[200px]">{applicant.email || '—'}</span>
                                    </Tooltip>
                                  </td>
-                                 <td className="px-4 py-5">
-                                   <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                                 <td className="px-3 py-2.5">
+                                   <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
                                      {registrationDate ? new Date(registrationDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                                    </span>
                                  </td>
-                                 <td className="px-4 py-5">
-                                   <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${statusBadgeColor}`}>
+                                 <td className="px-3 py-2.5">
+                                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-medium rounded-full uppercase tracking-wider ${statusBadgeColor}`}>
                                      {accountStatus === 'VERIFIED' && (
-                                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                       <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                                          <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
                                          <path d="m9 12 2 2 4-4"/>
                                        </svg>
                                      )}
                                      {accountStatus === 'PRE-VERIFIED' && (
-                                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                       <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                                          <circle cx="12" cy="12" r="10"/>
                                          <path d="M12 6v6l4 2"/>
                                        </svg>
@@ -1424,8 +1423,8 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                                      {statusLabel}
                                    </span>
                                  </td>
-                                 <td className="px-4 py-5">
-                                   <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                                 <td className="px-3 py-2.5">
+                                   <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
                                      {lastActive ? new Date(lastActive).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                                    </span>
                                  </td>
@@ -1437,22 +1436,25 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                       {(() => {
                         const filteredData = filterData(verifiedShareholders.filter((item): item is Applicant => 'fullName' in item));
                         return filteredData.length > itemsPerPage && (
-                          <div className="mt-6 flex items-center justify-between border-t border-neutral-200 dark:border-neutral-700 pt-4">
-                            <div className="text-sm text-neutral-600 dark:text-neutral-400">
-                              Showing {((currentPage.shareholder - 1) * itemsPerPage) + 1} to {Math.min(currentPage.shareholder * itemsPerPage, filteredData.length)} of {filteredData.length} official investors
+                          <div className="mt-3 flex items-center justify-between border-t border-neutral-200 dark:border-neutral-700 pt-3">
+                            <div className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                              Showing {((currentPage.shareholder - 1) * itemsPerPage) + 1}–{Math.min(currentPage.shareholder * itemsPerPage, filteredData.length)} of {filteredData.length}
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5">
                               <button
                                 onClick={() => handlePageChange('shareholder', currentPage.shareholder - 1)}
                                 disabled={currentPage.shareholder === 1}
-                                className="px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                className="px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-md hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                               >
-                                Previous
+                                Prev
                               </button>
+                              <span className="text-[11px] text-neutral-500 dark:text-neutral-400 px-1">
+                                {currentPage.shareholder} / {getTotalPages(filteredData.length)}
+                              </span>
                               <button
                                 onClick={() => handlePageChange('shareholder', currentPage.shareholder + 1)}
                                 disabled={currentPage.shareholder >= getTotalPages(filteredData.length)}
-                                className="px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                className="px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-md hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                               >
                                 Next
                               </button>
@@ -1487,18 +1489,18 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                     </div>
                   ) : allUsers.length > 0 ? (
                     <div>
-                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-4 italic">
-                        Tracks all frontend-registered accounts (basic sign-ups without share claims). Includes pre-verified accounts since they represent provisioned users ready for claiming/activation, providing a full registration overview.
+                      <p className="text-[10px] text-neutral-500 dark:text-neutral-400 mb-2 italic">
+                        Tracks all frontend-registered accounts. Includes pre-verified accounts ready for claiming/activation.
                       </p>
                       <table className="w-full text-left border-collapse">
                         <thead>
-                          <tr className="bg-neutral-50 dark:bg-neutral-900/50 text-[10px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200 dark:border-neutral-700">
-                            <th className="px-4 py-5">NO.</th>
-                            <th className="px-4 py-5">NAME</th>
-                            <th className="px-4 py-5">EMAIL</th>
-                            <th className="px-4 py-5">REGISTRATION DATE</th>
-                            <th className="px-4 py-5">STATUS</th>
-                            <th className="px-4 py-5">LAST ACTIVE</th>
+                          <tr className="bg-neutral-50 dark:bg-neutral-900/50 text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.15em] border-b border-neutral-200 dark:border-neutral-700">
+                            <th className="px-3 py-2.5">NO.</th>
+                            <th className="px-3 py-2.5">NAME</th>
+                            <th className="px-3 py-2.5">EMAIL</th>
+                            <th className="px-3 py-2.5">REGISTRATION DATE</th>
+                            <th className="px-3 py-2.5">STATUS</th>
+                            <th className="px-3 py-2.5">LAST ACTIVE</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
@@ -1518,39 +1520,39 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                               <tr 
                                 key={user.id} 
                                 onClick={() => setSelectedUser(user)}
-                                className="group hover:bg-neutral-50 dark:hover:bg-neutral-700/80 transition-all cursor-pointer"
+                                className="group hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition-all cursor-pointer"
                               >
-                                <td className="px-4 py-5">
-                                  <span className="text-sm font-mono font-black text-neutral-900 dark:text-neutral-100">
+                                <td className="px-3 py-2.5">
+                                  <span className="text-xs font-mono font-bold text-neutral-500 dark:text-neutral-400">
                                     {rowNumber}
                                   </span>
                                 </td>
-                                <td className="px-4 py-5">
+                                <td className="px-3 py-2.5">
                                   <Tooltip content={user.fullName}>
-                                    <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 truncate">{user.fullName}</p>
+                                    <p className="text-xs font-semibold text-neutral-900 dark:text-neutral-100 truncate max-w-[180px]">{user.fullName}</p>
                                   </Tooltip>
                                 </td>
-                                <td className="px-4 py-5">
+                                <td className="px-3 py-2.5">
                                   <Tooltip content={user.email || 'No email'}>
-                                    <span className="text-xs text-neutral-600 dark:text-neutral-400 truncate block">{user.email || '—'}</span>
+                                    <span className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate block max-w-[200px]">{user.email || '—'}</span>
                                   </Tooltip>
                                 </td>
-                                <td className="px-4 py-5">
-                                  <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                                <td className="px-3 py-2.5">
+                                  <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
                                     {registrationDate ? new Date(registrationDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                                   </span>
                                 </td>
-                                <td className="px-4 py-5">
+                                <td className="px-3 py-2.5">
                                   <Tooltip content={userStatus === null ? "Unverified account" : undefined}>
-                                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[10px] font-medium rounded-full uppercase tracking-wider ${statusBadgeColor}`}>
+                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-medium rounded-full uppercase tracking-wider ${statusBadgeColor}`}>
                                       {userStatus === 'VERIFIED' && (
-                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                                           <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
                                           <path d="m9 12 2 2 4-4"/>
                                         </svg>
                                       )}
                                       {userStatus === 'PRE-VERIFIED' && (
-                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                                           <circle cx="12" cy="12" r="10"/>
                                           <path d="M12 6v6l4 2"/>
                                         </svg>
@@ -1559,8 +1561,8 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                                     </span>
                                   </Tooltip>
                                 </td>
-                                <td className="px-4 py-5">
-                                  <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                                <td className="px-3 py-2.5">
+                                  <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
                                     {lastActive ? new Date(lastActive).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                                   </span>
                                 </td>
@@ -1572,22 +1574,25 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                       {(() => {
                         const filteredData = filterData(allUsers);
                         return filteredData.length > itemsPerPage && (
-                          <div className="mt-6 flex items-center justify-between border-t border-neutral-200 dark:border-neutral-700 pt-4">
-                            <div className="text-sm text-neutral-600 dark:text-neutral-400">
-                              Showing {((currentPage['all-users'] - 1) * itemsPerPage) + 1} to {Math.min(currentPage['all-users'] * itemsPerPage, filteredData.length)} of {filteredData.length} users
+                          <div className="mt-3 flex items-center justify-between border-t border-neutral-200 dark:border-neutral-700 pt-3">
+                            <div className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                              Showing {((currentPage['all-users'] - 1) * itemsPerPage) + 1}–{Math.min(currentPage['all-users'] * itemsPerPage, filteredData.length)} of {filteredData.length}
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5">
                               <button
                                 onClick={() => handlePageChange('all-users', currentPage['all-users'] - 1)}
                                 disabled={currentPage['all-users'] === 1}
-                                className="px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                className="px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-md hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                               >
-                                Previous
+                                Prev
                               </button>
+                              <span className="text-[11px] text-neutral-500 dark:text-neutral-400 px-1">
+                                {currentPage['all-users']} / {getTotalPages(filteredData.length)}
+                              </span>
                               <button
                                 onClick={() => handlePageChange('all-users', currentPage['all-users'] + 1)}
                                 disabled={currentPage['all-users'] >= getTotalPages(filteredData.length)}
-                                className="px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                className="px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-md hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                               >
                                 Next
                               </button>

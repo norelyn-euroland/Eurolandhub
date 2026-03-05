@@ -664,12 +664,17 @@ const DocumentsPage: React.FC = () => {
 
       {/* ── Preview Modal ── */}
       {isPreviewModalOpen && selectedDocument && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center transition-all duration-300" style={{ marginLeft: '16rem' }}>
-          <div className="fixed inset-0 bg-neutral-900/40 dark:bg-black/40 backdrop-blur-sm z-40 transition-all duration-300" />
+        <>
+          {/* Backdrop - covers main content area only, not sidebar */}
           <div
-            className="relative bg-white dark:bg-neutral-900 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col z-50"
-            onClick={(e) => e.stopPropagation()}
-          >
+            className="fixed top-0 right-0 bottom-0 left-64 bg-neutral-900/40 dark:bg-black/40 backdrop-blur-sm z-40 transition-all duration-300"
+            onClick={() => setIsPreviewModalOpen(false)}
+          />
+          <div className="fixed top-0 right-0 bottom-0 left-64 z-50 flex items-center justify-center transition-all duration-300">
+            <div
+              className="relative bg-white dark:bg-neutral-900 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col z-50"
+              onClick={(e) => e.stopPropagation()}
+            >
             <div className="px-8 py-6 border-b border-neutral-200 dark:border-neutral-700 flex items-center justify-between">
               <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100">
                 {selectedDocument.title}
@@ -703,8 +708,9 @@ const DocumentsPage: React.FC = () => {
                 </div>
               </div>
             </div>
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

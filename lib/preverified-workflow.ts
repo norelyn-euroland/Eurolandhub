@@ -136,6 +136,67 @@ export async function markAccountAsClaimed(applicantId: string): Promise<void> {
 }
 
 /**
+ * Claim a pre-verified account directly by email.
+ *
+ * Use this when the frontend needs to explicitly trigger the claim for a
+ * known pre-verified user (e.g. after OTP verification on the registration page).
+ *
+ * Returns:
+ *   { success: true,  applicantId }          — account claimed successfully
+ *   { success: true,  applicantId, already }  — account was already claimed
+ *   { success: false, error }                 — no pre-verified record found or claim failed
+ */
+export async function claimPreVerifiedAccountByEmail(
+  email: string,
+  extraData?: {
+    phoneNumber?: string;
+    location?: string;
+    profilePictureUrl?: string;
+  }
+): Promise<{ success: boolean; applicantId?: string; already?: boolean; error?: string }> {
+  try {
+    const existing = await applicantService.findPreVerifiedByEmail(email);
+
+    if (!existing) {
+      return { success: false, error: 'No pre-verified account found for this email address.' };
+    }
+
+    // Already claimed — idempotent, return success
+    if (existing.accountStatus === 'VERIFIED' || existing.workflowStage === 'ACCOUNT_CLAIMED') {
+      console.log('[CLAIM FLOW] Account already claimed:', existing.id);
+      return { success: true, applicantId: existing.id, already: true };
+    }
+
+    // Attach any additional profile data from the registration form before claiming
+    if (extraData) {
+      const patch: Partial<typeof existing> = {};
+      if (extraData.phoneNumber && !existing.phoneNumber) patch.phoneNumber = extraData.phoneNumber;
+      if (extraData.location && !existing.location) patch.location = extraData.location;
+      if (extraData.profilePictureUrl) patch.profilePictureUrl = extraData.profilePictureUrl;
+
+      if (Object.keys(patch).length > 0) {
+        await applicantService.update(existing.id, patch);
+      }
+    }
+
+    // Run full claim workflow:
+    //   • workflowStage  → ACCOUNT_CLAIMED
+    //   • systemStatus   → CLAIMED
+    //   • accountStatus  → VERIFIED
+    //   • status         → APPROVED
+    //   • officialShareholders: PRE-VERIFIED → VERIFIED
+    //   • Sends Step-6 verified-account email
+    await markAccountAsClaimed(existing.id);
+
+    console.log('[CLAIM FLOW] Pre-verified account claimed via claimPreVerifiedAccountByEmail:', existing.id);
+    return { success: true, applicantId: existing.id };
+  } catch (error) {
+    console.error('[CLAIM FLOW] Failed to claim pre-verified account:', error);
+    return { success: false, error: String(error) };
+  }
+}
+
+/**
  * Check and update expired invitations
  * Should be called periodically (e.g., via scheduled job or on account access)
  * 

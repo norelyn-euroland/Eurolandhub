@@ -300,6 +300,87 @@ export interface AIAnalysisResult {
   recommendation: string;
 }
 
+// ── Engagement Analytics Types ──────────────────────────────────────────
+
+/**
+ * Engagement score level for quick categorization
+ */
+export type EngagementLevel = 'high' | 'medium' | 'low';
+
+/**
+ * Engagement record for investor activity tracking
+ */
+export interface EngagementRecord {
+  investorId: string;
+  investorName: string;
+  investorEmail: string;
+  investorType: 'official' | 'guest';
+  profilePictureUrl?: string;
+  lastActive: string; // ISO timestamp
+  recentlyViewed?: {
+    documentId: string;
+    documentTitle: string;
+    readCompletion: number; // 0-100
+  };
+  documentsViewed: Array<{
+    documentId: string;
+    documentTitle: string;
+    readCompletion: number; // 0-100
+    viewedAt: string; // ISO timestamp
+  }>;
+  interactions: {
+    likes: number;
+    comments: number;
+    reactions: number;
+  };
+  commentsPosted: Array<{
+    documentTitle: string;
+    commentText: string;
+    postedAt: string; // ISO timestamp
+  }>;
+  eventActivity: {
+    joined: number;
+    requested: number;
+  };
+  meetingRequests: number;
+  engagementScore: number; // 0-100
+  engagementLevel: EngagementLevel;
+}
+
+/**
+ * Event type for investor events and meetings
+ */
+export type IREventType = 'meeting' | 'briefing' | 'webinar' | 'earnings_discussion' | 'other';
+
+/**
+ * Participant selection mode for event invitations
+ */
+export type ParticipantMode = 'all' | 'selected' | 'vip';
+
+/**
+ * Event/Meeting interface for IRO event management
+ */
+export interface IREvent {
+  id: string;
+  title: string;
+  description: string;
+  eventType: IREventType;
+  dateTime: string; // ISO timestamp
+  endDateTime?: string; // ISO timestamp
+  location?: string;
+  meetingLink?: string;
+  createdBy: string; // IRO user ID
+  createdAt: string; // ISO timestamp
+  updatedAt: string; // ISO timestamp
+  participantMode: ParticipantMode;
+  invitations: {
+    invited: string[]; // Investor IDs
+    accepted: string[];
+    declined: string[];
+    pending: string[];
+  };
+}
+
 /**
  * Document types for investor relations documents
  */

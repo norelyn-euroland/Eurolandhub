@@ -46,7 +46,10 @@ export async function syncOfficialShareholderOnCreate(applicant: Applicant): Pro
 }
 
 /**
- * Sync official shareholder when account is claimed
+ * Sync official shareholder when account is claimed.
+ *
+ * Uses upsert (not update) so the record is created if it somehow doesn't exist yet,
+ * preventing silent failures when the officialShareholders document is missing.
  */
 export async function syncOfficialShareholderOnClaim(applicant: Applicant): Promise<void> {
   if (!applicant.isPreVerified || !applicant.registrationId) {
@@ -55,16 +58,32 @@ export async function syncOfficialShareholderOnClaim(applicant: Applicant): Prom
 
   try {
     const now = new Date().toISOString();
-    
-    // Update status to VERIFIED
-    await officialShareholderService.update(applicant.registrationId, {
+
+    // Fetch existing record to preserve fields like holdings, stake, etc.
+    const existing = await officialShareholderService.getById(applicant.registrationId);
+
+    // Build the full record in case it needs to be created from scratch
+    const record: OfficialShareholder = {
+      id: applicant.registrationId,
+      name: existing?.name || applicant.fullName,
+      email: applicant.email || existing?.email || undefined,
+      phone: applicant.phoneNumber || existing?.phone || undefined,
+      country: applicant.location || existing?.country || undefined,
       status: 'VERIFIED',
       applicantId: applicant.id,
-      accountClaimedAt: applicant.accountClaimedAt || now,
+      holdings: existing?.holdings || undefined,
+      stake: existing?.stake || undefined,
+      accountType: existing?.accountType || undefined,
+      createdAt: existing?.createdAt || applicant.submissionDate || now,
       updatedAt: now,
-    });
+      emailSentAt: existing?.emailSentAt || applicant.emailSentAt || undefined,
+      accountClaimedAt: applicant.accountClaimedAt || now,
+    };
 
-    console.log(`Synced official shareholder on claim: ${applicant.registrationId} (VERIFIED)`);
+    // Upsert ensures the record is created even if it was never seeded
+    await officialShareholderService.upsert(record);
+
+    console.log(`Synced official shareholder on claim: ${applicant.registrationId} (PRE-VERIFIED → VERIFIED)`);
   } catch (error) {
     console.error('Error syncing official shareholder on claim:', error);
     // Don't throw - this is a sync operation

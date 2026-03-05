@@ -311,13 +311,15 @@ const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center transition-all duration-300" style={{ marginLeft: '16rem' }}>
-      {/* Blurred background */}
+    <>
+      {/* Backdrop - covers main content area only, not sidebar */}
       <div
-        className="fixed inset-0 bg-neutral-900/40 dark:bg-black/40 backdrop-blur-sm z-40 transition-all duration-300"
+        className="fixed top-0 right-0 bottom-0 left-64 bg-neutral-900/40 dark:bg-black/40 backdrop-blur-sm z-40 transition-all duration-300"
         onClick={handleClose}
       />
 
+      {/* Modal Container - centered within content area */}
+      <div className="fixed top-0 right-0 bottom-0 left-64 z-50 flex items-center justify-center transition-all duration-300">
       {/* Modal Content */}
       <div
         className="relative bg-white dark:bg-[#1a1a1a] rounded-xl shadow-2xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-hidden flex flex-col z-50"
@@ -648,7 +650,7 @@ const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
 
         {/* Close Confirmation Dialog */}
         {showCloseConfirm && (
-          <div className="absolute inset-0 bg-neutral-900/50 dark:bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="fixed top-0 right-0 bottom-0 left-64 bg-neutral-900/40 dark:bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center transition-all duration-300">
             <div className="bg-white dark:bg-[#1a1a1a] rounded-xl shadow-2xl p-6 max-w-md mx-4 border border-neutral-200 dark:border-white/[0.04]">
               <h3 className="text-lg font-black text-neutral-900 dark:text-neutral-100 mb-2">
                 Discard Changes?
@@ -680,7 +682,8 @@ const DocumentUploadModal: React.FC<DocumentUploadModalProps> = ({
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 };
 

@@ -275,6 +275,60 @@ export const applicantService = {
   },
 
   /**
+   * Find a pre-verified applicant by email.
+   * Used by the claim flow to detect if a registering user matches
+   * an existing pre-verified record provisioned by the IRO.
+   */
+  async findPreVerifiedByEmail(email: string): Promise<Applicant | null> {
+    if (!email || !email.trim()) return null;
+    try {
+      const q = query(
+        collection(db, COLLECTIONS.APPLICANTS),
+        where('email', '==', email.toLowerCase().trim()),
+        where('isPreVerified', '==', true)
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        // Return the most recently updated pre-verified record
+        const records = snap.docs.map(d => firestoreToApplicant(d as QueryDocumentSnapshot<DocumentData>));
+        records.sort((a, b) => {
+          const da = a.submissionDate ? new Date(a.submissionDate).getTime() : 0;
+          const db_ = b.submissionDate ? new Date(b.submissionDate).getTime() : 0;
+          return db_ - da;
+        });
+        return records[0];
+      }
+      return null;
+    } catch (error) {
+      console.error('Error finding pre-verified account by email:', error);
+      return null;
+    }
+  },
+
+  /**
+   * Find a pre-verified applicant by registrationId.
+   * Covers the case where the user provides their shareholder ID during registration.
+   */
+  async findPreVerifiedByRegistrationId(registrationId: string): Promise<Applicant | null> {
+    if (!registrationId || !registrationId.trim()) return null;
+    try {
+      const q = query(
+        collection(db, COLLECTIONS.APPLICANTS),
+        where('registrationId', '==', registrationId.trim()),
+        where('isPreVerified', '==', true)
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        return firestoreToApplicant(snap.docs[0] as QueryDocumentSnapshot<DocumentData>);
+      }
+      return null;
+    } catch (error) {
+      console.error('Error finding pre-verified account by registrationId:', error);
+      return null;
+    }
+  },
+
+  /**
    * Get applicant by email address
    */
   async getByEmail(email: string): Promise<Applicant | null> {
@@ -546,13 +600,67 @@ export const applicantService = {
   },
 
   /**
-   * Create a new applicant
-   * Checks for duplicate registrations and updates existing applicant if found (prevents duplicates)
-   * Only creates new applicant if no duplicate exists
+   * Create a new applicant.
+   *
+   * Smart duplicate handling:
+   *  - If the registering user matches an existing PRE-VERIFIED record, the system
+   *    treats the registration as an "account claim" — it NEVER creates a new record.
+   *    Instead it calls markAccountAsClaimed() on the existing record which:
+   *      • Updates status: pre_verified → verified (workflowStage, accountStatus, systemStatus)
+   *      • Syncs officialShareholders collection (PRE-VERIFIED → VERIFIED)
+   *      • Sends the Step-6 verified-account email
+   *  - If a duplicate is found that is NOT pre-verified, the records are merged
+   *    (existing behaviour — prevents regular registration duplicates).
+   *  - If no duplicate exists at all, a new applicant document is created normally.
    */
   async create(applicant: Applicant): Promise<string> {
     try {
-      // Check for duplicate registrations (including by registrationId to catch frontend duplicates)
+      // ── STEP 1: Pre-verified claim check ────────────────────────────────────
+      // Before the general duplicate check, look specifically for a pre-verified
+      // record that matches by email or registrationId.  We do this first so we
+      // can apply the CLAIM flow rather than the generic merge flow.
+      let preVerifiedMatch: Applicant | null = null;
+
+      if (applicant.email) {
+        preVerifiedMatch = await this.findPreVerifiedByEmail(applicant.email);
+      }
+      if (!preVerifiedMatch && applicant.registrationId) {
+        preVerifiedMatch = await this.findPreVerifiedByRegistrationId(applicant.registrationId);
+      }
+
+      if (preVerifiedMatch && preVerifiedMatch.accountStatus !== 'VERIFIED' && preVerifiedMatch.workflowStage !== 'ACCOUNT_CLAIMED') {
+        console.log(
+          `[CLAIM FLOW] Pre-verified account detected for ${applicant.email || applicant.fullName}. ` +
+          `Treating registration as account claim. Existing applicant ID: ${preVerifiedMatch.id}`
+        );
+
+        // Attach any new profile/auth data the incoming registration brings
+        // (phone, profile picture, etc.) before claiming
+        const authUpdates: Partial<Applicant> = {};
+        if (applicant.emailOtpVerification) authUpdates.emailOtpVerification = applicant.emailOtpVerification;
+        if (applicant.phoneNumber && !preVerifiedMatch.phoneNumber) authUpdates.phoneNumber = applicant.phoneNumber;
+        if (applicant.location && !preVerifiedMatch.location) authUpdates.location = applicant.location;
+        if (applicant.profilePictureUrl) authUpdates.profilePictureUrl = applicant.profilePictureUrl;
+        // Keep the email from the pre-verified record as canonical — do NOT overwrite
+        // with a potentially different email from the new registration payload.
+
+        if (Object.keys(authUpdates).length > 0) {
+          await this.update(preVerifiedMatch.id, authUpdates);
+        }
+
+        // Run the full claim workflow:
+        //   • Sets workflowStage = ACCOUNT_CLAIMED
+        //   • Sets systemStatus = CLAIMED, accountStatus = VERIFIED, status = APPROVED
+        //   • Syncs officialShareholders: PRE-VERIFIED → VERIFIED
+        //   • Sends verified-account email (Step 6)
+        const { markAccountAsClaimed } = await import('./preverified-workflow.js');
+        await markAccountAsClaimed(preVerifiedMatch.id);
+
+        console.log(`[CLAIM FLOW] Account successfully claimed. Applicant ID: ${preVerifiedMatch.id}`);
+        return preVerifiedMatch.id;
+      }
+
+      // ── STEP 2: General duplicate check ─────────────────────────────────────
       const duplicateCheck = await this.checkDuplicateRegistration(
         applicant.email,
         applicant.phoneNumber,
@@ -560,43 +668,47 @@ export const applicantService = {
         applicant.registrationId
       );
       
-      // If duplicate exists, update the existing applicant instead of creating a new one
       if (duplicateCheck.isDuplicate && duplicateCheck.existingApplicant) {
+        const existing = duplicateCheck.existingApplicant;
+
+        // Safety net: if the duplicate IS pre-verified but the first check missed it
+        // (e.g. workflowStage was already ACCOUNT_CLAIMED but accountStatus not yet synced)
+        // just return the existing ID without overwriting verified state.
+        if (existing.isPreVerified && (existing.accountStatus === 'VERIFIED' || existing.workflowStage === 'ACCOUNT_CLAIMED')) {
+          console.log(`[CLAIM FLOW] Pre-verified account already claimed. Returning existing ID: ${existing.id}`);
+          return existing.id;
+        }
+
         console.log(`Duplicate detected for ${applicant.email || applicant.fullName}. Updating existing applicant instead of creating duplicate.`, {
-          existingId: duplicateCheck.existingApplicant.id,
+          existingId: existing.id,
           newId: applicant.id,
           email: applicant.email
         });
         
-        // Merge new data with existing applicant (preserve existing data, update with new fields)
+        // Merge: preserve existing data, patch with newer fields
         const mergedApplicant = {
-          ...duplicateCheck.existingApplicant,
+          ...existing,
           ...applicant,
-          id: duplicateCheck.existingApplicant.id, // Keep existing ID
-          // Preserve important existing fields unless new data is provided
-          email: applicant.email || duplicateCheck.existingApplicant.email,
-          fullName: applicant.fullName || duplicateCheck.existingApplicant.fullName,
-          phoneNumber: applicant.phoneNumber || duplicateCheck.existingApplicant.phoneNumber,
-          // Preserve workflow state if it exists
-          shareholdingsVerification: applicant.shareholdingsVerification || duplicateCheck.existingApplicant.shareholdingsVerification,
-          emailOtpVerification: applicant.emailOtpVerification || duplicateCheck.existingApplicant.emailOtpVerification,
-          // Use most recent submission date
-          submissionDate: applicant.submissionDate && new Date(applicant.submissionDate) > new Date(duplicateCheck.existingApplicant.submissionDate || '1970-01-01')
+          id: existing.id, // Keep existing ID
+          email: applicant.email || existing.email,
+          fullName: applicant.fullName || existing.fullName,
+          phoneNumber: applicant.phoneNumber || existing.phoneNumber,
+          shareholdingsVerification: applicant.shareholdingsVerification || existing.shareholdingsVerification,
+          emailOtpVerification: applicant.emailOtpVerification || existing.emailOtpVerification,
+          submissionDate: applicant.submissionDate && new Date(applicant.submissionDate) > new Date(existing.submissionDate || '1970-01-01')
             ? applicant.submissionDate
-            : duplicateCheck.existingApplicant.submissionDate,
+            : existing.submissionDate,
         };
         
-        // Update existing applicant
-        await this.update(duplicateCheck.existingApplicant.id, mergedApplicant);
-        return duplicateCheck.existingApplicant.id;
+        await this.update(existing.id, mergedApplicant);
+        return existing.id;
       }
       
-      // No duplicate found - create new applicant
+      // ── STEP 3: No duplicate — create fresh applicant ────────────────────────
       const docRef = doc(db, COLLECTIONS.APPLICANTS, applicant.id);
       await setDoc(docRef, applicantToFirestore(applicant));
       return docRef.id;
     } catch (error) {
-      // Re-throw LockedAccountError as-is (don't wrap it)
       if (error instanceof LockedAccountError) {
         throw error;
       }
