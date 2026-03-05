@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Document, DocumentType, DocumentStatus } from '../lib/types';
 import { documentService } from '../lib/document-service';
-import SmartMetadataModal from './SmartMetadataModal';
+import DocumentUploadModal from './DocumentUploadModal';
 
 const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   earnings: 'Earnings',
@@ -17,40 +17,38 @@ const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   silent_period: 'Silent Period',
 };
 
+const STATUS_LABELS: Record<DocumentStatus | 'scheduled', string> = {
+  draft: 'Draft',
+  published: 'Published',
+  archived: 'Archived',
+  scheduled: 'Scheduled',
+};
+
+// Extended document interface for display (includes optional engagement metrics)
+interface DocumentWithMetrics extends Document {
+  tags?: string[];
+  views?: number;
+  downloads?: number;
+  comments?: number;
+  scheduledPublishDate?: string;
+}
+
+type SortField = 'title' | 'type' | 'publishDate' | 'createdAt' | 'status';
+type SortDirection = 'asc' | 'desc';
+
 const DocumentsPage: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<DocumentType | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<DocumentStatus | 'all' | 'scheduled'>('all');
+  const [sortField, setSortField] = useState<SortField>('createdAt');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(20);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
-  const [typeFilter, setTypeFilter] = useState<DocumentType | 'all'>('all');
-  const [statusFilter, setStatusFilter] = useState<DocumentStatus | 'all'>('all');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const isModalOpen = !!uploadedFile;
-
-  // Computed automation flag helpers (not stored in database)
-  const isFeatured = (doc: Document) => {
-    if (doc.type !== 'earnings') return false;
-    const publishDate = new Date(doc.publishDate);
-    const daysSince = Math.floor((Date.now() - publishDate.getTime()) / (1000 * 60 * 60 * 24));
-    return daysSince <= 5;
-  };
-
-  const isNewDisclosure = (doc: Document) => {
-    if (doc.type !== 'disclosure') return false;
-    const publishDate = new Date(doc.publishDate);
-    const hoursSince = Math.floor((Date.now() - publishDate.getTime()) / (1000 * 60 * 60));
-    return hoursSince <= 24;
-  };
-
-  const enableDividendBanner = (doc: Document) => doc.type === 'dividend';
-
-  const enableMeetingCountdown = (doc: Document) => {
-    if (doc.type !== 'agm') return false;
-    const publishDate = new Date(doc.publishDate);
-    return publishDate > new Date(); // Future date
-  };
 
   // Load documents on mount
   useEffect(() => {
@@ -69,44 +67,83 @@ const DocumentsPage: React.FC = () => {
     }
   };
 
-  // Handle file selection
-  const handleFileSelect = (file: File) => {
-    // Validate PDF
-    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-      alert('Only PDF files are allowed.');
-      return;
-    }
+  // Filter and sort documents
+  const filteredAndSortedDocuments = React.useMemo(() => {
+    let filtered = documents.filter((doc) => {
+      // Search filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        if (!doc.title.toLowerCase().includes(query) && !doc.summary.toLowerCase().includes(query)) {
+          return false;
+        }
+      }
 
-    // Validate file size (10MB max)
-    const MAX_SIZE = 10 * 1024 * 1024;
-    if (file.size > MAX_SIZE) {
-      alert(`File size exceeds 10MB limit. Your file is ${(file.size / 1024 / 1024).toFixed(2)}MB.`);
-      return;
-    }
+      // Type filter
+      if (typeFilter !== 'all' && doc.type !== typeFilter) return false;
 
-    setUploadedFile(file);
-  };
+      // Status filter
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'scheduled') {
+          // Check if document has a future publishDate
+          const publishDate = new Date(doc.publishDate);
+          if (publishDate <= new Date() || doc.status !== 'draft') return false;
+        } else if (doc.status !== statusFilter) {
+          return false;
+        }
+      }
 
-  // Handle drag and drop
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
+      return true;
+    });
 
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
+    // Sort
+    filtered.sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
+      switch (sortField) {
+        case 'title':
+          aValue = a.title.toLowerCase();
+          bValue = b.title.toLowerCase();
+          break;
+        case 'type':
+          aValue = a.type;
+          bValue = b.type;
+          break;
+        case 'publishDate':
+          aValue = new Date(a.publishDate).getTime();
+          bValue = new Date(b.publishDate).getTime();
+          break;
+        case 'createdAt':
+          aValue = new Date(a.createdAt).getTime();
+          bValue = new Date(b.createdAt).getTime();
+          break;
+        case 'status':
+          aValue = a.status;
+          bValue = b.status;
+          break;
+        default:
+          return 0;
+      }
 
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      handleFileSelect(file);
-    }
-  };
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return filtered;
+  }, [documents, searchQuery, typeFilter, statusFilter, sortField, sortDirection]);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredAndSortedDocuments.length / itemsPerPage);
+  const paginatedDocuments = filteredAndSortedDocuments.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, typeFilter, statusFilter]);
 
   // Handle save from modal
   const handleSave = async (data: {
@@ -115,47 +152,32 @@ const DocumentsPage: React.FC = () => {
     publishDate: string;
     file: File;
     summary: string;
-    status: 'draft' | 'published';
+    status: 'draft' | 'published' | 'scheduled';
+    tags?: string[];
+    scheduledPublishDate?: string;
   }) => {
     try {
-      console.log('[DocumentsPage] Starting save process...', {
-        title: data.title,
-        type: data.type,
-        status: data.status,
-      });
-
       const documentId = crypto.randomUUID();
       const now = new Date().toISOString();
 
-      // Create document in Firestore (minimal schema, no file storage)
       const document: Document = {
         id: documentId,
         title: data.title,
         type: data.type,
-        status: data.status,
-        publishDate: data.publishDate,
+        status: data.status === 'scheduled' ? 'draft' : data.status,
+        publishDate: data.scheduledPublishDate || data.publishDate,
         createdAt: now,
         updatedAt: now,
         summary: data.summary,
         summaryRegenerationCount: 0,
       };
 
-      console.log('[DocumentsPage] Creating document in Firestore...');
       await documentService.create(document);
-      console.log('[DocumentsPage] Document created successfully');
-      
-      // Reload documents
       await loadDocuments();
-      
-      // Reset state
-      setUploadedFile(null);
-      
-      console.log('[DocumentsPage] Save process completed successfully');
+      setIsUploadModalOpen(false);
     } catch (error: any) {
-      console.error('[DocumentsPage] Error saving document:', error);
-      // Re-throw with a more user-friendly message
-      const errorMessage = error?.message || 'Unknown error occurred';
-      throw new Error(errorMessage);
+      console.error('Error saving document:', error);
+      throw error;
     }
   };
 
@@ -174,279 +196,477 @@ const DocumentsPage: React.FC = () => {
     }
   };
 
-  // Handle archive
-  const handleArchive = async (documentId: string) => {
+  // Handle publish/unpublish toggle
+  const handleTogglePublish = async (doc: Document) => {
     try {
-      await documentService.archive(documentId);
+      const newStatus: DocumentStatus = doc.status === 'published' ? 'draft' : 'published';
+      const updatedDoc: Document = {
+        ...doc,
+        status: newStatus,
+        updatedAt: new Date().toISOString(),
+      };
+      await documentService.update(doc.id, updatedDoc);
       await loadDocuments();
     } catch (error) {
-      console.error('Error archiving document:', error);
-      alert('Failed to archive document. Please try again.');
+      console.error('Error toggling publish status:', error);
+      alert('Failed to update document status. Please try again.');
     }
   };
 
-  // Filter documents
-  const filteredDocuments = documents.filter((doc) => {
-    if (typeFilter !== 'all' && doc.type !== typeFilter) return false;
-    if (statusFilter !== 'all' && doc.status !== statusFilter) return false;
-    return true;
-  });
+  // Handle sort
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
-  // Get published documents for preview cards
-  const publishedDocuments = filteredDocuments.filter(doc => doc.status === 'published');
+  // Get status badge color
+  const getStatusBadgeClass = (doc: Document) => {
+    const isScheduled = new Date(doc.publishDate) > new Date() && doc.status === 'draft';
+    if (isScheduled) {
+      return 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800';
+    }
+    switch (doc.status) {
+      case 'published':
+        return 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800';
+      case 'draft':
+        return 'text-neutral-600 dark:text-neutral-400 bg-neutral-50 dark:bg-neutral-900/20 border-neutral-200 dark:border-neutral-700';
+      case 'archived':
+        return 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800';
+      default:
+        return 'text-neutral-600 dark:text-neutral-400 bg-neutral-50 dark:bg-neutral-900/20 border-neutral-200 dark:border-neutral-700';
+    }
+  };
+
+  // Get status label
+  const getStatusLabel = (doc: Document) => {
+    const isScheduled = new Date(doc.publishDate) > new Date() && doc.status === 'draft';
+    return isScheduled ? 'Scheduled' : STATUS_LABELS[doc.status];
+  };
 
   return (
-    <div className="space-y-8 max-w-screen-2xl mx-auto">
-      {/* Header */}
-      <div className="flex items-end justify-between">
+    <div className="space-y-6 max-w-screen-2xl mx-auto">
+      {/* ── Header Section ── */}
+      <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 tracking-tighter uppercase">Documents</h2>
-          <p className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.2em] mt-1">
-            Manage and organize investor relations documents
+          <h1 className="text-3xl font-black text-neutral-900 dark:text-neutral-100 tracking-tight">
+            Documents
+          </h1>
+          <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1.5 max-w-2xl">
+            Manage investor-related documents such as financial reports, disclosures, presentations, and filings.
           </p>
         </div>
-      </div>
-
-      {/* Upload Section */}
-      <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl overflow-hidden shadow-sm">
-        <div
-          className={`p-12 border-2 border-dashed rounded-lg transition-colors ${
-            isDragging
-              ? 'border-[#082b4a] dark:border-[#00adf0] bg-neutral-50 dark:bg-neutral-900'
-              : 'border-neutral-300 dark:border-neutral-600 hover:border-neutral-400 dark:hover:border-neutral-500'
-          }`}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
+        <button
+          onClick={() => setIsUploadModalOpen(true)}
+          className="px-5 py-2.5 text-sm font-bold text-white bg-[#082b4a] dark:bg-[#00adf0] hover:bg-[#0a3a5f] dark:hover:bg-[#0099d6] rounded-lg transition-colors flex items-center gap-2 shadow-sm"
         >
-          <div className="text-center">
-            <div className="w-16 h-16 bg-neutral-50 dark:bg-neutral-900 rounded-full flex items-center justify-center mx-auto mb-4 border border-neutral-200 dark:border-neutral-700">
-              <svg className="w-8 h-8 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                <path d="M14 2v6h6"/>
-                <path d="M16 13H8"/>
-                <path d="M16 17H8"/>
-                <path d="M10 9H8"/>
-              </svg>
-            </div>
-            <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-2">
-              {isDragging ? 'Drop PDF file here' : 'Upload PDF Document'}
-            </h3>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-4">
-              Drag and drop a PDF file here, or click to browse
-            </p>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500 mb-4">
-              Maximum file size: 10MB ΓÇó PDF files only
-            </p>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="px-6 py-2.5 text-sm font-bold text-white bg-[#082b4a] dark:bg-[#00adf0] hover:bg-[#0a3a5f] dark:hover:bg-[#0099d6] rounded-lg transition-colors"
-            >
-              Select PDF File
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,application/pdf"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  handleFileSelect(file);
-                }
-                // Reset input to allow selecting the same file again
-                if (e.target) {
-                  (e.target as HTMLInputElement).value = '';
-                }
-              }}
-            />
-          </div>
-        </div>
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+          </svg>
+          Upload Document
+        </button>
       </div>
 
-      {/* Frontend Simulation Cards */}
-      {publishedDocuments.length > 0 && (
-        <div>
-          <h3 className="text-lg font-black text-neutral-900 dark:text-neutral-100 mb-4 uppercase tracking-tighter">
-            Frontend Preview
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {publishedDocuments.slice(0, 6).map((doc) => (
-              <div
-                key={doc.id}
-                className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl p-6 hover:shadow-lg transition-shadow cursor-pointer"
-                onClick={() => {
-                  setSelectedDocument(doc);
-                  setIsPreviewModalOpen(true);
-                }}
+      {/* ── Controls Section ── */}
+      <div className="bg-white dark:bg-[#1a1a1a] border border-neutral-200 dark:border-white/[0.04] rounded-xl shadow-sm p-5">
+        <div className="flex flex-col md:flex-row gap-4">
+          {/* Search */}
+          <div className="flex-1">
+            <div className="relative">
+              <svg
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
-                <div className="flex items-start justify-between mb-3">
-                  <span className="px-2 py-1 text-xs font-bold text-[#082b4a] dark:text-[#00adf0] bg-[#082b4a]/10 dark:bg-[#00adf0]/10 rounded uppercase">
-                    {DOCUMENT_TYPE_LABELS[doc.type]}
-                  </span>
-                  <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                    {new Date(doc.publishDate).toLocaleDateString()}
-                  </span>
-                </div>
-                <h4 className="text-base font-bold text-neutral-900 dark:text-neutral-100 mb-2 line-clamp-2">
-                  {doc.title}
-                </h4>
-                <p className="text-sm text-neutral-600 dark:text-neutral-400 line-clamp-2 mb-4">
-                  {doc.summary.split('\n')[0]}
-                </p>
-                <button className="text-sm font-bold text-[#082b4a] dark:text-[#00adf0] hover:underline">
-                  Read More ΓåÆ
-                </button>
-              </div>
-            ))}
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search documents..."
+                className="w-full pl-10 pr-4 py-2.5 text-sm bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0]"
+              />
+            </div>
           </div>
-        </div>
-      )}
 
-      {/* Document History Table */}
-      <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl overflow-hidden shadow-sm">
-        <div className="px-8 py-6 border-b border-neutral-200 dark:border-neutral-700 flex items-center justify-between">
-          <h3 className="text-lg font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-tighter">
-            Document History
-          </h3>
-          <div className="flex items-center gap-4">
-            {/* Type Filter */}
+          {/* Filters */}
+          <div className="flex gap-3">
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value as DocumentType | 'all')}
-              className="px-4 py-2 text-sm bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0]"
+              className="px-4 py-2.5 text-sm bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0]"
             >
               <option value="all">All Types</option>
               {Object.entries(DOCUMENT_TYPE_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
+                <option key={value} value={value}>
+                  {label}
+                </option>
               ))}
             </select>
-            {/* Status Filter */}
+
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as DocumentStatus | 'all')}
-              className="px-4 py-2 text-sm bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0]"
+              onChange={(e) => setStatusFilter(e.target.value as DocumentStatus | 'all' | 'scheduled')}
+              className="px-4 py-2.5 text-sm bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-[#082b4a] dark:focus:ring-[#00adf0]"
             >
               <option value="all">All Status</option>
               <option value="draft">Draft</option>
+              <option value="scheduled">Scheduled</option>
               <option value="published">Published</option>
               <option value="archived">Archived</option>
             </select>
           </div>
         </div>
+      </div>
 
+      {/* ── Documents Table ── */}
+      <div className="bg-white dark:bg-[#1a1a1a] border border-neutral-200 dark:border-white/[0.04] rounded-xl shadow-sm overflow-hidden">
         {loading ? (
           <div className="p-12 text-center">
             <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading documents...</p>
           </div>
-        ) : filteredDocuments.length === 0 ? (
+        ) : filteredAndSortedDocuments.length === 0 ? (
           <div className="p-12 text-center">
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">No documents found.</p>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">
+              {searchQuery || typeFilter !== 'all' || statusFilter !== 'all'
+                ? 'No documents match your filters.'
+                : 'No documents found. Upload your first document to get started.'}
+            </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="bg-neutral-50 dark:bg-neutral-900 text-[9px] font-black text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.2em]">
-                  <th className="px-6 py-4">Title</th>
-                  <th className="px-6 py-4">Type</th>
-                  <th className="px-6 py-4">Status</th>
-                  <th className="px-6 py-4">Publish Date</th>
-                  <th className="px-6 py-4">Created At</th>
-                  <th className="px-6 py-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
-                {filteredDocuments.map((doc) => (
-                  <tr key={doc.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-neutral-900 dark:text-neutral-100">{doc.title}</div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="px-2 py-1 text-xs font-bold text-[#082b4a] dark:text-[#00adf0] bg-[#082b4a]/10 dark:bg-[#00adf0]/10 rounded uppercase">
-                        {DOCUMENT_TYPE_LABELS[doc.type]}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 text-xs font-bold rounded uppercase ${
-                        doc.status === 'published'
-                          ? 'text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20'
-                          : doc.status === 'draft'
-                          ? 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20'
-                          : 'text-neutral-600 dark:text-neutral-400 bg-neutral-50 dark:bg-neutral-900/20'
-                      }`}>
-                        {doc.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-neutral-600 dark:text-neutral-400">
-                      {new Date(doc.publishDate).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-neutral-600 dark:text-neutral-400">
-                      {new Date(doc.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => {
-                            setSelectedDocument(doc);
-                            setIsPreviewModalOpen(true);
-                          }}
-                          className="p-2 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded transition-colors"
-                          title="View"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                          </svg>
-                        </button>
-                        {doc.status !== 'archived' && (
-                          <button
-                            onClick={() => handleArchive(doc.id)}
-                            className="p-2 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded transition-colors"
-                            title="Archive"
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-neutral-50 dark:bg-neutral-900/50 border-b border-neutral-200 dark:border-white/[0.04]">
+                  <tr>
+                    <th className="px-6 py-3.5">
+                      <button
+                        onClick={() => handleSort('title')}
+                        className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.12em] hover:text-neutral-900 dark:hover:text-neutral-100 flex items-center gap-2 transition-colors"
+                      >
+                        Document Title
+                        {sortField === 'title' && (
+                          <svg
+                            className={`w-3 h-3 ${sortDirection === 'asc' ? '' : 'rotate-180'}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
                           >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-                            </svg>
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDelete(doc.id)}
-                          className="p-2 text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                          title="Delete"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" />
                           </svg>
-                        </button>
-                      </div>
-                    </td>
+                        )}
+                      </button>
+                    </th>
+                    <th className="px-6 py-3.5">
+                      <button
+                        onClick={() => handleSort('type')}
+                        className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.12em] hover:text-neutral-900 dark:hover:text-neutral-100 flex items-center gap-2 transition-colors"
+                      >
+                        Type
+                        {sortField === 'type' && (
+                          <svg
+                            className={`w-3 h-3 ${sortDirection === 'asc' ? '' : 'rotate-180'}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" />
+                          </svg>
+                        )}
+                      </button>
+                    </th>
+                    <th className="px-6 py-3.5 text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.12em]">
+                      Tags
+                    </th>
+                    <th className="px-6 py-3.5">
+                      <button
+                        onClick={() => handleSort('publishDate')}
+                        className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.12em] hover:text-neutral-900 dark:hover:text-neutral-100 flex items-center gap-2 transition-colors"
+                      >
+                        Publish Date
+                        {sortField === 'publishDate' && (
+                          <svg
+                            className={`w-3 h-3 ${sortDirection === 'asc' ? '' : 'rotate-180'}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" />
+                          </svg>
+                        )}
+                      </button>
+                    </th>
+                    <th className="px-6 py-3.5">
+                      <button
+                        onClick={() => handleSort('createdAt')}
+                        className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.12em] hover:text-neutral-900 dark:hover:text-neutral-100 flex items-center gap-2 transition-colors"
+                      >
+                        Created Date
+                        {sortField === 'createdAt' && (
+                          <svg
+                            className={`w-3 h-3 ${sortDirection === 'asc' ? '' : 'rotate-180'}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" />
+                          </svg>
+                        )}
+                      </button>
+                    </th>
+                    <th className="px-6 py-3.5">
+                      <button
+                        onClick={() => handleSort('status')}
+                        className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.12em] hover:text-neutral-900 dark:hover:text-neutral-100 flex items-center gap-2 transition-colors"
+                      >
+                        Status
+                        {sortField === 'status' && (
+                          <svg
+                            className={`w-3 h-3 ${sortDirection === 'asc' ? '' : 'rotate-180'}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 15l7-7 7 7" />
+                          </svg>
+                        )}
+                      </button>
+                    </th>
+                    <th className="px-6 py-3.5 text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.12em]">
+                      Engagement
+                    </th>
+                    <th className="px-6 py-3.5 text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.12em] text-right">
+                      Actions
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                  {paginatedDocuments.map((doc) => {
+                    const docWithMetrics = doc as DocumentWithMetrics;
+                    return (
+                      <tr
+                        key={doc.id}
+                        className="hover:bg-neutral-50 dark:hover:bg-neutral-900/30 transition-colors"
+                      >
+                        <td className="px-6 py-4">
+                          <div className="font-medium text-sm text-neutral-900 dark:text-neutral-100">
+                            {doc.title}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="px-2.5 py-1 text-xs font-bold text-[#082b4a] dark:text-[#00adf0] bg-[#082b4a]/10 dark:bg-[#00adf0]/10 rounded uppercase">
+                            {DOCUMENT_TYPE_LABELS[doc.type]}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-wrap gap-1.5">
+                            {docWithMetrics.tags && docWithMetrics.tags.length > 0 ? (
+                              docWithMetrics.tags.slice(0, 2).map((tag, i) => (
+                                <span
+                                  key={i}
+                                  className="px-2 py-0.5 text-xs text-neutral-600 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800 rounded"
+                                >
+                                  {tag}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs text-neutral-400 dark:text-neutral-600">—</span>
+                            )}
+                            {docWithMetrics.tags && docWithMetrics.tags.length > 2 && (
+                              <span className="text-xs text-neutral-400 dark:text-neutral-600">
+                                +{docWithMetrics.tags.length - 2}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-neutral-600 dark:text-neutral-400">
+                          {new Date(doc.publishDate).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          })}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-neutral-600 dark:text-neutral-400">
+                          {new Date(doc.createdAt).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          })}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span
+                            className={`px-2.5 py-1 text-xs font-bold rounded border ${getStatusBadgeClass(doc)}`}
+                          >
+                            {getStatusLabel(doc)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-neutral-600 dark:text-neutral-400">
+                          {docWithMetrics.views !== undefined || docWithMetrics.downloads !== undefined ? (
+                            <div className="flex items-center gap-3">
+                              {docWithMetrics.views !== undefined && (
+                                <span className="flex items-center gap-1">
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="2"
+                                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                                    />
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="2"
+                                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                                    />
+                                  </svg>
+                                  {docWithMetrics.views.toLocaleString()}
+                                </span>
+                              )}
+                              {docWithMetrics.downloads !== undefined && (
+                                <span className="flex items-center gap-1">
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="2"
+                                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                                    />
+                                  </svg>
+                                  {docWithMetrics.downloads.toLocaleString()}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-neutral-400 dark:text-neutral-600">—</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => {
+                                setSelectedDocument(doc);
+                                setIsPreviewModalOpen(true);
+                              }}
+                              className="p-2 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded transition-colors"
+                              title="View"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth="2"
+                                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                                />
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth="2"
+                                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                                />
+                              </svg>
+                            </button>
+                            {doc.status !== 'archived' && (
+                              <button
+                                onClick={() => handleTogglePublish(doc)}
+                                className={`p-2 rounded transition-colors ${
+                                  doc.status === 'published'
+                                    ? 'text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20'
+                                    : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+                                }`}
+                                title={doc.status === 'published' ? 'Unpublish' : 'Publish'}
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  {doc.status === 'published' ? (
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="2"
+                                      d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+                                    />
+                                  ) : (
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="2"
+                                      d="M5 13l4 4L19 7"
+                                    />
+                                  )}
+                                </svg>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDelete(doc.id)}
+                              className="p-2 text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                              title="Delete"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth="2"
+                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="px-6 py-4 border-t border-neutral-200 dark:border-white/[0.04] flex items-center justify-between">
+                <div className="text-sm text-neutral-600 dark:text-neutral-400">
+                  Showing {(currentPage - 1) * itemsPerPage + 1} to{' '}
+                  {Math.min(currentPage * itemsPerPage, filteredAndSortedDocuments.length)} of{' '}
+                  {filteredAndSortedDocuments.length} documents
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1.5 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm text-neutral-600 dark:text-neutral-400">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1.5 text-sm font-medium text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-600 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
-      {/* Smart Metadata Modal */}
-      <SmartMetadataModal
-        isOpen={isModalOpen}
-        onClose={() => {
-          setUploadedFile(null);
-        }}
+      {/* ── Upload Modal ── */}
+      <DocumentUploadModal
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
         onSave={handleSave}
-        uploadedFile={uploadedFile}
-        sidebarCollapsed={false}
       />
 
-      {/* Preview Modal */}
+      {/* ── Preview Modal ── */}
       {isPreviewModalOpen && selectedDocument && (
         <div className="fixed inset-0 z-50 flex items-center justify-center transition-all duration-300" style={{ marginLeft: '16rem' }}>
-          <div 
-            className="fixed inset-0 bg-neutral-900/40 dark:bg-black/40 backdrop-blur-sm z-40 transition-all duration-300"
-          />
-          <div 
+          <div className="fixed inset-0 bg-neutral-900/40 dark:bg-black/40 backdrop-blur-sm z-40 transition-all duration-300" />
+          <div
             className="relative bg-white dark:bg-neutral-900 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col z-50"
             onClick={(e) => e.stopPropagation()}
           >
@@ -455,9 +675,7 @@ const DocumentsPage: React.FC = () => {
                 {selectedDocument.title}
               </h2>
               <button
-                onClick={() => {
-                  setIsPreviewModalOpen(false);
-                }}
+                onClick={() => setIsPreviewModalOpen(false)}
                 className="p-2 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

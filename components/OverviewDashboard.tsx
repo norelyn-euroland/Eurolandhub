@@ -19,9 +19,10 @@ import {
   getCurrentTimeContext,
   getGreetingTheme,
   getGreetingSubtitle,
+  getWidgetDateLine,
+  isDaytime,
+  getLocationString,
   type TimeContext,
-  type TimeSegment,
-  type GreetingTheme,
 } from '../services/greetingTimeService';
 import { ResponsiveContainer, AreaChart, Area, Tooltip as RechartsTooltip, XAxis } from 'recharts';
 
@@ -742,17 +743,17 @@ const ShareholderSnapshot: React.FC<ShareholderSnapshotProps> = ({ applicants })
       {/* Chart centered */}
       <div className="flex-1 flex items-center justify-center">
         <div ref={chartRef} className="relative">
-          <Chart
-            key={`chart-${chartKey}`}
-            options={chartOptions}
-            series={chartSeries}
-            type="donut"
+        <Chart
+          key={`chart-${chartKey}`}
+          options={chartOptions}
+          series={chartSeries}
+          type="donut"
             width="240"
             height="240"
-          />
+        />
         </div>
       </div>
-
+      
       {/* Legend below chart */}
       <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-neutral-100 dark:border-neutral-800/50">
         {chartData.map((item, index) => (
@@ -875,7 +876,7 @@ const ReleasedDocumentsPanel: React.FC<ReleasedDocumentsPanelProps> = ({ onViewA
           <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-300 dark:text-neutral-600 pointer-events-none" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
             <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
           </svg>
-        </div>
+          </div>
         <div className="relative" ref={filterDropdownRef}>
           <button
             onClick={() => setShowFilterDropdown(!showFilterDropdown)}
@@ -1112,113 +1113,9 @@ const getAvatarColor = (name: string): string => {
   return colors[Math.abs(hash) % colors.length];
 };
 
-// ── Dynamic Time-of-Day Icon ────────────────────────────────────────
-// Contextual SVG icons per time segment: filled + stroked for visual depth.
-// Inspired by weather-card UIs — visible, warm/cool fills with clean strokes.
-// Future: getWeatherIconOverride() can override these for strong weather.
-const TimeOfDayIcon: React.FC<{
-  segment: TimeSegment;
-  className?: string;
-  fillColor?: string;   // CSS fill color (e.g. rgba)
-}> = ({ segment, className = '', fillColor = 'currentColor' }) => {
-  const baseClass = `${className}`;
-
-  switch (segment) {
-    case 'dawn':
-      // Rising sun — half circle above horizon with warm fill and rays
-      return (
-        <svg className={baseClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-          {/* Sun body — filled half-circle */}
-          <path d="M6 16a6 6 0 0 1 12 0" fill={fillColor} />
-          {/* Horizon */}
-          <path d="M2 16h20" />
-          {/* Rays */}
-          <path d="M12 2v4" />
-          <path d="M4.93 5.93l2.83 2.83" />
-          <path d="M19.07 5.93l-2.83 2.83" />
-          {/* Small upward ray from center */}
-          <path d="M12 10v2" strokeWidth="1" />
-        </svg>
-      );
-
-    case 'morning':
-      // Clean sun — filled circle with short rays, warm and crisp
-      return (
-        <svg className={baseClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-          {/* Sun core — filled */}
-          <circle cx="12" cy="12" r="4.5" fill={fillColor} />
-          {/* Rays */}
-          <path d="M12 2.5v3" />
-          <path d="M12 18.5v3" />
-          <path d="M4.93 4.93l2.12 2.12" />
-          <path d="M16.95 16.95l2.12 2.12" />
-          <path d="M2.5 12h3" />
-          <path d="M18.5 12h3" />
-          <path d="M4.93 19.07l2.12-2.12" />
-          <path d="M16.95 7.05l2.12-2.12" />
-        </svg>
-      );
-
-    case 'afternoon':
-      // Stronger sun — larger filled circle with bolder rays
-      return (
-        <svg className={baseClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-          {/* Sun core — filled, larger */}
-          <circle cx="12" cy="12" r="5" fill={fillColor} />
-          {/* Rays — longer */}
-          <path d="M12 1v3.5" />
-          <path d="M12 19.5v3.5" />
-          <path d="M3.87 3.87l2.47 2.47" />
-          <path d="M17.66 17.66l2.47 2.47" />
-          <path d="M1 12h3.5" />
-          <path d="M19.5 12h3.5" />
-          <path d="M3.87 20.13l2.47-2.47" />
-          <path d="M17.66 6.34l2.47-2.47" />
-        </svg>
-      );
-
-    case 'evening':
-      // Sunset — sun sinking below horizon, warm fading light
-      return (
-        <svg className={baseClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-          {/* Sun body — filled, below horizon */}
-          <path d="M6 18a6 6 0 0 1 12 0" fill={fillColor} />
-          {/* Horizon line */}
-          <path d="M2 18h20" />
-          {/* Upper rays (fading) */}
-          <path d="M12 4v4" />
-          <path d="M5.64 7.64l2.12 2.12" />
-          <path d="M18.36 7.64l-2.12 2.12" />
-          {/* Soft downward indicator */}
-          <path d="M12 14v2" strokeWidth="1" />
-        </svg>
-      );
-
-    case 'night':
-      // Crescent moon with stars — filled crescent, elegant night feel
-      return (
-        <svg className={baseClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-          {/* Moon crescent — filled */}
-          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" fill={fillColor} />
-          {/* Star — cross shape */}
-          <path d="M19 2v4" strokeWidth="1" />
-          <path d="M21 4h-4" strokeWidth="1" />
-          {/* Small star dot */}
-          <circle cx="16" cy="8" r="0.5" fill="currentColor" />
-          {/* Tiny star dot */}
-          <circle cx="20" cy="10" r="0.4" fill="currentColor" />
-        </svg>
-      );
-
-    default:
-      // Fallback — simple filled circle
-      return (
-        <svg className={baseClass} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="4" fill={fillColor} />
-        </svg>
-      );
-  }
-};
+// ── TimeOfDayIcon removed — replaced by animated atmospheric scene ──
+// The greeting card now uses inline animated SVGs (sun/moon/clouds/stars)
+// directly in the JSX for a dynamic iPhone-like weather widget effect.
 
 // Avatar component
 const Avatar: React.FC<{ name: string; size?: number; profilePictureUrl?: string }> = ({ name, size = 40, profilePictureUrl }) => {
@@ -1287,6 +1184,9 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
   const [isPulsing, setIsPulsing] = useState(false);
   const [timeContext, setTimeContext] = useState<TimeContext>(() => getCurrentTimeContext());
   const [segmentAnimating, setSegmentAnimating] = useState(false);
+  const [liveTime, setLiveTime] = useState(() => new Date());
+  const [locationCity, setLocationCity] = useState<string>('');
+  const [sweepTriggered, setSweepTriggered] = useState(false);
   const hasAnimatedRef = useRef(false);
   const segmentCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -1343,31 +1243,44 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
   }, [applicants]);
 
   // ── Time-Segment Aware Animation Trigger ──────────────────────────
-  // Only triggers when a meaningful time-based transition happens,
-  // NOT on every page visit or refresh.
+  // ── Fetch Location on Mount ────────────────────────────────────────
+  useEffect(() => {
+    getLocationString().then(city => {
+      if (city) setLocationCity(city);
+    }).catch(() => {
+      // Silently fail, location will remain empty
+    });
+  }, []);
+
+  // ── Initial Greeting Animation (on mount or when selectedInvestor changes) ──
+  // Sweep animation triggers on EVERY page visit, regardless of segment change or previous animation.
   useEffect(() => {
     if (!selectedInvestor) {
-      if (!hasAnimatedRef.current) {
-        const { shouldAnimate, context } = shouldTriggerGreetingAnimation();
-        setTimeContext(context);
+      const { shouldAnimate, context } = shouldTriggerGreetingAnimation();
+      setTimeContext(context);
 
-        if (shouldAnimate) {
-          hasAnimatedRef.current = true;
-          setIsPulsing(true);
-          setSegmentAnimating(true);
-          // End segment-change animation class after it plays
-          const timer = setTimeout(() => setSegmentAnimating(false), 900);
-          return () => clearTimeout(timer);
-        } else {
-          // Same segment, no animation — but still set isPulsing for layout
-          hasAnimatedRef.current = true;
-          setIsPulsing(true);
-        }
+      // Always trigger sweep animation on page visit
+      setSweepTriggered(true);
+      setTimeout(() => setSweepTriggered(false), 2000);
+
+      if (shouldAnimate && !hasAnimatedRef.current) {
+        hasAnimatedRef.current = true;
+        setIsPulsing(true);
+        setSegmentAnimating(true);
+        // End segment-change animation class after it plays
+        const timer = setTimeout(() => {
+          setSegmentAnimating(false);
+        }, 900);
+        return () => clearTimeout(timer);
+      } else if (!hasAnimatedRef.current) {
+        hasAnimatedRef.current = true;
+        setIsPulsing(true);
       }
     } else {
       // Reset flag when navigating to detail view so it re-checks on return
       hasAnimatedRef.current = false;
       setIsPulsing(false);
+      setSweepTriggered(false);
     }
   }, [selectedInvestor]);
 
@@ -1400,6 +1313,12 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
         clearInterval(segmentCheckIntervalRef.current);
       }
     };
+  }, []);
+
+  // ── Live Clock (updates displayed time every 60 seconds) ──────
+  useEffect(() => {
+    const clockTimer = setInterval(() => setLiveTime(new Date()), 60_000);
+    return () => clearInterval(clockTimer);
   }, []);
 
   // Calculate status for regular accounts
@@ -1544,7 +1463,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
 
   // ── Press Release Sub-Views ─────────────────────────────────────────
   if (pressReleaseView === 'all') {
-    return (
+  return (
       <div className="space-y-10 max-w-screen-2xl mx-auto pb-12">
         <AllPressReleasesView
           onBack={() => setPressReleaseView('none')}
@@ -1574,87 +1493,211 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
     <div className="space-y-6 max-w-screen-2xl mx-auto pb-10">
       {/* Greetings Card + Share Price Widget Side by Side */}
       <div className="flex gap-5 items-stretch">
-        {/* Left: Greetings Card — Dynamic Time & Theme Aware */}
+        {/* Left: Greetings Card — Dynamic iPhone-style Weather Widget */}
         {(() => {
           const theme = getGreetingTheme(timeContext.segment);
           const subtitle = getGreetingSubtitle(timeContext.segment);
           const isNight = timeContext.segment === 'night' || timeContext.segment === 'evening';
-          const isDarkMode = typeof window !== 'undefined' && document.documentElement.classList.contains('dark');
-          const fillColor = isDarkMode ? theme.iconFillDark : theme.iconFill;
-          const glowColor = isDarkMode ? theme.glowColorDark : theme.glowColor;
+          const daytime = isDaytime(timeContext.segment);
+          const fillColor = theme.iconFill;
+          const glowColor = theme.glowColor;
+          const dateLine = getWidgetDateLine(liveTime);
+
+          // Sun/moon position per segment — lower for dawn/evening (horizon feel)
+          const celestialTop = timeContext.segment === 'dawn' || timeContext.segment === 'evening' ? '55%' : '35%';
 
           return (
-            <div className={`flex-1 p-8 rounded-xl relative overflow-hidden group transition-all duration-[1000ms] cursor-default premium-ease ${theme.shadowClass}
-              ${theme.bgClass} ${theme.bgClassDark}
+            <div className={`flex-1 rounded-xl relative overflow-hidden group transition-all duration-[1000ms] cursor-default premium-ease ${theme.shadowClass}
+              ${theme.bgClass}
               ${isPulsing ? '' : 'hover:shadow-lg'}
-            `}
-            onMouseEnter={() => setIsPulsing(true)}
-            onMouseLeave={() => setIsPulsing(false)}
-            >
-              {/* Micro-texture overlay */}
-              <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden">
+      `}
+      onMouseEnter={() => setIsPulsing(true)}
+      onMouseLeave={() => setIsPulsing(false)}
+      >
+              {/* ── Layer 1: Noise texture ─────────────────────── */}
+              <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden z-0">
                 <svg className="absolute inset-0 w-full h-full">
-                  <filter id="greetings-noise-filter">
+            <filter id="greetings-noise-filter">
                     <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch" />
                     <feColorMatrix type="saturate" values="0" />
                   </filter>
-                  <rect width="100%" height="100%" filter="url(#greetings-noise-filter)" className={`${theme.noiseOpacity} ${theme.noiseOpacityDark}`} />
+                  <rect width="100%" height="100%" filter="url(#greetings-noise-filter)" className={`${theme.noiseOpacity}`} />
                 </svg>
               </div>
 
-              {/* Time-based ambient overlay (light mode) */}
-              <div className={`absolute inset-0 rounded-xl pointer-events-none transition-all duration-[2000ms] ease-in-out ${theme.overlayClass} dark:hidden`} />
-              {/* Time-based ambient overlay (dark mode) */}
-              <div className={`absolute inset-0 rounded-xl pointer-events-none transition-all duration-[2000ms] ease-in-out hidden dark:block ${theme.overlayClassDark}`} />
+              {/* ── Layer 2: Ambient overlay ──────────────────── */}
+              <div className={`absolute inset-0 rounded-xl pointer-events-none transition-all duration-[2000ms] ease-in-out z-[1] ${theme.overlayClass}`} />
 
-              {/* Radial glow — warm/cool ambient light behind icon area */}
+              {/* ── Layer 3: Radial glow (behind celestial body) ─ */}
               <div
-                className={`absolute inset-0 rounded-xl pointer-events-none transition-opacity duration-[2000ms] ease-in-out animate-glow-breathe`}
+                className="absolute inset-0 rounded-xl pointer-events-none transition-opacity duration-[2000ms] ease-in-out z-[2] animate-glow-breathe"
                 style={{
-                  background: `radial-gradient(ellipse 50% 80% at 80% 40%, ${glowColor}, transparent 70%)`,
-                  opacity: isPulsing ? 1 : 0.7,
+                  background: `radial-gradient(ellipse 45% 70% at 78% ${celestialTop}, ${glowColor}, transparent 65%)`,
+                  opacity: isPulsing ? 1 : 0.6,
                 }}
               />
 
-              {/* Animated Background Time Icon (large, decorative) */}
-              <div className={`absolute left-0 top-1/2 -translate-y-1/2 pointer-events-none transition-all duration-[1800ms] premium-ease
-                ${isPulsing
-                  ? 'left-[calc(100%-11.5rem)] top-6 translate-y-0 rotate-6 scale-[1.4] opacity-[0.20]'
-                  : 'left-0 top-1/2 -translate-y-1/2 rotate-0 scale-100 opacity-[0.08] group-hover:left-[calc(100%-11.5rem)] group-hover:top-6 group-hover:translate-y-0 group-hover:rotate-6 group-hover:scale-[1.4] group-hover:opacity-[0.20]'
-                }
-              `}>
-                <TimeOfDayIcon
-                  segment={timeContext.segment}
-                  fillColor={fillColor}
-                  className={`w-72 h-72 ${theme.iconColor} transition-colors duration-[1000ms]`}
+              {/* ── Layer 4: Atmospheric Scene (right half) ────── */}
+              <div className="absolute right-0 top-0 w-[55%] h-full pointer-events-none z-[3]">
+
+                {/* ═══ Sun System (daytime) — disc + glow ═══ */}
+                {daytime && (
+                  <div
+                    className="absolute transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
+                    style={{ right: '18%', top: celestialTop }}
+                  >
+                    {/* Soft ambient glow — behind sun */}
+                    <div
+                      className="absolute animate-celestial-glow blur-3xl rounded-full"
+                      style={{
+                        width: 120, height: 120,
+                        left: '50%', top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        backgroundColor: glowColor,
+                      }}
+                    />
+
+                    {/* Sun disc — centered, static position */}
+                    <div
+                      className="relative rounded-full"
+                      style={{
+                        width: 48, height: 48,
+                        backgroundColor: fillColor,
+                        border: '1px solid rgba(255, 255, 255, 0.30)',
+                        boxShadow: `0 0 20px 5px ${glowColor}, inset 0 0 10px rgba(255,255,255,0.15)`,
+                        transform: 'translate(-50%, -50%)',
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* ═══ Moon System (nighttime) — crescent + glow, gentle float ═══ */}
+                {!daytime && (
+                  <div
+                    className="absolute animate-moon-float transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
+                    style={{ right: '20%', top: celestialTop }}
+                  >
+                    {/* Moon glow */}
+                    <div
+                      className="absolute rounded-full animate-celestial-glow blur-2xl"
+                      style={{
+                        width: 80, height: 80,
+                        left: '50%', top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        backgroundColor: glowColor,
+                      }}
+                    />
+                    {/* Moon crescent */}
+                    <svg viewBox="0 0 24 24" className="w-12 h-12 relative" style={{ filter: `drop-shadow(0 0 8px ${glowColor})`, transform: 'translate(-50%, -50%)' }}>
+                      <path
+                        d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"
+                        fill={fillColor}
+                        stroke="currentColor"
+                        strokeWidth="0.5"
+                        className={theme.iconColor}
+                      />
+                    </svg>
+                  </div>
+                )}
+
+                {/* ═══ Clouds (daytime only) — white, wispy, very subtle ═══ */}
+                {daytime && (
+                  <>
+                    {/* Cloud 1 — large, slow drift right */}
+                    <svg
+                      className="absolute animate-cloud-drift transition-transform duration-1000 group-hover:translate-x-3"
+                      style={{ top: '10%', right: '2%', width: 110, opacity: 0.12, animationDelay: '0s' }}
+                      viewBox="0 0 100 45" fill="white"
+                    >
+                      <path d="M20 35 Q20 25 30 23 Q28 14 42 12 Q56 10 58 20 Q64 16 74 20 Q84 24 82 32 Q84 38 74 38 H28 Q20 38 20 35Z" />
+                    </svg>
+                    {/* Cloud 2 — medium, drift left */}
+                    <svg
+                      className="absolute animate-cloud-drift-reverse transition-transform duration-1000 group-hover:translate-x-2"
+                      style={{ top: '48%', right: '28%', width: 80, opacity: 0.08, animationDelay: '-14s' }}
+                      viewBox="0 0 100 45" fill="white"
+                    >
+                      <path d="M18 34 Q18 26 28 24 Q26 16 38 13 Q52 10 54 20 Q60 16 68 19 Q78 22 76 30 Q78 36 70 36 H26 Q18 37 18 34Z" />
+                    </svg>
+                    {/* Cloud 3 — small accent, bottom */}
+                    <svg
+                      className="absolute animate-cloud-drift transition-transform duration-1000 group-hover:translate-x-1"
+                      style={{ top: '75%', right: '6%', width: 55, opacity: 0.06, animationDelay: '-22s' }}
+                      viewBox="0 0 100 45" fill="white"
+                    >
+                      <path d="M22 34 Q22 26 32 24 Q30 17 44 15 Q56 13 58 22 Q66 18 74 22 Q82 26 80 32 Q82 37 72 37 H30 Q22 37 22 34Z" />
+                    </svg>
+                  </>
+                )}
+
+                {/* ═══ Stars (nighttime only) — twinkling white dots ═══ */}
+                {!daytime && (
+                  <>
+                    {[
+                      { x: '12%', y: '15%', s: 2.5, d: '0s', dur: '4s' },
+                      { x: '40%', y: '8%', s: 1.8, d: '1.5s', dur: '5s' },
+                      { x: '72%', y: '25%', s: 2.2, d: '0.8s', dur: '4.5s' },
+                      { x: '22%', y: '58%', s: 1.5, d: '2.2s', dur: '3.5s' },
+                      { x: '85%', y: '12%', s: 2, d: '0.3s', dur: '5.5s' },
+                      { x: '58%', y: '50%', s: 1.3, d: '1.8s', dur: '4s' },
+                      { x: '32%', y: '35%', s: 1.8, d: '2.5s', dur: '3s' },
+                      { x: '90%', y: '42%', s: 1, d: '1.2s', dur: '6s' },
+                      { x: '8%', y: '42%', s: 1.4, d: '3s', dur: '4.8s' },
+                      { x: '52%', y: '72%', s: 1.1, d: '0.5s', dur: '5.2s' },
+                    ].map((star, i) => (
+                      <div
+                        key={i}
+                        className="absolute rounded-full bg-white animate-star-twinkle"
+                        style={{
+                          left: star.x, top: star.y,
+                          width: star.s, height: star.s,
+                          animationDelay: star.d,
+                          animationDuration: star.dur,
+                        }}
+                      />
+                    ))}
+                  </>
+                )}
+
+                {/* Dawn/Evening horizon line */}
+                {(timeContext.segment === 'dawn' || timeContext.segment === 'evening') && (
+                  <div className="absolute bottom-[22%] left-[5%] right-[5%] h-px bg-white/[0.08]" />
+                )}
+              </div>
+
+              {/* ── Layer 5: Light Sweep / Ambient Pulse ────────── */}
+              {/* Sweep animation triggers once on page visit, then fades. Also shows on hover. */}
+              <div className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 z-[4] ${
+                sweepTriggered || isPulsing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+              }`}>
+                <div 
+                  key={sweepTriggered ? 'sweep-triggered' : 'sweep-idle'}
+                  className={`absolute inset-0 bg-gradient-to-r from-transparent ${theme.sweepTint} to-transparent ${
+                    isNight ? 'animate-ambient-pulse' : (sweepTriggered ? 'animate-sweep-once' : 'animate-sweep')
+                  }`} 
                 />
               </div>
 
-              {/* Light Sweep / Ambient Pulse Animation */}
-              <div className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ${isPulsing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                <div className={`absolute inset-0 bg-gradient-to-r from-transparent ${theme.sweepTint} to-transparent ${
-                  isNight ? 'animate-ambient-pulse' : 'animate-sweep'
-                }`} />
-              </div>
-
-              {/* Greeting Content */}
-              <div className="relative z-10 flex items-center justify-between">
-                <div className={`flex flex-col gap-0.5 pl-2 ${segmentAnimating ? 'animate-segment-fade-in' : ''}`}>
-                  <h1 className={`text-3xl font-black tracking-tighter uppercase mb-0.5 transition-all duration-[1000ms] premium-ease group-hover:translate-x-1 ${theme.textColor}`}>
-                    {timeContext.greeting}, IR Team
-                  </h1>
-                  <p className={`font-medium text-xs transition-all duration-[1000ms] premium-ease group-hover:translate-x-1 delay-75 ${theme.subtitleColor}`}>
-                    {subtitle}
-                  </p>
-                </div>
-                {/* Dynamic Time-of-Day Icon (anchor position — visible, filled) */}
-                <div className={`pr-2 transition-all duration-700 premium-ease ${isPulsing ? 'scale-110 opacity-[0.30]' : 'opacity-[0.15] group-hover:opacity-[0.30] group-hover:scale-110'}`}>
-                  <TimeOfDayIcon
-                    segment={timeContext.segment}
-                    fillColor={fillColor}
-                    className={`w-20 h-24 ${theme.iconColor} transition-colors duration-[1000ms]`}
-                  />
-                </div>
+              {/* ── Layer 6: Widget Content (text + time + location) ── */}
+              <div className={`relative z-10 p-8 flex flex-col justify-center h-full ${segmentAnimating ? 'animate-segment-fade-in' : ''}`}>
+                <h1 className={`text-3xl font-black tracking-tighter uppercase mb-1 transition-all duration-[1000ms] premium-ease group-hover:translate-x-1 ${theme.textColor}`}>
+                  {timeContext.greeting}, IR Team
+                </h1>
+                <p className={`text-[11px] font-semibold tracking-wide transition-all duration-[1000ms] premium-ease group-hover:translate-x-1 delay-75 ${theme.subtitleColor} opacity-70 mb-2`}>
+                  {dateLine}
+                </p>
+                <p className={`font-medium text-xs transition-all duration-[1000ms] premium-ease group-hover:translate-x-1 delay-100 ${theme.subtitleColor}`}>
+                  {subtitle}
+                </p>
+                {locationCity && (
+                  <div className={`flex items-center gap-1 mt-3 transition-all duration-[1000ms] premium-ease group-hover:translate-x-1 delay-150`}>
+                    <svg className={`w-3 h-3 ${theme.subtitleColor} opacity-50`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+                      <circle cx="12" cy="10" r="3" />
+                    </svg>
+                    <span className={`text-[10px] font-medium ${theme.subtitleColor} opacity-50`}>{locationCity}</span>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -1667,11 +1710,11 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
             <svg className="absolute inset-0 w-full h-full opacity-[0.02] dark:opacity-[0.05]">
               <filter id="share-widget-noise">
                 <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch" />
-                <feColorMatrix type="saturate" values="0" />
-              </filter>
+              <feColorMatrix type="saturate" values="0" />
+            </filter>
               <rect width="100%" height="100%" filter="url(#share-widget-noise)" />
-            </svg>
-          </div>
+          </svg>
+        </div>
 
           {/* Edge-to-edge chart (fills left, right, bottom) */}
           <div className="absolute inset-0 top-[64px] z-[1]">
@@ -1703,7 +1746,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                               {change >= 0 ? (
                                 <svg className="w-2.5 h-2.5 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941" />
-                                </svg>
+          </svg>
                               ) : (
                                 <svg className="w-2.5 h-2.5 text-red-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6 9 12.75l4.286-4.286a11.948 11.948 0 0 1 4.306 6.43l.776 2.898m0 0 3.182-5.511m-3.182 5.51-5.511-3.181" />
@@ -1737,7 +1780,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                 <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
               </div>
             )}
-          </div>
+        </div>
 
           {/* Header (above chart) */}
           <div className="relative z-20 px-4 pt-4">
@@ -1746,7 +1789,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                 <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />
               </svg>
               <span className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-[0.12em]">Share Price</span>
-            </div>
+        </div>
 
             {/* Filter Buttons */}
             <div className="flex items-center gap-0.5">
@@ -1765,7 +1808,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
               ))}
             </div>
           </div>
-
+          
           {/* Price + Trend (overlaid on top of chart, bottom-left) */}
           <div className="absolute bottom-3 left-4 z-20">
             <div className="flex items-baseline gap-1.5">
@@ -1777,7 +1820,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                   {shareStats.change >= 0 ? (
                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941" />
-                    </svg>
+            </svg>
                   ) : (
                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6 9 12.75l4.286-4.286a11.948 11.948 0 0 1 4.306 6.43l.776 2.898m0 0 3.182-5.511m-3.182 5.51-5.511-3.181" />
@@ -1942,14 +1985,14 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
               <div>
                 <h3 className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Shareholder Snapshot</h3>
                 <p className="text-[9px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">User Segmentation Overview</p>
-              </div>
+        </div>
               <div className="flex items-center gap-2 text-neutral-300 dark:text-neutral-600">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                   <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
                 </svg>
               </div>
             </div>
-            <ShareholderSnapshot applicants={applicants} />
+        <ShareholderSnapshot applicants={applicants} />
           </div>
         </div>
 

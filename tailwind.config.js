@@ -57,13 +57,45 @@ module.exports = {
           '0%': { opacity: '0', transform: 'translateY(4px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
+        // ── Atmospheric widget animations ──
+        'sun-spin': {
+          '0%': { transform: 'rotate(0deg)' },
+          '100%': { transform: 'rotate(360deg)' },
+        },
+        'celestial-glow': {
+          '0%, 100%': { transform: 'scale(1)', opacity: '0.5' },
+          '50%': { transform: 'scale(1.15)', opacity: '0.8' },
+        },
+        'cloud-drift': {
+          '0%, 100%': { transform: 'translateX(0)' },
+          '50%': { transform: 'translateX(18px)' },
+        },
+        'cloud-drift-reverse': {
+          '0%, 100%': { transform: 'translateX(0)' },
+          '50%': { transform: 'translateX(-14px)' },
+        },
+        'star-twinkle': {
+          '0%, 100%': { opacity: '0.15', transform: 'scale(1)' },
+          '50%': { opacity: '0.85', transform: 'scale(1.4)' },
+        },
+        'moon-float': {
+          '0%, 100%': { transform: 'translateY(0) rotate(0deg)' },
+          '50%': { transform: 'translateY(-5px) rotate(2deg)' },
+        },
       },
       animation: {
         sweep: 'sweep 3s ease-in-out infinite',
+        'sweep-once': 'sweep 2.5s ease-in-out forwards',
         'ambient-pulse': 'ambient-pulse 6s ease-in-out infinite',
         'glow-breathe': 'glow-breathe 5s ease-in-out infinite',
         'rain-shimmer': 'rain-shimmer 4s ease-in-out infinite',
         'segment-fade-in': 'segment-fade-in 0.8s ease-out forwards',
+        'sun-spin': 'sun-spin 90s linear infinite',
+        'celestial-glow': 'celestial-glow 6s ease-in-out infinite',
+        'cloud-drift': 'cloud-drift 28s ease-in-out infinite',
+        'cloud-drift-reverse': 'cloud-drift-reverse 35s ease-in-out infinite',
+        'star-twinkle': 'star-twinkle 4s ease-in-out infinite',
+        'moon-float': 'moon-float 20s ease-in-out infinite',
       },
     },
   },

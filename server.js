@@ -2160,6 +2160,9 @@ app.post('/api/send-request-info', async (req, res) => {
 
 // POST /api/generate-document-summary - AI summary of PDF / text / CSV documents
 // Uses unpdf (serverless-compatible, no @napi-rs/canvas needed)
+// Maximum number of pages to scan for summary generation
+const MAX_PAGES_TO_SCAN = parseInt(process.env.DOCUMENT_SUMMARY_MAX_PAGES || '10', 10);
+
 app.post('/api/generate-document-summary', (req, res) => {
   const contentType = req.headers['content-type'] || '';
 
@@ -2197,15 +2200,32 @@ app.post('/api/generate-document-summary', (req, res) => {
       const isPDF = fileType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
 
       if (isPDF) {
-        console.log('[DocSummary] Extracting text from PDF…', { bufferSize: fileBuffer.length, bytes: fileBuffer.length });
+        console.log('[DocSummary] Extracting text from PDF…', { 
+          bufferSize: fileBuffer.length, 
+          bytes: fileBuffer.length,
+          maxPagesToScan: MAX_PAGES_TO_SCAN 
+        });
         const { extractText, getDocumentProxy } = await import('unpdf');
         const pdf = await getDocumentProxy(new Uint8Array(fileBuffer));
-        const { text } = await extractText(pdf, { mergePages: true });
+        const totalPages = pdf.numPages;
+        
+        // Limit pages to scan (default: first 10 pages)
+        const pagesToExtract = Math.min(MAX_PAGES_TO_SCAN, totalPages);
+        
+        // Extract text from specified page range (1-indexed)
+        const pageNumbers = Array.from({ length: pagesToExtract }, (_, i) => i + 1);
+        const { text } = await extractText(pdf, { 
+          pages: pageNumbers,
+          mergePages: true 
+        });
+        
         documentText = text || '';
         console.log('[DocSummary] Text extracted from PDF:', {
-          pages: pdf.numPages,
+          totalPages: totalPages,
+          scannedPages: pagesToExtract,
           textLength: documentText.length,
           preview: documentText.slice(0, 200),
+          note: pagesToExtract < totalPages ? `Only scanned first ${pagesToExtract} of ${totalPages} pages` : 'Scanned all pages',
         });
       } else {
         documentText = fileBuffer.toString('utf-8');
@@ -2246,37 +2266,145 @@ async function summarizeText(documentText, res) {
   const content = truncated ? documentText.slice(0, maxLen) : documentText;
   if (truncated) console.log(`[DocSummary] Text truncated to ${maxLen} chars`);
 
-  const sysPrompt = `You are a financial document analyst for Euroland.
-Summarize the document text below in 2-4 concise paragraphs.
-Focus on key financial figures, dates, company names, and actionable takeaways.
-Write as direct factual statements. Do NOT use phrases like "appears to be", "seems to", "it is likely", or "the document appears".
-Do NOT address the reader or add your own commentary or point of view. Just state what the document contains.`;
+  const sysPrompt = `You are a financial document analyst. Your task is to write a summary of the provided document.
 
-  const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${groqKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      temperature: 0.3,
-      max_tokens: 1200,
-      messages: [
-        { role: 'system', content: sysPrompt },
-        { role: 'user', content: `Summarize:\n\n${content}` },
-      ],
-    }),
-  });
+STRICT OUTPUT RULES:
+1. Write ONLY the summary content - no introductions, no explanations, no meta-commentary
+2. Do NOT use phrases like "Let me summarize", "I'll provide", "Here's what", "The document shows", "Based on the document"
+3. Do NOT address yourself or the reader - write in third person, factual statements only
+4. Do NOT include prefixes like "Summary:", "Here's the summary:", "Document Summary:"
+5. Do NOT use markdown formatting (no **bold**, *italic*, # headers, code blocks, or lists)
+6. Start immediately with the factual content - no introductory phrases
 
-  const json = await r.json();
-  if (!r.ok) {
-    const msg = json?.error?.message || `Groq API error: ${r.status}`;
-    return res.status(502).json({ success: false, error: msg });
+CONTENT REQUIREMENTS:
+- 2-4 concise paragraphs
+- Focus on key financial figures, dates, company names, and actionable takeaways
+- Write as direct factual statements
+- Do NOT use uncertain language like "appears to be", "seems to", "it is likely", "the document appears"
+- Write as if stating facts directly, not describing what you're doing
+
+EXAMPLE OF CORRECT OUTPUT:
+"The company reported revenue of $500 million in 2024, representing a 15% increase from the previous year. Key initiatives included expansion into three new markets and the launch of a sustainability program targeting carbon neutrality by 2030."
+
+EXAMPLE OF INCORRECT OUTPUT (DO NOT DO THIS):
+"Let me provide a summary of this document. The document shows that the company reported revenue..."
+"Here's what I found in the document: The company appears to have..."
+"Summary: Based on my analysis, the document indicates that..."`;
+
+  // Use the same LLM model strategy as email generation
+  const primaryModel = 'qwen/qwen3-32b';
+  const fallbackModel = 'llama-3.3-70b-versatile';
+
+  // Helper function to make LLM API call
+  const callLLM = async (model) => {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${groqKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: model,
+        temperature: 0.3,
+        max_tokens: 1200,
+        messages: [
+          { role: 'system', content: sysPrompt },
+          { role: 'user', content: `Summarize:\n\n${content}` },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Groq API error: ${response.status} - ${error}`);
+    }
+
+    return response;
+  };
+
+  let response;
+  let usedModel = primaryModel;
+
+  try {
+    // Try primary model first (same as email generation)
+    response = await callLLM(primaryModel);
+  } catch (primaryError) {
+    console.warn('[DocSummary] Primary model failed, trying fallback:', {
+      primaryModel,
+      error: primaryError.message,
+      fallbackModel,
+    });
+
+    try {
+      // Fallback to secondary model
+      response = await callLLM(fallbackModel);
+      usedModel = fallbackModel;
+    } catch (fallbackError) {
+      console.error('[DocSummary] Both models failed:', {
+        primaryError: primaryError.message,
+        fallbackError: fallbackError.message,
+      });
+      const msg = fallbackError?.message || `Groq API error: Failed to generate summary with both models.`;
+      return res.status(502).json({ success: false, error: msg });
+    }
   }
-  const summary = json?.choices?.[0]?.message?.content?.trim() || 'Could not generate summary.';
-  console.log('[DocSummary] ✓ Summary generated', { model: 'llama-3.3-70b-versatile', summaryLength: summary.length });
-  return res.status(200).json({ success: true, summary });
+
+  const json = await response.json();
+  let rawSummary = json?.choices?.[0]?.message?.content?.trim() || 'Could not generate summary.';
+  
+  // Strip <think>...</think> blocks (Qwen thinking mode internal monologue)
+  rawSummary = rawSummary.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  
+  // Remove conversational prefixes and meta-commentary
+  const conversationalPatterns = [
+    /^(Let me|I'll|I will|Let me provide|I'll provide|I will provide|Here's|Here is|Here are)\s+(?:a\s+)?(?:brief\s+)?(?:summary|summarize|what|the\s+summary|the\s+document|findings|analysis)[:.]?\s*/i,
+    /^(Summary|Document Summary|Summary of|Summary:)\s*:?\s*/i,
+    /^(Based on|According to|From|In)\s+(?:the\s+)?(?:document|text|provided\s+information|analysis)[,.]?\s*/i,
+    /^(The\s+document\s+shows|The\s+document\s+indicates|The\s+document\s+reveals|The\s+document\s+states)[,.]?\s*/i,
+    /^(This\s+document|This\s+text|This\s+summary)\s+(?:shows|indicates|reveals|states|contains)[,.]?\s*/i,
+  ];
+  
+  conversationalPatterns.forEach(pattern => {
+    rawSummary = rawSummary.replace(pattern, '');
+  });
+  
+  // Remove markdown code blocks
+  rawSummary = rawSummary
+    .replace(/^```(?:markdown|text|plaintext)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+  
+  // Remove markdown formatting
+  rawSummary = rawSummary
+    .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold
+    .replace(/\*(.*?)\*/g, '$1') // Remove italic
+    .replace(/^#+\s*/gm, '') // Remove markdown headers
+    .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1') // Remove markdown links
+    .replace(/^[-*+]\s+/gm, '') // Remove list markers
+    .replace(/^\d+\.\s+/gm, '') // Remove numbered list markers
+    .trim();
+  
+  // Remove conversational phrases within the text
+  rawSummary = rawSummary
+    .replace(/\b(Let me|I'll|I will|I can|I should|I need to|I want to|I'm going to|I'm here to)\s+\w+/gi, '')
+    .replace(/\b(Here's|Here is|Here are|This is|That is)\s+(?:what|the|a)\s+/gi, '')
+    .replace(/\b(Based on|According to|From|In)\s+(?:the\s+)?(?:document|text|provided\s+information)[,.]?\s+/gi, '')
+    .trim();
+  
+  // Clean up excessive whitespace and newlines
+  rawSummary = rawSummary
+    .replace(/\n{3,}/g, '\n\n') // Max 2 consecutive newlines
+    .replace(/[ \t]+/g, ' ') // Multiple spaces to single space
+    .replace(/^\s*[.,;:]\s*/gm, '') // Remove leading punctuation on new lines
+    .trim();
+  
+  const summary = rawSummary || 'Could not generate summary.';
+  
+  console.log('[DocSummary] ✓ Summary generated', {
+    model: usedModel,
+    summaryLength: summary.length,
+  });
+  return res.status(200).json({ success: true, summary, model: usedModel });
 }
 
 // POST /api/parse-document endpoint

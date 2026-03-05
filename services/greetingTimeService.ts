@@ -46,15 +46,11 @@ export interface TimeContext {
  * warm/cool glows — adapted for a professional IR dashboard.
  */
 export interface GreetingTheme {
-  /** Tailwind bg classes for the card container (light mode) */
+  /** Tailwind bg classes — same in both light and dark mode (time-accurate) */
   bgClass: string;
-  /** Tailwind bg classes for the card container (dark mode) */
-  bgClassDark: string;
   /** Subtle overlay gradient for ambient depth */
   overlayClass: string;
-  /** Dark mode overlay gradient */
-  overlayClassDark: string;
-  /** Text color class for h1 greeting */
+  /** Text color class for h1 greeting (readable on time-accurate bg) */
   textColor: string;
   /** Subtitle text color class */
   subtitleColor: string;
@@ -64,17 +60,12 @@ export interface GreetingTheme {
   shadowClass: string;
   /** Icon stroke color */
   iconColor: string;
-  /** Icon fill color (CSS rgba for SVG fill) — light mode */
+  /** Icon fill color (CSS rgba for SVG fill) */
   iconFill: string;
-  /** Icon fill color — dark mode */
-  iconFillDark: string;
-  /** Radial glow CSS color behind icon area — light mode */
+  /** Radial glow CSS color behind icon area */
   glowColor: string;
-  /** Radial glow CSS color behind icon area — dark mode */
-  glowColorDark: string;
   /** Noise texture opacity */
   noiseOpacity: string;
-  noiseOpacityDark: string;
 }
 
 // ── LocalStorage Keys ────────────────────────────────────────────────
@@ -183,124 +174,99 @@ export const getGreetingSubtitle = (segment?: TimeSegment): string => {
 export const getGreetingTheme = (segment?: TimeSegment): GreetingTheme => {
   const s = segment ?? getTimeSegment();
 
+  // ── Time-accurate colors — SAME in both light and dark mode ──
+  // The greeting card is its own "island" that always reflects
+  // the real sky/ambient color for the current time of day.
+  // Dark/light mode does NOT change these colors.
+
   switch (s) {
     case 'dawn':
-      // Warm coral → peach → gold — visible sunrise warmth
+      // Warm coral → peach → gold — real sunrise warmth
       return {
         bgClass: 'bg-gradient-to-br from-rose-200 via-amber-100 to-yellow-50',
-        bgClassDark: 'dark:bg-gradient-to-br dark:from-rose-950/50 dark:via-amber-950/40 dark:to-neutral-950',
         overlayClass: 'bg-gradient-to-br from-orange-200/30 via-amber-100/20 to-transparent',
-        overlayClassDark: 'bg-gradient-to-br from-amber-500/10 via-orange-500/5 to-transparent',
-        textColor: 'text-neutral-800 dark:text-amber-50',
-        subtitleColor: 'text-neutral-600/80 dark:text-amber-200/60',
-        sweepTint: 'via-amber-600/[0.06] dark:via-amber-300/[0.04]',
-        shadowClass: 'shadow-lg shadow-amber-200/20 dark:shadow-amber-900/10',
-        iconColor: 'text-amber-600 dark:text-amber-300',
-        iconFill: 'rgba(251, 146, 60, 0.25)',
-        iconFillDark: 'rgba(251, 191, 36, 0.18)',
-        glowColor: 'rgba(251, 191, 36, 0.20)',
-        glowColorDark: 'rgba(251, 191, 36, 0.10)',
+        textColor: 'text-neutral-800',
+        subtitleColor: 'text-neutral-600/80',
+        sweepTint: 'via-amber-600/[0.06]',
+        shadowClass: 'shadow-lg shadow-amber-200/30',
+        iconColor: 'text-amber-600',
+        iconFill: 'rgba(251, 146, 60, 0.30)',
+        glowColor: 'rgba(251, 191, 36, 0.25)',
         noiseOpacity: 'opacity-[0.02]',
-        noiseOpacityDark: 'dark:opacity-[0.04]',
       };
 
     case 'morning':
-      // Golden warm clarity — bright, energetic start
+      // Golden warm clarity — bright, energetic morning sky
       return {
         bgClass: 'bg-gradient-to-br from-amber-100 via-orange-50 to-yellow-50/80',
-        bgClassDark: 'dark:bg-gradient-to-br dark:from-amber-950/40 dark:via-orange-950/20 dark:to-neutral-950',
         overlayClass: 'bg-gradient-to-br from-yellow-200/20 via-amber-100/10 to-transparent',
-        overlayClassDark: 'bg-gradient-to-br from-yellow-500/8 via-amber-500/4 to-transparent',
-        textColor: 'text-neutral-900 dark:text-white',
-        subtitleColor: 'text-neutral-500 dark:text-amber-100/50',
-        sweepTint: 'via-amber-500/[0.05] dark:via-amber-300/[0.04]',
-        shadowClass: 'shadow-lg shadow-amber-100/30 dark:shadow-amber-900/10',
-        iconColor: 'text-amber-500 dark:text-amber-300',
-        iconFill: 'rgba(245, 158, 11, 0.20)',
-        iconFillDark: 'rgba(245, 158, 11, 0.15)',
-        glowColor: 'rgba(245, 158, 11, 0.15)',
-        glowColorDark: 'rgba(245, 158, 11, 0.08)',
+        textColor: 'text-neutral-900',
+        subtitleColor: 'text-neutral-500',
+        sweepTint: 'via-amber-500/[0.05]',
+        shadowClass: 'shadow-lg shadow-amber-100/30',
+        iconColor: 'text-amber-500',
+        iconFill: 'rgba(245, 158, 11, 0.25)',
+        glowColor: 'rgba(245, 158, 11, 0.20)',
         noiseOpacity: 'opacity-[0.02]',
-        noiseOpacityDark: 'dark:opacity-[0.05]',
       };
 
     case 'afternoon':
-      // Sky blue daylight — cool, clean, professional
+      // Sky blue daylight — the sky IS light blue in the afternoon
       return {
-        bgClass: 'bg-gradient-to-br from-sky-100 via-blue-50 to-indigo-50/60',
-        bgClassDark: 'dark:bg-gradient-to-br dark:from-sky-950/40 dark:via-blue-950/20 dark:to-neutral-950',
-        overlayClass: 'bg-gradient-to-br from-sky-200/20 via-blue-100/10 to-transparent',
-        overlayClassDark: 'bg-gradient-to-br from-sky-500/6 via-blue-500/3 to-transparent',
-        textColor: 'text-neutral-900 dark:text-white',
-        subtitleColor: 'text-neutral-500 dark:text-sky-100/50',
-        sweepTint: 'via-sky-500/[0.05] dark:via-sky-300/[0.03]',
-        shadowClass: 'shadow-lg shadow-sky-100/30 dark:shadow-sky-900/10',
-        iconColor: 'text-sky-500 dark:text-sky-300',
-        iconFill: 'rgba(56, 189, 248, 0.15)',
-        iconFillDark: 'rgba(56, 189, 248, 0.12)',
-        glowColor: 'rgba(56, 189, 248, 0.12)',
-        glowColorDark: 'rgba(56, 189, 248, 0.06)',
+        bgClass: 'bg-gradient-to-br from-sky-200 via-blue-100 to-indigo-100/60',
+        overlayClass: 'bg-gradient-to-br from-sky-200/25 via-blue-100/15 to-transparent',
+        textColor: 'text-neutral-900',
+        subtitleColor: 'text-neutral-600',
+        sweepTint: 'via-sky-500/[0.06]',
+        shadowClass: 'shadow-lg shadow-sky-200/30',
+        iconColor: 'text-sky-500',
+        iconFill: 'rgba(56, 189, 248, 0.25)',
+        glowColor: 'rgba(56, 189, 248, 0.20)',
         noiseOpacity: 'opacity-[0.02]',
-        noiseOpacityDark: 'dark:opacity-[0.05]',
       };
 
     case 'evening':
-      // Deep blue → indigo → violet — twilight transition
+      // Sunset orange → purple → indigo — real twilight transition
       return {
-        bgClass: 'bg-gradient-to-br from-indigo-200 via-blue-100 to-violet-100/60',
-        bgClassDark: 'dark:bg-gradient-to-br dark:from-indigo-950/50 dark:via-violet-950/30 dark:to-neutral-950',
-        overlayClass: 'bg-gradient-to-br from-indigo-300/20 via-violet-200/10 to-transparent',
-        overlayClassDark: 'bg-gradient-to-br from-indigo-500/8 via-violet-500/4 to-transparent',
-        textColor: 'text-neutral-800 dark:text-indigo-50',
-        subtitleColor: 'text-indigo-900/50 dark:text-indigo-200/50',
-        sweepTint: 'via-indigo-600/[0.05] dark:via-indigo-300/[0.04]',
-        shadowClass: 'shadow-lg shadow-indigo-200/25 dark:shadow-indigo-900/10',
-        iconColor: 'text-indigo-400 dark:text-indigo-300',
-        iconFill: 'rgba(99, 102, 241, 0.18)',
-        iconFillDark: 'rgba(99, 102, 241, 0.14)',
-        glowColor: 'rgba(99, 102, 241, 0.12)',
-        glowColorDark: 'rgba(99, 102, 241, 0.08)',
+        bgClass: 'bg-gradient-to-br from-orange-200 via-rose-200/80 to-indigo-300/60',
+        overlayClass: 'bg-gradient-to-br from-orange-200/20 via-violet-200/15 to-transparent',
+        textColor: 'text-neutral-900',
+        subtitleColor: 'text-neutral-700/70',
+        sweepTint: 'via-indigo-600/[0.05]',
+        shadowClass: 'shadow-lg shadow-indigo-200/25',
+        iconColor: 'text-orange-400',
+        iconFill: 'rgba(251, 146, 60, 0.25)',
+        glowColor: 'rgba(251, 146, 60, 0.18)',
         noiseOpacity: 'opacity-[0.02]',
-        noiseOpacityDark: 'dark:opacity-[0.06]',
       };
 
     case 'night':
-      // Deep navy → charcoal — dark even in light mode, like the reference night card
+      // Deep navy → charcoal — real dark sky, same in both modes
       return {
         bgClass: 'bg-gradient-to-br from-slate-700 via-indigo-800/80 to-slate-900',
-        bgClassDark: 'dark:bg-gradient-to-br dark:from-slate-900 dark:via-indigo-950/80 dark:to-black',
         overlayClass: 'bg-gradient-to-br from-indigo-600/15 via-violet-700/8 to-transparent',
-        overlayClassDark: 'bg-gradient-to-br from-indigo-500/8 via-violet-500/4 to-transparent',
-        textColor: 'text-white dark:text-slate-100',
-        subtitleColor: 'text-slate-300/70 dark:text-slate-400/60',
-        sweepTint: 'via-indigo-300/[0.04] dark:via-indigo-300/[0.03]',
-        shadowClass: 'shadow-lg shadow-slate-400/20 dark:shadow-black/20',
-        iconColor: 'text-slate-300 dark:text-slate-300',
-        iconFill: 'rgba(148, 163, 184, 0.15)',
-        iconFillDark: 'rgba(148, 163, 184, 0.12)',
-        glowColor: 'rgba(129, 140, 248, 0.10)',
-        glowColorDark: 'rgba(129, 140, 248, 0.06)',
+        textColor: 'text-white',
+        subtitleColor: 'text-slate-300/70',
+        sweepTint: 'via-indigo-300/[0.04]',
+        shadowClass: 'shadow-lg shadow-slate-400/20',
+        iconColor: 'text-slate-300',
+        iconFill: 'rgba(148, 163, 184, 0.18)',
+        glowColor: 'rgba(129, 140, 248, 0.12)',
         noiseOpacity: 'opacity-[0.025]',
-        noiseOpacityDark: 'dark:opacity-[0.07]',
       };
 
     default:
       return {
-        bgClass: 'bg-neutral-100',
-        bgClassDark: 'dark:bg-black',
+        bgClass: 'bg-gradient-to-br from-sky-200 via-blue-100 to-indigo-100/60',
         overlayClass: '',
-        overlayClassDark: '',
-        textColor: 'text-neutral-900 dark:text-white',
-        subtitleColor: 'text-neutral-500 dark:text-neutral-500',
-        sweepTint: 'via-neutral-900/[0.03] dark:via-white/[0.03]',
+        textColor: 'text-neutral-900',
+        subtitleColor: 'text-neutral-500',
+        sweepTint: 'via-neutral-900/[0.03]',
         shadowClass: 'shadow-md',
-        iconColor: 'text-neutral-600 dark:text-white',
-        iconFill: 'rgba(115, 115, 115, 0.10)',
-        iconFillDark: 'rgba(255, 255, 255, 0.08)',
+        iconColor: 'text-neutral-600',
+        iconFill: 'rgba(115, 115, 115, 0.15)',
         glowColor: 'transparent',
-        glowColorDark: 'transparent',
         noiseOpacity: 'opacity-[0.02]',
-        noiseOpacityDark: 'dark:opacity-[0.05]',
       };
   }
 };
@@ -410,5 +376,82 @@ export const markSegmentAnimated = (segment: TimeSegment, weather: WeatherCondit
     localStorage.setItem(STORAGE_KEYS.LAST_ANIMATED_AT, Date.now().toString());
   } catch {
     // Silently fail
+  }
+};
+
+// ── Widget Display Helpers ──────────────────────────────────────────
+
+/**
+ * Get formatted "Day • Time" string for widget display.
+ * Example: "Thursday • 2:45 PM"
+ */
+export const getWidgetDateLine = (date?: Date): string => {
+  const now = date ?? new Date();
+  const day = now.toLocaleDateString('en-US', { weekday: 'long' });
+  const time = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return `${day} \u2022 ${time}`;
+};
+
+/**
+ * Check if current segment is daytime (shows sun + clouds vs moon + stars).
+ */
+export const isDaytime = (segment?: TimeSegment): boolean => {
+  const s = segment ?? getTimeSegment();
+  return s === 'dawn' || s === 'morning' || s === 'afternoon';
+};
+
+/**
+ * Get IRO location using browser Geolocation API + reverse geocoding.
+ * Falls back to timezone-based city name if geolocation fails or is denied.
+ */
+export const getLocationString = async (): Promise<string> => {
+  // Try browser geolocation first
+  if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          timeout: 5000,
+          enableHighAccuracy: false,
+        });
+      });
+
+      const { latitude, longitude } = position.coords;
+
+      // Reverse geocoding using OpenStreetMap Nominatim API (free, no key required)
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&addressdetails=1`,
+          {
+            headers: {
+              'User-Agent': 'EurolandHUB/1.0', // Required by Nominatim
+            },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          // Prefer city, then town, then municipality, then state
+          const city = data.address?.city || data.address?.town || data.address?.municipality || data.address?.state;
+          if (city) {
+            return city;
+          }
+        }
+      } catch (e) {
+        // Silently fall through to timezone fallback
+        console.debug('Reverse geocoding failed, using timezone fallback');
+      }
+    } catch (e) {
+      // Geolocation denied or failed, fall through to timezone fallback
+      console.debug('Geolocation failed, using timezone fallback');
+    }
+  }
+
+  // Fallback: Extract city from browser timezone
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const parts = tz.split('/');
+    return parts[parts.length - 1].replace(/_/g, ' ');
+  } catch {
+    return '';
   }
 };
