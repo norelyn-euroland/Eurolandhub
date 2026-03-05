@@ -744,7 +744,7 @@ export async function getIncompleteReason(applicant: Applicant): Promise<string 
  * Calculate how many days since user last made progress in verification
  * Returns the number of days, or null if user has completed verification
  */
-export function getDaysSinceLastProgress(applicant: Applicant): number | null {
+export async function getDaysSinceLastProgress(applicant: Applicant): Promise<number | null> {
   const wf = applicant.shareholdingsVerification;
   if (!wf) {
     // Use submissionDate as baseline if no workflow
@@ -756,7 +756,7 @@ export function getDaysSinceLastProgress(applicant: Applicant): number | null {
   }
   
   // Check if user is verified
-  const internalStatus = getWorkflowStatusInternal(applicant);
+  const internalStatus = await getWorkflowStatusInternal(applicant);
   if (internalStatus === 'VERIFIED') {
     return null; // User completed verification
   }
@@ -833,7 +833,7 @@ export async function getStuckUsers(applicants: Applicant[], minDays: number = 3
     applicants.map(async (applicant) => ({
       applicant,
       isIncomplete: await isVerificationIncomplete(applicant),
-      daysStuck: getDaysSinceLastProgress(applicant),
+      daysStuck: await getDaysSinceLastProgress(applicant),
     }))
   );
   return results

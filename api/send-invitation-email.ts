@@ -997,11 +997,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const trackingToken = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       
       // Add tracking pixel (1x1 transparent image)
-      const trackingPixelUrl = `${baseUrl}/api/track-email-open?applicantId=${encodeURIComponent(registrationId)}&token=${trackingToken}`;
+      const trackingPixelUrl = `${baseUrl}/api/track/email-open?applicantId=${encodeURIComponent(registrationId)}&token=${trackingToken}`;
       const trackingPixel = `<img src="${trackingPixelUrl}" width="1" height="1" style="display:none;" alt="" />`;
       
       // Wrap registration link with click tracking
-      const trackedRegistrationLink = `${baseUrl}/api/track-link-click?applicantId=${encodeURIComponent(registrationId)}&token=${trackingToken}&redirect=${encodeURIComponent(registrationLink)}`;
+      const trackedRegistrationLink = `${baseUrl}/api/track/link-click?applicantId=${encodeURIComponent(registrationId)}&token=${trackingToken}&redirect=${encodeURIComponent(registrationLink)}`;
       
       // Replace the registration link in the HTML with tracked link
       finalBodyHtml = finalBodyHtml.replace(
