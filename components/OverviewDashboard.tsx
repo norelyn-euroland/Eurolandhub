@@ -2325,7 +2325,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
             <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">Ranked by engagement score</p>
           </div>
           <button 
-            onClick={() => onViewChange?.('engagement')}
+            onClick={() => onViewChange?.('engagement-activity')}
             className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider"
           >
             View All
@@ -2453,7 +2453,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
             <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">Ranked by read rate and interactions</p>
           </div>
           <button 
-            onClick={() => onViewChange?.('engagement')}
+            onClick={() => onViewChange?.('engagement-activity')}
             className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider"
           >
             View All
@@ -2521,7 +2521,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
             <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">From registered users (verified and unverified)</p>
           </div>
           <button 
-            onClick={() => onViewChange?.('engagement')}
+            onClick={() => onViewChange?.('engagement-activity')}
             className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider"
           >
             View All

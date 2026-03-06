@@ -717,8 +717,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
         });
         items.push({
           label: 'Engagement',
-          view: 'engagement',
-          onClick: () => setView('engagement')
+          view: 'engagement'
         });
         break;
 
@@ -730,8 +729,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
         });
         items.push({
           label: 'Engagement',
-          view: 'engagement',
-          onClick: () => setView('engagement')
+          view: 'engagement'
         });
         items.push({
           label: 'Investor Activity',
@@ -748,8 +746,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
         });
         items.push({
           label: 'Engagement',
-          view: 'engagement',
-          onClick: () => setView('engagement')
+          view: 'engagement'
         });
         items.push({
           label: 'Events',
@@ -766,8 +763,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
         });
         items.push({
           label: 'Engagement',
-          view: 'engagement',
-          onClick: () => setView('engagement')
+          view: 'engagement'
         });
         items.push({
           label: 'Analytics',

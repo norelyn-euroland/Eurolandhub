@@ -110,10 +110,16 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
       <nav className={`flex-1 space-y-2 overflow-y-auto ${isCollapsed ? 'px-2' : 'px-4'}`}>
         <button 
           onClick={() => onViewChange('dashboard')}
-          className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium ${currentView === 'dashboard' ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border-l-4 border-[#082b4a] dark:border-[#00adf0]' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'}`}
+          className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium relative ${
+            currentView === 'dashboard' 
+              ? isCollapsed 
+                ? 'text-[#082b4a] dark:text-[#00adf0] border-l-4 border-[#082b4a] dark:border-[#00adf0]' 
+                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border-l-4 border-[#082b4a] dark:border-[#00adf0]'
+              : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'
+          }`}
           title={isCollapsed ? 'Dashboard' : ''}
         >
-          <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+          <svg className={`w-5 h-5 flex-shrink-0 ${currentView === 'dashboard' && isCollapsed ? 'text-[#082b4a] dark:text-[#00adf0]' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
             <rect width="18" height="18" x="3" y="3" rx="2"/>
             <path d="M3 9h18"/>
             <path d="M9 21V9"/>
@@ -122,18 +128,30 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
         </button>
         <button 
           onClick={() => onViewChange('shareholders')}
-          className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium ${currentView === 'shareholders' ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border-l-4 border-[#082b4a] dark:border-[#00adf0]' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'}`}
+          className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium relative ${
+            currentView === 'shareholders' 
+              ? isCollapsed 
+                ? 'text-[#082b4a] dark:text-[#00adf0] border-l-4 border-[#082b4a] dark:border-[#00adf0]' 
+                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border-l-4 border-[#082b4a] dark:border-[#00adf0]'
+              : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'
+          }`}
           title={isCollapsed ? 'Shareholders' : ''}
         >
-          <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          <svg className={`w-5 h-5 flex-shrink-0 ${currentView === 'shareholders' && isCollapsed ? 'text-[#082b4a] dark:text-[#00adf0]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
           {!isCollapsed && <span>Shareholders</span>}
         </button>
         <button 
           onClick={() => onViewChange('registrations')}
-          className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium ${currentView === 'registrations' || currentView === 'detail' ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border-l-4 border-[#082b4a] dark:border-[#00adf0]' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'}`}
+          className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium relative ${
+            currentView === 'registrations' || currentView === 'detail' 
+              ? isCollapsed 
+                ? 'text-[#082b4a] dark:text-[#00adf0] border-l-4 border-[#082b4a] dark:border-[#00adf0]' 
+                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border-l-4 border-[#082b4a] dark:border-[#00adf0]'
+              : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'
+          }`}
           title={isCollapsed ? 'Registrations' : ''}
         >
-          <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+          <svg className={`w-5 h-5 flex-shrink-0 ${(currentView === 'registrations' || currentView === 'detail') && isCollapsed ? 'text-[#082b4a] dark:text-[#00adf0]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
           {!isCollapsed && <span>Registrations</span>}
         </button>
         <button 
@@ -144,8 +162,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
               onViewChange('engagement-activity');
             }
           }}
-          className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium ${
-            currentView === 'engagement-activity' || currentView === 'engagement-events' || currentView === 'engagement-analytics'
+          className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium relative ${
+            !isCollapsed && (currentView === 'engagement-activity' || currentView === 'engagement-events' || currentView === 'engagement-analytics')
               ? 'text-neutral-900 dark:text-white'
               : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'
           }`}
@@ -233,28 +251,28 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
           <>
             <button 
               onClick={() => onViewChange('engagement-activity')}
-              className={`w-full flex items-center justify-center px-2 py-1.5 transition-all ${
+              className={`w-full flex items-center justify-center px-2 py-1.5 transition-all relative ${
                 currentView === 'engagement-activity'
-                  ? 'text-[#082b4a] dark:text-[#00adf0]'
+                  ? 'text-[#082b4a] dark:text-[#00adf0] border-l-4 border-[#082b4a] dark:border-[#00adf0]'
                   : 'text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
               }`}
               title="Investor Activity"
             >
-              <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg className={`w-3.5 h-3.5 flex-shrink-0 ${currentView === 'engagement-activity' ? 'text-[#082b4a] dark:text-[#00adf0]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 12l2 2 4-4"/>
                 <path d="M21 12c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1zM3 12c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1zM12 3c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1zM12 21c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1z"/>
               </svg>
             </button>
             <button 
               onClick={() => onViewChange('engagement-events')}
-              className={`w-full flex items-center justify-center px-2 py-1.5 transition-all ${
+              className={`w-full flex items-center justify-center px-2 py-1.5 transition-all relative ${
                 currentView === 'engagement-events'
-                  ? 'text-[#082b4a] dark:text-[#00adf0]'
+                  ? 'text-[#082b4a] dark:text-[#00adf0] border-l-4 border-[#082b4a] dark:border-[#00adf0]'
                   : 'text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
               }`}
               title="Events"
             >
-              <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg className={`w-3.5 h-3.5 flex-shrink-0 ${currentView === 'engagement-events' ? 'text-[#082b4a] dark:text-[#00adf0]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
                 <line x1="16" y1="2" x2="16" y2="6"/>
                 <line x1="8" y1="2" x2="8" y2="6"/>
@@ -263,14 +281,14 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
             </button>
             <button 
               onClick={() => onViewChange('engagement-analytics')}
-              className={`w-full flex items-center justify-center px-2 py-1.5 transition-all ${
+              className={`w-full flex items-center justify-center px-2 py-1.5 transition-all relative ${
                 currentView === 'engagement-analytics'
-                  ? 'text-[#082b4a] dark:text-[#00adf0]'
+                  ? 'text-[#082b4a] dark:text-[#00adf0] border-l-4 border-[#082b4a] dark:border-[#00adf0]'
                   : 'text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
               }`}
               title="Analytics"
             >
-              <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg className={`w-3.5 h-3.5 flex-shrink-0 ${currentView === 'engagement-analytics' ? 'text-[#082b4a] dark:text-[#00adf0]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 3v18h18"/>
                 <path d="M18 17V9"/>
                 <path d="M13 17V5"/>
@@ -281,10 +299,16 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
         )}
         <button 
           onClick={() => onViewChange('documents')}
-          className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium ${currentView === 'documents' ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border-l-4 border-[#082b4a] dark:border-[#00adf0]' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'}`}
+          className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium relative ${
+            currentView === 'documents' 
+              ? isCollapsed 
+                ? 'text-[#082b4a] dark:text-[#00adf0] border-l-4 border-[#082b4a] dark:border-[#00adf0]' 
+                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border-l-4 border-[#082b4a] dark:border-[#00adf0]'
+              : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'
+          }`}
           title={isCollapsed ? 'Documents' : ''}
         >
-          <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg className={`w-5 h-5 flex-shrink-0 ${currentView === 'documents' && isCollapsed ? 'text-[#082b4a] dark:text-[#00adf0]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <path d="M14 2v6h6"/>
             <path d="M16 13H8"/>
