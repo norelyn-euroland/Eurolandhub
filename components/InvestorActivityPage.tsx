@@ -122,6 +122,19 @@ const InvestorActivityPage: React.FC<InvestorActivityPageProps> = ({ applicants,
 
   // Refs
   const detailPanelRef = useRef<HTMLDivElement>(null);
+  const userActivityLogRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to User Activity Log section if sessionStorage flag is set
+  useEffect(() => {
+    const scrollTarget = sessionStorage.getItem('scrollTo');
+    if (scrollTarget === 'user-activity-log') {
+      sessionStorage.removeItem('scrollTo');
+      // Wait for the page to fully render before scrolling
+      setTimeout(() => {
+        userActivityLogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 300);
+    }
+  }, []);
 
   // ─ Data generation ─
   useEffect(() => {
@@ -886,7 +899,7 @@ const InvestorActivityPage: React.FC<InvestorActivityPageProps> = ({ applicants,
       {/* ══════════════════════════════════════════════════════════════
           SECTION 3: USER ACTIVITY LOG
          ══════════════════════════════════════════════════════════════ */}
-      <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-sm overflow-hidden">
+      <div id="user-activity-log" ref={userActivityLogRef} className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-sm overflow-hidden">
         {/* Section Header & Filters */}
         <div className="px-5 py-4 border-b border-neutral-200 dark:border-neutral-700">
           <div className="flex items-center justify-between mb-3">
