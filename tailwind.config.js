@@ -82,6 +82,39 @@ module.exports = {
           '0%, 100%': { transform: 'translateY(0) rotate(0deg)' },
           '50%': { transform: 'translateY(-5px) rotate(2deg)' },
         },
+        'spin-slow': {
+          '0%': { transform: 'translate(-50%, -50%) rotate(0deg)' },
+          '100%': { transform: 'translate(-50%, -50%) rotate(360deg)' },
+        },
+        // ── Weather particle animations ──
+        'rain-fall': {
+          '0%': { transform: 'translateY(-10px)', opacity: '0' },
+          '10%': { opacity: '0.6' },
+          '90%': { opacity: '0.6' },
+          '100%': { transform: 'translateY(220px)', opacity: '0' },
+        },
+        'snow-fall': {
+          '0%': { transform: 'translateY(-10px) translateX(0px)', opacity: '0' },
+          '10%': { opacity: '0.5' },
+          '50%': { transform: 'translateY(110px) translateX(15px)', opacity: '0.5' },
+          '90%': { opacity: '0.4' },
+          '100%': { transform: 'translateY(220px) translateX(-5px)', opacity: '0' },
+        },
+        'gradient-shift': {
+          '0%': { backgroundPosition: '0% 50%' },
+          '50%': { backgroundPosition: '100% 50%' },
+          '100%': { backgroundPosition: '0% 50%' },
+        },
+        'lightning-flash': {
+          '0%, 95%, 100%': { opacity: '0' },
+          '96%': { opacity: '0.3' },
+          '97%': { opacity: '0' },
+          '98%': { opacity: '0.15' },
+        },
+        'mist-drift': {
+          '0%, 100%': { transform: 'translateX(0) scaleX(1)', opacity: '0.06' },
+          '50%': { transform: 'translateX(30px) scaleX(1.2)', opacity: '0.1' },
+        },
       },
       animation: {
         sweep: 'sweep 3s ease-in-out infinite',
@@ -96,6 +129,12 @@ module.exports = {
         'cloud-drift-reverse': 'cloud-drift-reverse 35s ease-in-out infinite',
         'star-twinkle': 'star-twinkle 4s ease-in-out infinite',
         'moon-float': 'moon-float 20s ease-in-out infinite',
+        'spin-slow': 'spin-slow 60s linear infinite',
+        'rain-fall': 'rain-fall 1.2s linear infinite',
+        'snow-fall': 'snow-fall 4s ease-in-out infinite',
+        'gradient-shift': 'gradient-shift 15s ease infinite',
+        'lightning-flash': 'lightning-flash 8s ease-in-out infinite',
+        'mist-drift': 'mist-drift 20s ease-in-out infinite',
       },
     },
   },

@@ -144,7 +144,7 @@ export interface ShareholdingsVerificationState {
 }
 
 // @google/genai guidelines: Define a shared ViewType for navigation consistency
-export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders' | 'engagement' | 'documents';
+export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders' | 'engagement' | 'engagement-activity' | 'engagement-events' | 'engagement-analytics' | 'documents';
 
 /**
  * Tab filter type for registrations page
@@ -314,7 +314,7 @@ export interface EngagementRecord {
   investorId: string;
   investorName: string;
   investorEmail: string;
-  investorType: 'official' | 'guest';
+  userStatus: 'verified' | 'unverified'; // Replaces investorType
   profilePictureUrl?: string;
   lastActive: string; // ISO timestamp
   recentlyViewed?: {
@@ -345,6 +345,45 @@ export interface EngagementRecord {
   meetingRequests: number;
   engagementScore: number; // 0-100
   engagementLevel: EngagementLevel;
+  // Additional fields for engagement score calculation
+  downloads: number;
+  logins: number;
+}
+
+/**
+ * User activity log entry
+ */
+export interface IROReply {
+  id: string;
+  replyText: string;
+  repliedBy: string; // IRO name/ID
+  repliedAt: string; // ISO timestamp
+}
+
+export interface UserActivity {
+  id: string;
+  userId: string;
+  userName: string;
+  userStatus: 'verified' | 'unverified';
+  activityType: 'view' | 'comment' | 'download' | 'reaction' | 'login' | 'registration' | 'interaction';
+  contentTitle?: string;
+  contentType?: string;
+  timestamp: string;
+  details?: string;
+  commentText?: string; // For comment activities
+  replies?: IROReply[]; // IRO replies to this activity (for comments/inquiries)
+}
+
+/**
+ * Content engagement data
+ */
+export interface ContentEngagement {
+  title: string;
+  views: number;
+  avgRead: number;
+  comments: number;
+  interactions: number;
+  readPercentage: number;
 }
 
 /**

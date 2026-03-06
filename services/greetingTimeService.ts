@@ -2,17 +2,14 @@
  * Greeting Time & Weather Service
  * 
  * Provides time segment detection, sunrise/sunset calculation,
- * weather condition simulation, dynamic theme/color system,
+ * weather condition detection, dynamic theme/color system,
  * and animation trigger logic for the dashboard greeting card.
  * 
  * Architecture:
- * - Currently uses fallback sunrise/sunset times
- * - Weather is simulated based on time of day
- * - Ready for future API integration (OpenWeatherMap, etc.)
- * 
- * Migration path:
- * 1. Replace getSunriseSunset() with real geolocation + API call
- * 2. Replace getWeatherCondition() with real weather API
+ * - Uses fallback sunrise/sunset times (extendable via API)
+ * - Weather themes driven by real OpenWeatherMap data when available
+ *   (see ../services/weatherService.ts)
+ * - Falls back to time-only themes when weather data is unavailable
  */
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -99,34 +96,38 @@ export const getSunriseSunset = (): SunriseSunset => {
 /**
  * Determine the current time segment based on hour and sunrise/sunset.
  * 
- * Segments:
- * - dawn:      sunrise to 8:00 AM
+ * Greeting mapping:
+ * - 5:00 AM – 11:59 AM → Good Morning  (dawn 5–8, morning 8–12)
+ * - 12:00 PM – 5:59 PM → Good Afternoon (afternoon 12–18)
+ * - 6:00 PM – 4:59 AM  → Good Evening   (evening 18–21, night 21–5)
+ * 
+ * Visual segments (for theme/icon variation):
+ * - dawn:      5:00 AM to 7:59 AM
  * - morning:   8:00 AM to 11:59 AM
- * - afternoon: 12:00 PM to 4:59 PM (sunset - 1)
- * - evening:   5:00 PM (sunset - 1) to 9:00 PM (sunset + 3)
- * - night:     9:00 PM to sunrise
+ * - afternoon: 12:00 PM to 5:59 PM
+ * - evening:   6:00 PM to 8:59 PM
+ * - night:     9:00 PM to 4:59 AM
  */
 export const getTimeSegment = (hour?: number): TimeSegment => {
   const currentHour = hour ?? new Date().getHours();
-  const { sunrise, sunset } = getSunriseSunset();
 
-  // Dawn: sunrise to 8 AM
-  if (currentHour >= sunrise && currentHour < 8) {
+  // Dawn: 5 AM to 8 AM
+  if (currentHour >= 5 && currentHour < 8) {
     return 'dawn';
   }
   // Morning: 8 AM to noon
   if (currentHour >= 8 && currentHour < 12) {
     return 'morning';
   }
-  // Afternoon: noon to 5 PM
-  if (currentHour >= 12 && currentHour < 17) {
+  // Afternoon: noon to 6 PM
+  if (currentHour >= 12 && currentHour < 18) {
     return 'afternoon';
   }
-  // Evening: 5 PM to 9 PM
-  if (currentHour >= 17 && currentHour < 21) {
+  // Evening: 6 PM to 9 PM
+  if (currentHour >= 18 && currentHour < 21) {
     return 'evening';
   }
-  // Night: 9 PM onwards or before sunrise
+  // Night: 9 PM onwards or before 5 AM
   return 'night';
 };
 
@@ -153,11 +154,11 @@ export const getGreetingText = (segment?: TimeSegment): string => {
 export const getGreetingSubtitle = (segment?: TimeSegment): string => {
   const s = segment ?? getTimeSegment();
   switch (s) {
-    case 'dawn':      return 'Early start — your investor dashboard is primed and ready.';
-    case 'morning':   return 'Your investor dashboard is primed and ready.';
+    case 'dawn':      return 'Let\u2019s start the day with your dashboard insights.';
+    case 'morning':   return 'Let\u2019s start the day with your dashboard insights.';
     case 'afternoon': return 'Markets are active — stay on top of your IR updates.';
     case 'evening':   return 'Wrapping up — here\u2019s your dashboard overview.';
-    case 'night':     return 'Late session — your dashboard is ready when you are.';
+    case 'night':     return 'Here\u2019s a quick snapshot of today\u2019s activity.';
     default:          return 'Your investor dashboard is primed and ready.';
   }
 };
@@ -181,83 +182,83 @@ export const getGreetingTheme = (segment?: TimeSegment): GreetingTheme => {
 
   switch (s) {
     case 'dawn':
-      // Warm coral → peach → gold — real sunrise warmth
+      // Soft sunrise — warm peach → golden amber → light rose
       return {
-        bgClass: 'bg-gradient-to-br from-rose-200 via-amber-100 to-yellow-50',
-        overlayClass: 'bg-gradient-to-br from-orange-200/30 via-amber-100/20 to-transparent',
+        bgClass: 'bg-gradient-to-br from-yellow-100 via-orange-100 to-amber-200',
+        overlayClass: 'bg-gradient-to-br from-orange-200/25 via-amber-100/20 to-transparent',
         textColor: 'text-neutral-800',
-        subtitleColor: 'text-neutral-600/80',
+        subtitleColor: 'text-neutral-600',
         sweepTint: 'via-amber-600/[0.06]',
         shadowClass: 'shadow-lg shadow-amber-200/30',
         iconColor: 'text-amber-600',
-        iconFill: 'rgba(251, 146, 60, 0.30)',
-        glowColor: 'rgba(251, 191, 36, 0.25)',
+        iconFill: 'rgba(251, 146, 60, 0.35)',
+        glowColor: 'rgba(251, 191, 36, 0.28)',
         noiseOpacity: 'opacity-[0.02]',
       };
 
     case 'morning':
-      // Golden warm clarity — bright, energetic morning sky
+      // Bright, fresh, optimistic — warm golden clarity
       return {
-        bgClass: 'bg-gradient-to-br from-amber-100 via-orange-50 to-yellow-50/80',
+        bgClass: 'bg-gradient-to-br from-yellow-100 via-amber-50 to-orange-100/80',
         overlayClass: 'bg-gradient-to-br from-yellow-200/20 via-amber-100/10 to-transparent',
         textColor: 'text-neutral-900',
-        subtitleColor: 'text-neutral-500',
+        subtitleColor: 'text-neutral-600',
         sweepTint: 'via-amber-500/[0.05]',
         shadowClass: 'shadow-lg shadow-amber-100/30',
         iconColor: 'text-amber-500',
-        iconFill: 'rgba(245, 158, 11, 0.25)',
-        glowColor: 'rgba(245, 158, 11, 0.20)',
+        iconFill: 'rgba(245, 158, 11, 0.30)',
+        glowColor: 'rgba(245, 158, 11, 0.22)',
         noiseOpacity: 'opacity-[0.02]',
       };
 
     case 'afternoon':
-      // Sky blue daylight — the sky IS light blue in the afternoon
+      // Clear, calm, professional — neutral daylight sky blue
       return {
-        bgClass: 'bg-gradient-to-br from-sky-200 via-blue-100 to-indigo-100/60',
-        overlayClass: 'bg-gradient-to-br from-sky-200/25 via-blue-100/15 to-transparent',
+        bgClass: 'bg-gradient-to-br from-sky-100 via-blue-100 to-indigo-100',
+        overlayClass: 'bg-gradient-to-br from-sky-200/20 via-blue-100/15 to-transparent',
         textColor: 'text-neutral-900',
         subtitleColor: 'text-neutral-600',
         sweepTint: 'via-sky-500/[0.06]',
         shadowClass: 'shadow-lg shadow-sky-200/30',
         iconColor: 'text-sky-500',
-        iconFill: 'rgba(56, 189, 248, 0.25)',
-        glowColor: 'rgba(56, 189, 248, 0.20)',
+        iconFill: 'rgba(56, 189, 248, 0.28)',
+        glowColor: 'rgba(56, 189, 248, 0.22)',
         noiseOpacity: 'opacity-[0.02]',
       };
 
     case 'evening':
-      // Sunset orange → purple → indigo — real twilight transition
+      // Relaxed evening — soft indigo → purple → violet transition
       return {
-        bgClass: 'bg-gradient-to-br from-orange-200 via-rose-200/80 to-indigo-300/60',
-        overlayClass: 'bg-gradient-to-br from-orange-200/20 via-violet-200/15 to-transparent',
+        bgClass: 'bg-gradient-to-br from-indigo-200 via-purple-200 to-violet-200',
+        overlayClass: 'bg-gradient-to-br from-indigo-200/20 via-violet-200/15 to-transparent',
         textColor: 'text-neutral-900',
-        subtitleColor: 'text-neutral-700/70',
+        subtitleColor: 'text-neutral-700/80',
         sweepTint: 'via-indigo-600/[0.05]',
         shadowClass: 'shadow-lg shadow-indigo-200/25',
-        iconColor: 'text-orange-400',
-        iconFill: 'rgba(251, 146, 60, 0.25)',
-        glowColor: 'rgba(251, 146, 60, 0.18)',
+        iconColor: 'text-indigo-400',
+        iconFill: 'rgba(165, 143, 255, 0.28)',
+        glowColor: 'rgba(165, 143, 255, 0.20)',
         noiseOpacity: 'opacity-[0.02]',
       };
 
     case 'night':
-      // Deep navy → charcoal — real dark sky, same in both modes
+      // Deep night sky — rich navy → indigo → dark slate
       return {
         bgClass: 'bg-gradient-to-br from-slate-700 via-indigo-800/80 to-slate-900',
         overlayClass: 'bg-gradient-to-br from-indigo-600/15 via-violet-700/8 to-transparent',
         textColor: 'text-white',
-        subtitleColor: 'text-slate-300/70',
+        subtitleColor: 'text-slate-300/80',
         sweepTint: 'via-indigo-300/[0.04]',
         shadowClass: 'shadow-lg shadow-slate-400/20',
         iconColor: 'text-slate-300',
-        iconFill: 'rgba(148, 163, 184, 0.18)',
-        glowColor: 'rgba(129, 140, 248, 0.12)',
+        iconFill: 'rgba(148, 163, 184, 0.22)',
+        glowColor: 'rgba(129, 140, 248, 0.15)',
         noiseOpacity: 'opacity-[0.025]',
       };
 
     default:
       return {
-        bgClass: 'bg-gradient-to-br from-sky-200 via-blue-100 to-indigo-100/60',
+        bgClass: 'bg-gradient-to-br from-sky-100 via-blue-100 to-indigo-100',
         overlayClass: '',
         textColor: 'text-neutral-900',
         subtitleColor: 'text-neutral-500',
@@ -394,6 +395,7 @@ export const getWidgetDateLine = (date?: Date): string => {
 
 /**
  * Check if current segment is daytime (shows sun + clouds vs moon + stars).
+ * Dawn, morning, and afternoon show sun; evening and night show moon.
  */
 export const isDaytime = (segment?: TimeSegment): boolean => {
   const s = segment ?? getTimeSegment();

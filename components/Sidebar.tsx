@@ -23,6 +23,17 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   
+  // Track if Engagement submenu is expanded
+  const isEngagementSubmenuActive = currentView === 'engagement-activity' || currentView === 'engagement-events' || currentView === 'engagement-analytics';
+  const [isEngagementExpanded, setIsEngagementExpanded] = useState(isEngagementSubmenuActive);
+  
+  // Auto-expand if current view is an engagement sub-page
+  useEffect(() => {
+    if (isEngagementSubmenuActive) {
+      setIsEngagementExpanded(true);
+    }
+  }, [isEngagementSubmenuActive]);
+  
   // Get user initials and display info
   const getUserInitials = () => {
     if (user?.displayName) {
@@ -126,8 +137,18 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
           {!isCollapsed && <span>Registrations</span>}
         </button>
         <button 
-          onClick={() => onViewChange('engagement')}
-          className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium ${currentView === 'engagement' ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border-l-4 border-[#082b4a] dark:border-[#00adf0]' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'}`}
+          onClick={() => {
+            if (!isCollapsed) {
+              setIsEngagementExpanded(!isEngagementExpanded);
+            } else {
+              onViewChange('engagement-activity');
+            }
+          }}
+          className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium ${
+            currentView === 'engagement-activity' || currentView === 'engagement-events' || currentView === 'engagement-analytics'
+              ? 'text-neutral-900 dark:text-white'
+              : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'
+          }`}
           title={isCollapsed ? 'Engagement' : ''}
         >
           <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -135,8 +156,129 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
             <path d="M13 8H3"/>
             <path d="M17 12H3"/>
           </svg>
-          {!isCollapsed && <span>Engagement</span>}
+          {!isCollapsed && (
+            <>
+              <span className="flex-1 text-left">Engagement</span>
+              <svg 
+                className={`w-4 h-4 transition-transform duration-200 ${isEngagementExpanded ? 'rotate-180' : ''}`}
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24" 
+                strokeWidth="2" 
+                strokeLinecap="round" 
+                strokeLinejoin="round"
+              >
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </>
+          )}
         </button>
+        {/* Investor Activity sub-item */}
+        {!isCollapsed && isEngagementExpanded && (
+          <button 
+            onClick={() => onViewChange('engagement-activity')}
+            className={`w-full flex items-center gap-3 pl-8 pr-4 py-2 transition-all text-[13px] font-medium relative ${
+              currentView === 'engagement-activity'
+                ? 'text-[#082b4a] dark:text-[#00adf0] bg-neutral-50 dark:bg-neutral-800/50 border-l-2 border-[#082b4a] dark:border-[#00adf0]'
+                : 'text-neutral-900 dark:text-neutral-100 hover:text-[#082b4a] dark:hover:text-[#00adf0] hover:bg-neutral-50 dark:hover:bg-neutral-800/30'
+            }`}
+          >
+            <svg className="w-4 h-4 flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 12l2 2 4-4"/>
+              <path d="M21 12c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1zM3 12c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1zM12 3c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1zM12 21c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1z"/>
+            </svg>
+            <span>Investor Activity</span>
+          </button>
+        )}
+        {/* Events sub-item */}
+        {!isCollapsed && isEngagementExpanded && (
+          <button 
+            onClick={() => onViewChange('engagement-events')}
+            className={`w-full flex items-center gap-3 pl-8 pr-4 py-2 transition-all text-[13px] font-medium relative ${
+              currentView === 'engagement-events'
+                ? 'text-[#082b4a] dark:text-[#00adf0] bg-neutral-50 dark:bg-neutral-800/50 border-l-2 border-[#082b4a] dark:border-[#00adf0]'
+                : 'text-neutral-900 dark:text-neutral-100 hover:text-[#082b4a] dark:hover:text-[#00adf0] hover:bg-neutral-50 dark:hover:bg-neutral-800/30'
+            }`}
+          >
+            <svg className="w-4 h-4 flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            <span>Events</span>
+          </button>
+        )}
+        {/* Analytics sub-item */}
+        {!isCollapsed && isEngagementExpanded && (
+          <button 
+            onClick={() => onViewChange('engagement-analytics')}
+            className={`w-full flex items-center gap-3 pl-8 pr-4 py-2 transition-all text-[13px] font-medium relative ${
+              currentView === 'engagement-analytics'
+                ? 'text-[#082b4a] dark:text-[#00adf0] bg-neutral-50 dark:bg-neutral-800/50 border-l-2 border-[#082b4a] dark:border-[#00adf0]'
+                : 'text-neutral-900 dark:text-neutral-100 hover:text-[#082b4a] dark:hover:text-[#00adf0] hover:bg-neutral-50 dark:hover:bg-neutral-800/30'
+            }`}
+          >
+            <svg className="w-4 h-4 flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 3v18h18"/>
+              <path d="M18 17V9"/>
+              <path d="M13 17V5"/>
+              <path d="M8 17v-3"/>
+            </svg>
+            <span>Analytics</span>
+          </button>
+        )}
+        {/* Collapsed state - show all three as separate buttons */}
+        {isCollapsed && (
+          <>
+            <button 
+              onClick={() => onViewChange('engagement-activity')}
+              className={`w-full flex items-center justify-center px-2 py-1.5 transition-all ${
+                currentView === 'engagement-activity'
+                  ? 'text-[#082b4a] dark:text-[#00adf0]'
+                  : 'text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+              }`}
+              title="Investor Activity"
+            >
+              <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 12l2 2 4-4"/>
+                <path d="M21 12c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1zM3 12c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1zM12 3c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1zM12 21c.552 0 1-.448 1-1s-.448-1-1-1-1 .448-1 1 .448 1 1 1z"/>
+              </svg>
+            </button>
+            <button 
+              onClick={() => onViewChange('engagement-events')}
+              className={`w-full flex items-center justify-center px-2 py-1.5 transition-all ${
+                currentView === 'engagement-events'
+                  ? 'text-[#082b4a] dark:text-[#00adf0]'
+                  : 'text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+              }`}
+              title="Events"
+            >
+              <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </button>
+            <button 
+              onClick={() => onViewChange('engagement-analytics')}
+              className={`w-full flex items-center justify-center px-2 py-1.5 transition-all ${
+                currentView === 'engagement-analytics'
+                  ? 'text-[#082b4a] dark:text-[#00adf0]'
+                  : 'text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+              }`}
+              title="Analytics"
+            >
+              <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 3v18h18"/>
+                <path d="M18 17V9"/>
+                <path d="M13 17V5"/>
+                <path d="M8 17v-3"/>
+              </svg>
+            </button>
+          </>
+        )}
         <button 
           onClick={() => onViewChange('documents')}
           className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium ${currentView === 'documents' ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border-l-4 border-[#082b4a] dark:border-[#00adf0]' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'}`}

@@ -1,12 +1,17 @@
 
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Applicant, RegistrationStatus, GeneralAccountStatus, OfficialShareholder } from '../lib/types';
 import Tooltip from './Tooltip';
 import Chart from 'react-apexcharts';
 import HoldingsSummary from './HoldingsSummary';
 import { getWorkflowStatusInternal, getGeneralAccountStatus } from '../lib/shareholdingsVerification';
+import {
+  generateEngagementRecords,
+  generateMostEngagedContent,
+  generateUserActivities,
+} from '../lib/engagementService';
 import MetricCard from './MetricCard';
 import { officialShareholderService } from '../lib/firestore-service';
 import { PressReleasePreview, PressReleaseDetail, AllPressReleasesView } from './PressReleaseSection';
@@ -24,6 +29,16 @@ import {
   getLocationString,
   type TimeContext,
 } from '../services/greetingTimeService';
+import {
+  fetchWeather,
+  getWeatherCategory,
+  getWeatherGradient,
+  getWeatherEmoji,
+  capitalizeDescription,
+  isNightIcon,
+  type WeatherData,
+  type WeatherCategory,
+} from '../services/weatherService';
 import { ResponsiveContainer, AreaChart, Area, Tooltip as RechartsTooltip, XAxis } from 'recharts';
 
 // Engagement Activity Types
@@ -1117,6 +1132,12 @@ const getAvatarColor = (name: string): string => {
 // The greeting card now uses inline animated SVGs (sun/moon/clouds/stars)
 // directly in the JSX for a dynamic iPhone-like weather widget effect.
 
+// Props interface
+interface OverviewDashboardProps {
+  applicants: Applicant[];
+  onViewChange?: (view: string) => void;
+}
+
 // Avatar component
 const Avatar: React.FC<{ name: string; size?: number; profilePictureUrl?: string }> = ({ name, size = 40, profilePictureUrl }) => {
   const [imageError, setImageError] = React.useState(false);
@@ -1154,9 +1175,43 @@ const Avatar: React.FC<{ name: string; size?: number; profilePictureUrl?: string
   );
 };
 
-const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => {
+const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onViewChange }) => {
   const [selectedInvestor, setSelectedInvestor] = useState<Applicant | null>(null);
   const [officialShareholders, setOfficialShareholders] = useState<OfficialShareholder[]>([]);
+  const [engagementRecords, setEngagementRecords] = useState<any[]>([]);
+  const [engagementLoading, setEngagementLoading] = useState(true);
+
+  // Load engagement records from service
+  useEffect(() => {
+    let isMounted = true;
+    setEngagementLoading(true);
+    generateEngagementRecords(applicants).then((records) => {
+      if (isMounted) {
+        setEngagementRecords(records);
+        setEngagementLoading(false);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [applicants]);
+
+  // Memoized engagement data
+  const topInvestors = useMemo(() => {
+    return engagementRecords
+      .sort((a, b) => b.engagementScore - a.engagementScore)
+      .slice(0, 5); // Top 5 for dashboard
+  }, [engagementRecords]);
+
+  const topContent = useMemo(() => {
+    const content = generateMostEngagedContent(engagementRecords);
+    return content.slice(0, 5); // Top 5 for dashboard
+  }, [engagementRecords]);
+
+  const recentActivities = useMemo(() => {
+    const activities = generateUserActivities(engagementRecords);
+    return activities.slice(0, 5); // Latest 5 for dashboard
+  }, [engagementRecords]);
   const [statusCache, setStatusCache] = useState<Record<string, string>>({});
   
   // Press Release state
@@ -1187,6 +1242,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
   const [liveTime, setLiveTime] = useState(() => new Date());
   const [locationCity, setLocationCity] = useState<string>('');
   const [sweepTriggered, setSweepTriggered] = useState(false);
+  const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
   const hasAnimatedRef = useRef(false);
   const segmentCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -1251,6 +1307,22 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
       // Silently fail, location will remain empty
     });
   }, []);
+
+  // ── Fetch Weather Data (every 10 minutes) ─────────────────────────
+  useEffect(() => {
+    const loadWeather = () => {
+      fetchWeather().then(data => {
+        if (data) {
+          setWeatherData(data);
+          // Also update location from weather API if we haven't got one yet
+          if (!locationCity && data.city) setLocationCity(data.city);
+        }
+      }).catch(() => { /* Silently fail — weather is ambient info */ });
+    };
+    loadWeather();
+    const weatherInterval = setInterval(loadWeather, 10 * 60 * 1000); // refresh every 10 min
+    return () => clearInterval(weatherInterval);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Initial Greeting Animation (on mount or when selectedInvestor changes) ──
   // Sweep animation triggers on EVERY page visit, regardless of segment change or previous animation.
@@ -1493,21 +1565,49 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
     <div className="space-y-6 max-w-screen-2xl mx-auto pb-10">
       {/* Greetings Card + Share Price Widget Side by Side */}
       <div className="flex gap-5 items-stretch">
-        {/* Left: Greetings Card — Dynamic iPhone-style Weather Widget */}
+        {/* Left: Greetings Card — Weather-Reactive Ambient Widget */}
         {(() => {
-          const theme = getGreetingTheme(timeContext.segment);
+          // Determine weather category & night status from real data when available
+          const wxCategory: WeatherCategory = weatherData ? getWeatherCategory(weatherData.main) : 'unknown';
+          const wxIsNight = weatherData ? isNightIcon(weatherData.icon) : !isDaytime(timeContext.segment);
+          const hasRealWeather = weatherData !== null && wxCategory !== 'unknown';
+
+          // Use weather-reactive gradient when real data is available, fallback to time-only theme
+          const timeTheme = getGreetingTheme(timeContext.segment);
+          const wxGradient = hasRealWeather ? getWeatherGradient(wxCategory, wxIsNight) : null;
+
+          // Merge: weather gradient overrides time-only theme colors when available
+          const theme = wxGradient ? { ...timeTheme, ...wxGradient } : timeTheme;
+
           const subtitle = getGreetingSubtitle(timeContext.segment);
-          const isNight = timeContext.segment === 'night' || timeContext.segment === 'evening';
-          const daytime = isDaytime(timeContext.segment);
+          const isNight = wxIsNight;
+          const daytime = !isNight;
           const fillColor = theme.iconFill;
           const glowColor = theme.glowColor;
           const dateLine = getWidgetDateLine(liveTime);
 
+          // Weather condition booleans for particle effects
+          const isRainy = wxCategory === 'rain' || wxCategory === 'drizzle';
+          const isThunder = wxCategory === 'thunderstorm';
+          const isSnowy = wxCategory === 'snow';
+          const isCloudy = wxCategory === 'clouds' || wxCategory === 'overcast';
+          const isMisty = wxCategory === 'mist';
+          const showClouds = daytime || isCloudy;
+
+          // Cloud opacity — heavier for cloudy weather
+          const cloudOpacity = isCloudy ? 0.22 : 0.12;
+
           // Sun/moon position per segment — lower for dawn/evening (horizon feel)
           const celestialTop = timeContext.segment === 'dawn' || timeContext.segment === 'evening' ? '55%' : '35%';
 
+          // Weather emoji & display text
+          const wxEmoji = hasRealWeather ? getWeatherEmoji(wxCategory, isNight) : '';
+          const wxTemp = weatherData ? `${weatherData.temp}°C` : '';
+          const wxDesc = weatherData ? capitalizeDescription(weatherData.description) : '';
+          const displayCity = weatherData?.city || locationCity;
+
           return (
-            <div className={`flex-1 rounded-xl relative overflow-hidden group transition-all duration-[1000ms] cursor-default premium-ease ${theme.shadowClass}
+            <div className={`flex-1 rounded-xl relative overflow-hidden group transition-all duration-[1000ms] cursor-default ease-in-out ${theme.shadowClass}
               ${theme.bgClass}
               ${isPulsing ? '' : 'hover:shadow-lg'}
       `}
@@ -1537,58 +1637,202 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                 }}
               />
 
+              {/* ── Layer 3b: Weather Particle Layer ───────────── */}
+              <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden z-[2]">
+
+                {/* Rain particles */}
+                {(isRainy || isThunder) && (
+                  <>
+                    {Array.from({ length: 18 }).map((_, i) => (
+                      <div
+                        key={`rain-${i}`}
+                        className="absolute animate-rain-fall"
+                        style={{
+                          left: `${5 + (i * 5.2) % 90}%`,
+                          top: '-10px',
+                          width: 1.5,
+                          height: isThunder ? 18 : 14,
+                          background: isNight
+                            ? 'linear-gradient(to bottom, transparent, rgba(147,197,253,0.35), transparent)'
+                            : 'linear-gradient(to bottom, transparent, rgba(59,130,246,0.30), transparent)',
+                          borderRadius: 1,
+                          animationDelay: `${(i * 0.15) % 1.2}s`,
+                          animationDuration: isThunder ? '0.9s' : '1.2s',
+                        }}
+                      />
+                    ))}
+                  </>
+                )}
+
+                {/* Lightning flash overlay */}
+                {isThunder && (
+                  <div className="absolute inset-0 animate-lightning-flash bg-white/10 rounded-xl" />
+                )}
+
+                {/* Snow particles */}
+                {isSnowy && (
+                  <>
+                    {Array.from({ length: 14 }).map((_, i) => (
+                      <div
+                        key={`snow-${i}`}
+                        className="absolute rounded-full animate-snow-fall"
+                        style={{
+                          left: `${3 + (i * 7.3) % 90}%`,
+                          top: '-6px',
+                          width: 3 + (i % 3),
+                          height: 3 + (i % 3),
+                          backgroundColor: 'rgba(255,255,255,0.5)',
+                          animationDelay: `${(i * 0.4) % 4}s`,
+                          animationDuration: `${3.5 + (i % 3)}s`,
+                        }}
+                      />
+                    ))}
+                  </>
+                )}
+
+                {/* Mist layer */}
+                {isMisty && (
+                  <>
+                    <div
+                      className="absolute animate-mist-drift rounded-full blur-2xl"
+                      style={{ bottom: '10%', left: '5%', width: '60%', height: 40, backgroundColor: 'rgba(255,255,255,0.08)' }}
+                    />
+                    <div
+                      className="absolute animate-mist-drift rounded-full blur-3xl"
+                      style={{ bottom: '25%', left: '20%', width: '50%', height: 30, backgroundColor: 'rgba(255,255,255,0.06)', animationDelay: '-10s' }}
+                    />
+                  </>
+                )}
+              </div>
+
               {/* ── Layer 4: Atmospheric Scene (right half) ────── */}
               <div className="absolute right-0 top-0 w-[55%] h-full pointer-events-none z-[3]">
 
-                {/* ═══ Sun System (daytime) — disc + glow ═══ */}
-                {daytime && (
+                {/* ═══ Sun System (daytime + clear/clouds) — disc + glow + rays ═══ */}
+                {daytime && !isRainy && !isThunder && !isSnowy && (
                   <div
                     className="absolute transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
                     style={{ right: '18%', top: celestialTop }}
                   >
-                    {/* Soft ambient glow — behind sun */}
+                    {/* Large ambient glow — behind sun */}
                     <div
                       className="absolute animate-celestial-glow blur-3xl rounded-full"
                       style={{
-                        width: 120, height: 120,
+                        width: 140, height: 140,
                         left: '50%', top: '50%',
                         transform: 'translate(-50%, -50%)',
                         backgroundColor: glowColor,
                       }}
                     />
 
-                    {/* Sun disc — centered, static position */}
+                    {/* Soft rays — subtle rotating ring (hidden on cloudy) */}
+                    {!isCloudy && (
+                      <div
+                        className="absolute rounded-full animate-spin-slow"
+                        style={{
+                          width: 80, height: 80,
+                          left: '50%', top: '50%',
+                          transform: 'translate(-50%, -50%)',
+                          background: `conic-gradient(from 0deg, transparent, ${glowColor}, transparent, ${glowColor}, transparent, ${glowColor}, transparent)`,
+                          opacity: 0.15,
+                          filter: 'blur(6px)',
+                        }}
+                      />
+                    )}
+
+                    {/* Sun disc */}
                     <div
                       className="relative rounded-full"
                       style={{
-                        width: 48, height: 48,
+                        width: isCloudy ? 48 : 56,
+                        height: isCloudy ? 48 : 56,
                         backgroundColor: fillColor,
-                        border: '1px solid rgba(255, 255, 255, 0.30)',
-                        boxShadow: `0 0 20px 5px ${glowColor}, inset 0 0 10px rgba(255,255,255,0.15)`,
+                        border: '1px solid rgba(255, 255, 255, 0.35)',
+                        boxShadow: `0 0 28px 8px ${glowColor}, inset 0 0 12px rgba(255,255,255,0.2)`,
                         transform: 'translate(-50%, -50%)',
+                        opacity: isCloudy ? 0.7 : 1,
                       }}
                     />
                   </div>
                 )}
 
-                {/* ═══ Moon System (nighttime) — crescent + glow, gentle float ═══ */}
-                {!daytime && (
+                {/* ═══ Weather Icon Override — Rain cloud (daytime rain) ═══ */}
+                {daytime && (isRainy || isThunder) && (
                   <div
-                    className="absolute animate-moon-float transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
-                    style={{ right: '20%', top: celestialTop }}
+                    className="absolute transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
+                    style={{ right: '16%', top: '30%' }}
                   >
-                    {/* Moon glow */}
                     <div
-                      className="absolute rounded-full animate-celestial-glow blur-2xl"
+                      className="absolute animate-celestial-glow blur-3xl rounded-full"
                       style={{
-                        width: 80, height: 80,
+                        width: 100, height: 100,
                         left: '50%', top: '50%',
                         transform: 'translate(-50%, -50%)',
                         backgroundColor: glowColor,
                       }}
                     />
+                    <svg viewBox="0 0 24 24" className="w-16 h-16 relative" style={{ filter: `drop-shadow(0 0 8px ${glowColor})`, transform: 'translate(-50%, -50%)' }}>
+                      <path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25" fill={fillColor} stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className={theme.iconColor} />
+                      <line x1="8" y1="19" x2="8" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.7" />
+                      <line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.5" />
+                      <line x1="16" y1="19" x2="16" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.7" />
+                    </svg>
+                  </div>
+                )}
+
+                {/* ═══ Weather Icon Override — Snow cloud (daytime snow) ═══ */}
+                {daytime && isSnowy && (
+                  <div
+                    className="absolute transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
+                    style={{ right: '16%', top: '30%' }}
+                  >
+                    <div
+                      className="absolute animate-celestial-glow blur-3xl rounded-full"
+                      style={{
+                        width: 100, height: 100,
+                        left: '50%', top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        backgroundColor: glowColor,
+                      }}
+                    />
+                    <svg viewBox="0 0 24 24" className="w-16 h-16 relative" style={{ filter: `drop-shadow(0 0 8px ${glowColor})`, transform: 'translate(-50%, -50%)' }}>
+                      <path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25" fill={fillColor} stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className={theme.iconColor} />
+                      <circle cx="8" cy="20" r="1" fill="currentColor" className={theme.iconColor} opacity="0.6" />
+                      <circle cx="12" cy="22" r="1" fill="currentColor" className={theme.iconColor} opacity="0.4" />
+                      <circle cx="16" cy="20" r="1" fill="currentColor" className={theme.iconColor} opacity="0.6" />
+                    </svg>
+                  </div>
+                )}
+
+                {/* ═══ Moon System (nighttime) — crescent + glow + shimmer ═══ */}
+                {!daytime && !isRainy && !isThunder && !isSnowy && (
+                  <div
+                    className="absolute animate-moon-float transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
+                    style={{ right: '18%', top: celestialTop }}
+                  >
+                    {/* Moon ambient glow */}
+                    <div
+                      className="absolute rounded-full animate-celestial-glow blur-2xl"
+                      style={{
+                        width: 100, height: 100,
+                        left: '50%', top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        backgroundColor: glowColor,
+                      }}
+                    />
+                    {/* Moon shimmer ring */}
+                    <div
+                      className="absolute rounded-full animate-pulse"
+                      style={{
+                        width: 72, height: 72,
+                        left: '50%', top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        border: `1px solid rgba(255, 255, 255, 0.06)`,
+                        opacity: 0.5,
+                      }}
+                    />
                     {/* Moon crescent */}
-                    <svg viewBox="0 0 24 24" className="w-12 h-12 relative" style={{ filter: `drop-shadow(0 0 8px ${glowColor})`, transform: 'translate(-50%, -50%)' }}>
+                    <svg viewBox="0 0 24 24" className="w-14 h-14 relative" style={{ filter: `drop-shadow(0 0 10px ${glowColor})`, transform: 'translate(-50%, -50%)' }}>
                       <path
                         d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"
                         fill={fillColor}
@@ -1600,13 +1844,61 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                   </div>
                 )}
 
-                {/* ═══ Clouds (daytime only) — white, wispy, very subtle ═══ */}
-                {daytime && (
+                {/* ═══ Night rain/thunder icon ═══ */}
+                {!daytime && (isRainy || isThunder) && (
+                  <div
+                    className="absolute transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
+                    style={{ right: '16%', top: '30%' }}
+                  >
+                    <div
+                      className="absolute animate-celestial-glow blur-3xl rounded-full"
+                      style={{
+                        width: 100, height: 100,
+                        left: '50%', top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        backgroundColor: glowColor,
+                      }}
+                    />
+                    <svg viewBox="0 0 24 24" className="w-14 h-14 relative" style={{ filter: `drop-shadow(0 0 8px ${glowColor})`, transform: 'translate(-50%, -50%)' }}>
+                      <path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25" fill={fillColor} stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className={theme.iconColor} />
+                      <line x1="8" y1="19" x2="8" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.5" />
+                      <line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.4" />
+                      <line x1="16" y1="19" x2="16" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.5" />
+                    </svg>
+                  </div>
+                )}
+
+                {/* ═══ Night snow icon ═══ */}
+                {!daytime && isSnowy && (
+                  <div
+                    className="absolute transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
+                    style={{ right: '16%', top: '30%' }}
+                  >
+                    <div
+                      className="absolute animate-celestial-glow blur-3xl rounded-full"
+                      style={{
+                        width: 100, height: 100,
+                        left: '50%', top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        backgroundColor: glowColor,
+                      }}
+                    />
+                    <svg viewBox="0 0 24 24" className="w-14 h-14 relative" style={{ filter: `drop-shadow(0 0 8px ${glowColor})`, transform: 'translate(-50%, -50%)' }}>
+                      <path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25" fill={fillColor} stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className={theme.iconColor} />
+                      <circle cx="8" cy="20" r="1" fill="currentColor" className={theme.iconColor} opacity="0.5" />
+                      <circle cx="12" cy="22" r="1" fill="currentColor" className={theme.iconColor} opacity="0.3" />
+                      <circle cx="16" cy="20" r="1" fill="currentColor" className={theme.iconColor} opacity="0.5" />
+                    </svg>
+                  </div>
+                )}
+
+                {/* ═══ Clouds — visible in daytime or cloudy weather ═══ */}
+                {showClouds && (
                   <>
                     {/* Cloud 1 — large, slow drift right */}
                     <svg
                       className="absolute animate-cloud-drift transition-transform duration-1000 group-hover:translate-x-3"
-                      style={{ top: '10%', right: '2%', width: 110, opacity: 0.12, animationDelay: '0s' }}
+                      style={{ top: '10%', right: '2%', width: 110, opacity: cloudOpacity, animationDelay: '0s' }}
                       viewBox="0 0 100 45" fill="white"
                     >
                       <path d="M20 35 Q20 25 30 23 Q28 14 42 12 Q56 10 58 20 Q64 16 74 20 Q84 24 82 32 Q84 38 74 38 H28 Q20 38 20 35Z" />
@@ -1614,7 +1906,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                     {/* Cloud 2 — medium, drift left */}
                     <svg
                       className="absolute animate-cloud-drift-reverse transition-transform duration-1000 group-hover:translate-x-2"
-                      style={{ top: '48%', right: '28%', width: 80, opacity: 0.08, animationDelay: '-14s' }}
+                      style={{ top: '48%', right: '28%', width: 80, opacity: cloudOpacity * 0.7, animationDelay: '-14s' }}
                       viewBox="0 0 100 45" fill="white"
                     >
                       <path d="M18 34 Q18 26 28 24 Q26 16 38 13 Q52 10 54 20 Q60 16 68 19 Q78 22 76 30 Q78 36 70 36 H26 Q18 37 18 34Z" />
@@ -1622,7 +1914,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                     {/* Cloud 3 — small accent, bottom */}
                     <svg
                       className="absolute animate-cloud-drift transition-transform duration-1000 group-hover:translate-x-1"
-                      style={{ top: '75%', right: '6%', width: 55, opacity: 0.06, animationDelay: '-22s' }}
+                      style={{ top: '75%', right: '6%', width: 55, opacity: cloudOpacity * 0.5, animationDelay: '-22s' }}
                       viewBox="0 0 100 45" fill="white"
                     >
                       <path d="M22 34 Q22 26 32 24 Q30 17 44 15 Q56 13 58 22 Q66 18 74 22 Q82 26 80 32 Q82 37 72 37 H30 Q22 37 22 34Z" />
@@ -1630,8 +1922,8 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                   </>
                 )}
 
-                {/* ═══ Stars (nighttime only) — twinkling white dots ═══ */}
-                {!daytime && (
+                {/* ═══ Stars (nighttime + clear) — twinkling white dots ═══ */}
+                {!daytime && !isRainy && !isThunder && !isSnowy && !isCloudy && (
                   <>
                     {[
                       { x: '12%', y: '15%', s: 2.5, d: '0s', dur: '4s' },
@@ -1666,7 +1958,6 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
               </div>
 
               {/* ── Layer 5: Light Sweep / Ambient Pulse ────────── */}
-              {/* Sweep animation triggers once on page visit, then fades. Also shows on hover. */}
               <div className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 z-[4] ${
                 sweepTriggered || isPulsing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
               }`}>
@@ -1678,26 +1969,38 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                 />
               </div>
 
-              {/* ── Layer 6: Widget Content (text + time + location) ── */}
-              <div className={`relative z-10 p-8 flex flex-col justify-center h-full ${segmentAnimating ? 'animate-segment-fade-in' : ''}`}>
-                <h1 className={`text-3xl font-black tracking-tighter uppercase mb-1 transition-all duration-[1000ms] premium-ease group-hover:translate-x-1 ${theme.textColor}`}>
+              {/* ── Layer 6: Widget Content ─────────────────────── */}
+              <div className={`relative z-10 px-10 py-9 flex flex-col justify-center h-full ${segmentAnimating ? 'animate-segment-fade-in' : ''}`}>
+                <h1 className={`text-[28px] leading-tight font-bold tracking-tight mb-1.5 transition-all duration-[1000ms] ease-in-out group-hover:translate-x-1 ${theme.textColor}`}>
                   {timeContext.greeting}, IR Team
                 </h1>
-                <p className={`text-[11px] font-semibold tracking-wide transition-all duration-[1000ms] premium-ease group-hover:translate-x-1 delay-75 ${theme.subtitleColor} opacity-70 mb-2`}>
+                <p className={`text-sm font-medium tracking-wide transition-all duration-[1000ms] ease-in-out group-hover:translate-x-1 delay-75 ${theme.subtitleColor} opacity-70 mb-2`}>
                   {dateLine}
                 </p>
-                <p className={`font-medium text-xs transition-all duration-[1000ms] premium-ease group-hover:translate-x-1 delay-100 ${theme.subtitleColor}`}>
+                <p className={`font-normal text-[15px] leading-relaxed transition-all duration-[1000ms] ease-in-out group-hover:translate-x-1 delay-100 ${theme.subtitleColor}`}>
                   {subtitle}
                 </p>
-                {locationCity && (
-                  <div className={`flex items-center gap-1 mt-3 transition-all duration-[1000ms] premium-ease group-hover:translate-x-1 delay-150`}>
-                    <svg className={`w-3 h-3 ${theme.subtitleColor} opacity-50`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
-                      <circle cx="12" cy="10" r="3" />
-                    </svg>
-                    <span className={`text-[10px] font-medium ${theme.subtitleColor} opacity-50`}>{locationCity}</span>
-                  </div>
-                )}
+
+                {/* Location + Weather line */}
+                <div className={`flex items-center gap-1.5 mt-4 transition-all duration-[1000ms] ease-in-out group-hover:translate-x-1 delay-150`}>
+                  {displayCity && (
+                    <>
+                      <svg className={`w-3.5 h-3.5 ${theme.subtitleColor} opacity-60`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+                        <circle cx="12" cy="10" r="3" />
+                      </svg>
+                      <span className={`text-xs font-medium ${theme.subtitleColor} opacity-60`}>{displayCity}</span>
+                    </>
+                  )}
+                  {hasRealWeather && weatherData && (
+                    <>
+                      {displayCity && <span className={`text-xs ${theme.subtitleColor} opacity-40 mx-0.5`}>•</span>}
+                      <span className={`text-xs font-medium ${theme.subtitleColor} opacity-60`}>
+                        {wxEmoji} {wxTemp} {wxDesc}
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           );
@@ -2021,7 +2324,10 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
             <h3 className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Top Engaged Retail Investors</h3>
             <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">Ranked by engagement score</p>
           </div>
-          <button className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider">
+          <button 
+            onClick={() => onViewChange?.('engagement')}
+            className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider"
+          >
             View All
           </button>
         </div>
@@ -2038,89 +2344,56 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100/80 dark:divide-neutral-800/50">
-              {(() => {
-                // Calculate engagement scores for investors
-                const investorsWithScores = applicants
-                  .filter(a => {
-                    const internalStatus = getWorkflowStatusInternal(a);
-                    const generalStatus = getGeneralAccountStatus(internalStatus);
-                    return generalStatus === 'VERIFIED' || generalStatus === 'PENDING' || generalStatus === 'UNVERIFIED';
-                  })
-                  .map(applicant => {
-                    // Calculate engagement score based on activity
-                    const emailOpens = applicant.emailOpenedCount || 0;
-                    const linkClicks = applicant.linkClickedCount || 0;
-                    const hasClaimed = applicant.accountClaimedAt ? 1 : 0;
-                    const totalInteractions = emailOpens + linkClicks + hasClaimed;
-                    
-                    // Base score from interactions (0-60 points)
-                    let score = Math.min(totalInteractions * 5, 60);
-                    
-                    // Add points for recent activity (0-20 points)
-                    const lastActive = applicant.lastActive || 'Never';
-                    if (lastActive.includes('hour') || lastActive === 'Just now') {
-                      score += 20;
-                    } else if (lastActive.includes('day')) {
-                      const days = parseInt(lastActive.match(/\d+/)?.[0] || '0');
-                      score += Math.max(20 - (days * 2), 0);
-                    }
-                    
-                    // Add points for holdings (0-20 points)
-                    const holdings = applicant.holdingsRecord?.sharesHeld || 0;
-                    if (holdings > 0) {
-                      score += Math.min(holdings / 1000, 20);
-                    }
-                    
-                    // Cap at 100
-                    score = Math.min(Math.round(score), 100);
-                    
-                    return {
-                      applicant,
-                      score,
-                      holdings: applicant.holdingsRecord?.sharesHeld || 0,
-                      status: getGeneralAccountStatus(getWorkflowStatusInternal(applicant)),
-                      lastActive: applicant.lastActive || 'Never'
-                    };
-                  })
-                  .sort((a, b) => b.score - a.score)
-                  .slice(0, 10)
-                  .map((item, index) => ({
-                    ...item,
-                    rank: index + 1
-                  }));
-                
-                return investorsWithScores.length > 0 ? (
-                  investorsWithScores.map((item) => (
-                    <tr key={item.applicant.id} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
+              {engagementLoading ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-10 text-center">
+                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                    <p className="text-[10px] text-neutral-400 dark:text-neutral-500">Loading engagement data...</p>
+                  </td>
+                </tr>
+              ) : topInvestors.length > 0 ? (
+                topInvestors.map((record, index) => {
+                  const applicant = applicants.find(a => a.id === record.investorId);
+                  if (!applicant) return null;
+                  
+                  const holdings = applicant.holdingsRecord?.sharesHeld || 0;
+                  const formatRelativeTime = (iso: string): string => {
+                    const diff = Date.now() - new Date(iso).getTime();
+                    const mins = Math.floor(diff / 60000);
+                    if (mins < 1) return 'Just now';
+                    if (mins < 60) return `${mins}m ago`;
+                    const hours = Math.floor(mins / 60);
+                    if (hours < 24) return `${hours}h ago`;
+                    const days = Math.floor(hours / 24);
+                    if (days < 7) return `${days}d ago`;
+                    const weeks = Math.floor(days / 7);
+                    if (weeks < 4) return `${weeks}w ago`;
+                    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  };
+                  
+                  return (
+                    <tr key={record.investorId} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
                       <td className="px-6 py-3.5 text-center">
-                        <span className="text-xs font-bold text-neutral-500 dark:text-neutral-400">#{item.rank}</span>
+                        <span className="text-xs font-bold text-neutral-500 dark:text-neutral-400">#{index + 1}</span>
                       </td>
                       <td className="px-6 py-3.5">
                         <div className="flex items-center gap-2.5">
-                          <Avatar name={item.applicant.fullName} size={32} profilePictureUrl={item.applicant.profilePictureUrl} />
+                          <Avatar name={record.investorName} size={32} profilePictureUrl={record.profilePictureUrl} />
                           <div className="min-w-0 flex-1">
-                            <Tooltip content={item.applicant.fullName}>
-                              <p className="text-xs font-bold text-neutral-900 dark:text-white truncate max-w-[180px]">{item.applicant.fullName}</p>
+                            <Tooltip content={record.investorName}>
+                              <p className="text-xs font-bold text-neutral-900 dark:text-white truncate max-w-[180px]">{record.investorName}</p>
                             </Tooltip>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-3.5">
-                        {item.status === 'VERIFIED' ? (
+                        {record.userStatus === 'verified' ? (
                           <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/40">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                               <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
                               <path d="m9 12 2 2 4-4"/>
                             </svg>
                             Verified
-                          </span>
-                        ) : item.status === 'PENDING' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/40">
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                              <circle cx="12" cy="12" r="10"/>
-                              <path d="M12 6v6l4 2"/>
-                            </svg>
-                            Pending
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 border border-neutral-200/60 dark:border-neutral-700/40">
@@ -2132,36 +2405,36 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                         )}
                       </td>
                       <td className="px-6 py-3.5">
-                        {item.holdings > 0 ? (
-                          <span className="text-xs font-bold text-neutral-900 dark:text-white">{item.holdings.toLocaleString()}</span>
+                        {holdings > 0 ? (
+                          <span className="text-xs font-bold text-neutral-900 dark:text-white">{holdings.toLocaleString()}</span>
                         ) : (
                           <span className="text-[10px] text-neutral-400 dark:text-neutral-500">—</span>
                         )}
                       </td>
                       <td className="px-6 py-3.5">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-neutral-900 dark:text-white min-w-[2rem]">{item.score}</span>
+                          <span className="text-xs font-bold text-neutral-900 dark:text-white min-w-[2rem]">{record.engagementScore}</span>
                           <div className="flex-1 h-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden max-w-[100px]">
                             <div 
                               className="h-full bg-blue-500/70 dark:bg-blue-400/60 rounded-full transition-all duration-500"
-                              style={{ width: `${item.score}%` }}
+                              style={{ width: `${record.engagementScore}%` }}
                             />
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-3.5 text-right">
-                        <span className="text-[10px] text-neutral-400 dark:text-neutral-500">{item.lastActive}</span>
+                        <span className="text-[10px] text-neutral-400 dark:text-neutral-500">{formatRelativeTime(record.lastActive)}</span>
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest">
-                      No engaged investors found
-                    </td>
-                  </tr>
-                );
-              })()}
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={6} className="px-6 py-10 text-center text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest">
+                    No engaged investors found
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -2177,9 +2450,12 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
         <div className="px-6 py-5 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
           <div>
             <h3 className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Top Content by Engagement</h3>
-            <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">Ranked by total engagement across all user types</p>
+            <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">Ranked by read rate and interactions</p>
           </div>
-          <button className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider">
+          <button 
+            onClick={() => onViewChange?.('engagement')}
+            className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider"
+          >
             View All
           </button>
         </div>
@@ -2188,137 +2464,39 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
             <thead>
               <tr className="bg-neutral-50/50 dark:bg-neutral-800/50 text-[9px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-[0.12em]">
                 <th className="px-6 py-3">Content</th>
-                <th className="px-6 py-3">Published</th>
-                <th className="px-6 py-3 text-right">Total Opens</th>
-                <th className="px-6 py-3 text-right">Unique Opens</th>
-                <th className="px-6 py-3 text-right">Avg. Time</th>
-                <th className="px-6 py-3">Breakdown</th>
+                <th className="px-6 py-3 text-right">Read Rate</th>
+                <th className="px-6 py-3 text-right">Interactions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100/80 dark:divide-neutral-800/50">
-              {(() => {
-                // Generate mock content engagement data
-                const contentData = [
-                  {
-                    title: 'Q3 2024 Earnings Report',
-                    type: 'Report',
-                    published: 'Oct 15, 2024',
-                    totalOpens: 12580,
-                    uniqueOpens: 6840,
-                    averageTime: '12:34',
-                    breakdown: { guest: 3240, verified: 2850, unverified: 2330 }
-                  },
-                  {
-                    title: 'ESG Sustainability Report 2024',
-                    type: 'Report',
-                    published: 'Sep 20, 2024',
-                    totalOpens: 11420,
-                    uniqueOpens: 6220,
-                    averageTime: '15:28',
-                    breakdown: { guest: 2890, verified: 2450, unverified: 2310 }
-                  },
-                  {
-                    title: 'New Partnership Announcement',
-                    type: 'Press Release',
-                    published: 'Nov 5, 2024',
-                    totalOpens: 10240,
-                    uniqueOpens: 5890,
-                    averageTime: '8:45',
-                    breakdown: { guest: 3120, verified: 2180, unverified: 1680 }
-                  },
-                  {
-                    title: 'Annual General Meeting Transcript',
-                    type: 'Transcript',
-                    published: 'Jun 18, 2024',
-                    totalOpens: 8920,
-                    uniqueOpens: 5210,
-                    averageTime: '18:52',
-                    breakdown: { guest: 2450, verified: 2120, unverified: 1680 }
-                  },
-                  {
-                    title: 'Strategic Growth Initiative Update',
-                    type: 'Press Release',
-                    published: 'Oct 28, 2024',
-                    totalOpens: 8240,
-                    uniqueOpens: 4780,
-                    averageTime: '7:23',
-                    breakdown: { guest: 2780, verified: 1850, unverified: 1260 }
-                  }
-                ];
-                
-                return contentData.map((content, index) => {
-                  const total = content.breakdown.guest + content.breakdown.verified + content.breakdown.unverified;
-                  const guestPercent = Math.round((content.breakdown.guest / total) * 100);
-                  const verifiedPercent = Math.round((content.breakdown.verified / total) * 100);
-                  const unverifiedPercent = Math.round((content.breakdown.unverified / total) * 100);
-                  
-                  const chartData = [
-                    { name: 'Guest', value: content.breakdown.guest, percentage: guestPercent, color: '#f97316' },
-                    { name: 'Verified', value: content.breakdown.verified, percentage: verifiedPercent, color: '#10B981' },
-                    { name: 'Unverified', value: content.breakdown.unverified, percentage: unverifiedPercent, color: '#fbbf24' }
-                  ];
-                  
-                  return (
-                    <tr key={index} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
-                      <td className="px-6 py-3.5">
-                        <div>
-                          <p className="text-xs font-bold text-neutral-900 dark:text-white">{content.title}</p>
-                          <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5">{content.type}</p>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <span className="text-[10px] text-neutral-500 dark:text-neutral-400">{content.published}</span>
-                      </td>
-                      <td className="px-6 py-3.5 text-right">
-                        <span className="text-xs font-bold text-neutral-900 dark:text-white">{content.totalOpens.toLocaleString()}</span>
-                      </td>
-                      <td className="px-6 py-3.5 text-right">
-                        <span className="text-xs font-bold text-neutral-900 dark:text-white">{content.uniqueOpens.toLocaleString()}</span>
-                      </td>
-                      <td className="px-6 py-3.5 text-right">
-                        <span className="text-xs font-bold text-neutral-900 dark:text-white">{content.averageTime}</span>
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 flex-shrink-0">
-                            <Chart
-                              options={{
-                                chart: { type: 'donut' as const, animations: { enabled: false } },
-                                labels: chartData.map(item => item.name),
-                                colors: chartData.map(item => item.color),
-                                dataLabels: { enabled: false },
-                                plotOptions: {
-                                  pie: {
-                                    donut: { size: '70%' },
-                                    expandOnClick: false
-                                  }
-                                },
-                                legend: { show: false },
-                                tooltip: { enabled: false },
-                                states: { hover: { filter: { type: 'none' } } }
-                              }}
-                              series={chartData.map(item => item.value)}
-                              type="donut"
-                              width="48"
-                              height="48"
-                            />
-                          </div>
-                          <div className="flex flex-col gap-0.5">
-                            {chartData.map((item, idx) => (
-                              <div key={idx} className="flex items-center gap-1.5">
-                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
-                                <span className="text-[10px] text-neutral-500 dark:text-neutral-400">
-                                  {item.name}: <span className="font-bold text-neutral-900 dark:text-white">{item.value.toLocaleString()}</span>
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                });
-              })()}
+              {engagementLoading ? (
+                <tr>
+                  <td colSpan={3} className="px-6 py-10 text-center">
+                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                    <p className="text-[10px] text-neutral-400 dark:text-neutral-500">Loading content data...</p>
+                  </td>
+                </tr>
+              ) : topContent.length > 0 ? (
+                topContent.map((content, index) => (
+                  <tr key={index} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
+                    <td className="px-6 py-3.5">
+                      <p className="text-xs font-bold text-neutral-900 dark:text-white">{content.title}</p>
+                    </td>
+                    <td className="px-6 py-3.5 text-right">
+                      <span className="text-xs font-bold text-neutral-900 dark:text-white">{content.readPercentage}%</span>
+                    </td>
+                    <td className="px-6 py-3.5 text-right">
+                      <span className="text-xs font-bold text-neutral-900 dark:text-white">{content.interactions}</span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={3} className="px-6 py-10 text-center text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest">
+                    No content data available
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -2326,7 +2504,10 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
           <p className="text-[10px] text-neutral-400 dark:text-neutral-500">
             <strong className="text-neutral-500 dark:text-neutral-400">Engagement:</strong> Views, downloads, time spent, shares, interactions.
           </p>
-          <button className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider">
+          <button 
+            onClick={() => onViewChange?.('engagement-analytics')}
+            className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider"
+          >
             Analytics →
           </button>
         </div>
@@ -2339,7 +2520,10 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
             <h3 className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Recent User Activities</h3>
             <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">From registered users (verified and unverified)</p>
           </div>
-          <button className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider">
+          <button 
+            onClick={() => onViewChange?.('engagement')}
+            className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider"
+          >
             View All
           </button>
         </div>
@@ -2354,94 +2538,76 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100/80 dark:divide-neutral-800/50">
-              {(() => {
-                // Generate recent activities from applicants
-                const activities = applicants
-                  .filter(a => {
-                    const internalStatus = getWorkflowStatusInternal(a);
-                    const generalStatus = getGeneralAccountStatus(internalStatus);
-                    return generalStatus === 'VERIFIED' || generalStatus === 'PENDING' || generalStatus === 'UNVERIFIED';
-                  })
-                  .map(applicant => {
-                    const status = getGeneralAccountStatus(getWorkflowStatusInternal(applicant));
-                    const holdings = applicant.holdingsRecord?.sharesHeld || 0;
-                    
-                    // Determine activity type based on user data
-                    let activity = '';
-                    let activityIcon = '';
-                    let content = '';
-                    
-                    if (applicant.accountClaimedAt) {
-                      activity = 'Attended Retail Investor Q&A Session';
-                      activityIcon = 'calendar';
-                      content = 'Retail Investor Q&A Session - October 2024';
-                    } else if (applicant.linkClickedAt) {
-                      activity = 'Downloaded ESG Sustainability Report';
-                      activityIcon = 'document';
-                      content = 'ESG Sustainability Report 2024';
-                    } else if (applicant.emailOpenedAt) {
-                      activity = 'Opened email communication';
-                      activityIcon = 'email';
-                      content = 'Quarterly Investor Update';
-                    } else {
-                      activity = 'Viewed Q3 2024 Earnings Report';
-                      activityIcon = 'eye';
-                      content = 'Q3 2024 Earnings Report';
+              {engagementLoading ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-10 text-center">
+                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                    <p className="text-[10px] text-neutral-400 dark:text-neutral-500">Loading activities...</p>
+                  </td>
+                </tr>
+              ) : recentActivities.length > 0 ? (
+                recentActivities.map((activity) => {
+                  const getActivityIcon = () => {
+                    switch (activity.activityType) {
+                      case 'view':
+                        return '👁';
+                      case 'comment':
+                        return '💬';
+                      case 'download':
+                        return '⬇';
+                      case 'reaction':
+                        return '👍';
+                      case 'login':
+                        return '🔐';
+                      case 'registration':
+                        return '📝';
+                      default:
+                        return '📄';
                     }
-                    
-                    // Calculate time ago
-                    let timeAgo = 'Never';
-                    const lastActive = applicant.lastActive || 'Never';
-                    if (lastActive.includes('hour')) {
-                      const hours = parseInt(lastActive.match(/\d+/)?.[0] || '0');
-                      timeAgo = hours === 1 ? '1 hour ago' : `${hours} hours ago`;
-                    } else if (lastActive.includes('day')) {
-                      const days = parseInt(lastActive.match(/\d+/)?.[0] || '0');
-                      timeAgo = days === 1 ? '1 day ago' : `${days} days ago`;
-                    } else if (lastActive.includes('week')) {
-                      const weeks = parseInt(lastActive.match(/\d+/)?.[0] || '0');
-                      timeAgo = weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
-                    } else if (lastActive === 'Just now') {
-                      timeAgo = 'Just now';
+                  };
+
+                  const getActivityLabel = () => {
+                    switch (activity.activityType) {
+                      case 'view':
+                        return 'Viewed';
+                      case 'comment':
+                        return 'Commented';
+                      case 'download':
+                        return 'Downloaded';
+                      case 'reaction':
+                        return 'Reacted';
+                      case 'login':
+                        return 'Logged in';
+                      case 'registration':
+                        return 'Registered';
+                      default:
+                        return 'Interacted';
                     }
-                    
-                    // Calculate rank based on engagement
-                    const emailOpens = applicant.emailOpenedCount || 0;
-                    const linkClicks = applicant.linkClickedCount || 0;
-                    const hasClaimed = applicant.accountClaimedAt ? 1 : 0;
-                    const totalInteractions = emailOpens + linkClicks + hasClaimed;
-                    const rank = totalInteractions > 20 ? 1 : totalInteractions > 15 ? 2 : totalInteractions > 10 ? 3 : totalInteractions > 5 ? 4 : null;
-                    
-                    return {
-                      applicant,
-                      activity,
-                      activityIcon,
-                      content,
-                      timeAgo,
-                      status,
-                      holdings,
-                      rank
-                    };
-                  })
-                  .filter(item => item.timeAgo !== 'Never')
-                  .sort((a, b) => {
-                    // Sort by recency (most recent first)
-                    const aHours = a.timeAgo.includes('hour') ? parseInt(a.timeAgo.match(/\d+/)?.[0] || '999') : 999;
-                    const bHours = b.timeAgo.includes('hour') ? parseInt(b.timeAgo.match(/\d+/)?.[0] || '999') : 999;
-                    return aHours - bHours;
-                  })
-                  .slice(0, 5);
-                
-                return activities.length > 0 ? (
-                  activities.map((item, index) => (
-                    <tr key={item.applicant.id} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
+                  };
+
+                  const formatRelativeTime = (iso: string): string => {
+                    const diff = Date.now() - new Date(iso).getTime();
+                    const mins = Math.floor(diff / 60000);
+                    if (mins < 1) return 'Just now';
+                    if (mins < 60) return `${mins}m ago`;
+                    const hours = Math.floor(mins / 60);
+                    if (hours < 24) return `${hours}h ago`;
+                    const days = Math.floor(hours / 24);
+                    if (days < 7) return `${days}d ago`;
+                    const weeks = Math.floor(days / 7);
+                    if (weeks < 4) return `${weeks}w ago`;
+                    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  };
+
+                  return (
+                    <tr key={activity.id} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
                       <td className="px-6 py-3.5">
                         <div className="flex items-center gap-2.5">
-                          <Avatar name={item.applicant.fullName} size={32} profilePictureUrl={item.applicant.profilePictureUrl} />
+                          <Avatar name={activity.userName} size={32} profilePictureUrl={undefined} />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
-                              <p className="text-xs font-bold text-neutral-900 dark:text-white">{item.applicant.fullName}</p>
-                              {item.status === 'VERIFIED' && (
+                              <p className="text-xs font-bold text-neutral-900 dark:text-white">{activity.userName}</p>
+                              {activity.userStatus === 'verified' && (
                                 <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full text-[9px] font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/40">
                                   <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                                     <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
@@ -2449,71 +2615,38 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants }) => 
                                   </svg>
                                 </span>
                               )}
-                              {item.status === 'PENDING' && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full text-[9px] font-bold bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/40">
-                                  <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                                    <circle cx="12" cy="12" r="10"/>
-                                    <path d="M12 6v6l4 2"/>
-                                  </svg>
-                                </span>
-                              )}
                             </div>
-                            {item.status === 'VERIFIED' && item.rank && (
-                              <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5">Rank #{item.rank} · {item.holdings.toLocaleString()} shares</p>
-                            )}
-                            {item.status !== 'VERIFIED' && (
-                              <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5 truncate max-w-[160px]">{item.applicant.email}</p>
-                            )}
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-3.5">
                         <div className="flex items-center gap-1.5">
-                          {item.activityIcon === 'eye' && (
-                            <svg className="w-3 h-3 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                              <circle cx="12" cy="12" r="3"/>
-                            </svg>
-                          )}
-                          {item.activityIcon === 'document' && (
-                            <svg className="w-3 h-3 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                              <path d="M14 2v6h6"/>
-                            </svg>
-                          )}
-                          {item.activityIcon === 'calendar' && (
-                            <svg className="w-3 h-3 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                              <line x1="16" y1="2" x2="16" y2="6"/>
-                              <line x1="8" y1="2" x2="8" y2="6"/>
-                              <line x1="3" y1="10" x2="21" y2="10"/>
-                            </svg>
-                          )}
-                          {item.activityIcon === 'email' && (
-                            <svg className="w-3 h-3 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                              <polyline points="22,6 12,13 2,6"/>
-                            </svg>
-                          )}
-                          <span className="text-[11px] text-neutral-700 dark:text-neutral-300">{item.activity}</span>
+                          <span className="text-base">{getActivityIcon()}</span>
+                          <span className="text-[11px] text-neutral-700 dark:text-neutral-300">{getActivityLabel()}</span>
                         </div>
                       </td>
                       <td className="px-6 py-3.5">
-                        <span className="text-[11px] text-neutral-700 dark:text-neutral-300">{item.content}</span>
+                        {activity.contentTitle ? (
+                          <span className="text-[11px] text-neutral-700 dark:text-neutral-300 truncate max-w-[200px]" title={activity.contentTitle}>
+                            {activity.contentTitle}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-neutral-400">—</span>
+                        )}
                       </td>
                       <td className="px-6 py-3.5 text-right">
-                        <span className="text-[10px] text-neutral-400 dark:text-neutral-500">{item.timeAgo}</span>
+                        <span className="text-[10px] text-neutral-400 dark:text-neutral-500">{formatRelativeTime(activity.timestamp)}</span>
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={4} className="px-6 py-10 text-center text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest">
-                      No recent activities found
-                    </td>
-                  </tr>
-                );
-              })()}
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={4} className="px-6 py-10 text-center text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest">
+                    No recent activities found
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

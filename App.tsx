@@ -13,6 +13,9 @@ import ShareholdersRegistry from './components/ShareholdersRegistry';
 import OverviewDashboard from './components/OverviewDashboard';
 import LoginPage from './components/LoginPage';
 import EngagementPage from './components/EngagementPage';
+import InvestorActivityPage from './components/InvestorActivityPage';
+import EventsPage from './components/EventsPage';
+import EngagementAnalyticsPage from './components/EngagementAnalyticsPage';
 import DocumentsPage from './components/DocumentsPage';
 import ThemeToggle from './components/ThemeToggle';
 import Toast from './components/Toast';
@@ -35,7 +38,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
   const getInitialView = (): ViewType => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('eurolandhub_view');
-      if (saved && ['dashboard', 'registrations', 'shareholders', 'engagement', 'documents'].includes(saved)) {
+      if (saved && ['dashboard', 'registrations', 'shareholders', 'engagement', 'engagement-activity', 'engagement-events', 'engagement-analytics', 'documents'].includes(saved)) {
         return saved as ViewType;
       }
     }
@@ -557,6 +560,9 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
       case 'detail': return 'Verification Review';
       case 'shareholders': return 'Shareholders';
       case 'engagement': return 'Engagement';
+      case 'engagement-activity': return 'Investor Activity';
+      case 'engagement-events': return 'Events';
+      case 'engagement-analytics': return 'Engagement Analytics';
       case 'documents': return 'Documents';
       default: return 'Dashboard';
     }
@@ -704,17 +710,69 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
         break;
 
       case 'engagement':
-        // Always start with Dashboard
         items.push({
           label: 'Dashboard',
           view: 'dashboard',
           onClick: () => setView('dashboard')
         });
-        
         items.push({
           label: 'Engagement',
           view: 'engagement',
           onClick: () => setView('engagement')
+        });
+        break;
+
+      case 'engagement-activity':
+        items.push({
+          label: 'Dashboard',
+          view: 'dashboard',
+          onClick: () => setView('dashboard')
+        });
+        items.push({
+          label: 'Engagement',
+          view: 'engagement',
+          onClick: () => setView('engagement')
+        });
+        items.push({
+          label: 'Investor Activity',
+          view: 'engagement-activity',
+          onClick: () => setView('engagement-activity')
+        });
+        break;
+
+      case 'engagement-events':
+        items.push({
+          label: 'Dashboard',
+          view: 'dashboard',
+          onClick: () => setView('dashboard')
+        });
+        items.push({
+          label: 'Engagement',
+          view: 'engagement',
+          onClick: () => setView('engagement')
+        });
+        items.push({
+          label: 'Events',
+          view: 'engagement-events',
+          onClick: () => setView('engagement-events')
+        });
+        break;
+
+      case 'engagement-analytics':
+        items.push({
+          label: 'Dashboard',
+          view: 'dashboard',
+          onClick: () => setView('dashboard')
+        });
+        items.push({
+          label: 'Engagement',
+          view: 'engagement',
+          onClick: () => setView('engagement')
+        });
+        items.push({
+          label: 'Analytics',
+          view: 'engagement-analytics',
+          onClick: () => setView('engagement-analytics')
         });
         break;
 
@@ -788,7 +846,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
         
         <main className="flex-1 overflow-y-auto p-6 bg-white dark:bg-neutral-900">
           {view === 'dashboard' && (
-            <OverviewDashboard applicants={applicants} />
+            <OverviewDashboard applicants={applicants} onViewChange={setView} />
           )}
           {view === 'registrations' && (
             <DashboardHome 
@@ -818,6 +876,15 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
           )}
           {view === 'engagement' && (
             <EngagementPage applicants={applicants} applicantsLoading={applicantsLoading} />
+          )}
+          {view === 'engagement-activity' && (
+            <InvestorActivityPage applicants={applicants} applicantsLoading={applicantsLoading} />
+          )}
+          {view === 'engagement-events' && (
+            <EventsPage applicants={applicants} applicantsLoading={applicantsLoading} />
+          )}
+          {view === 'engagement-analytics' && (
+            <EngagementAnalyticsPage applicants={applicants} applicantsLoading={applicantsLoading} />
           )}
           {view === 'documents' && (
             <DocumentsPage />
