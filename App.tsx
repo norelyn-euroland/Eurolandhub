@@ -13,6 +13,7 @@ import ShareholdersRegistry from './components/ShareholdersRegistry';
 import OverviewDashboard from './components/OverviewDashboard';
 import LoginPage from './components/LoginPage';
 import EngagementPage from './components/EngagementPage';
+import InvestorsPage from './components/InvestorsPage';
 import InvestorActivityPage from './components/InvestorActivityPage';
 import EventsPage from './components/EventsPage';
 import EngagementAnalyticsPage from './components/EngagementAnalyticsPage';
@@ -38,7 +39,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
   const getInitialView = (): ViewType => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('eurolandhub_view');
-      if (saved && ['dashboard', 'registrations', 'shareholders', 'engagement', 'engagement-activity', 'engagement-events', 'engagement-analytics', 'documents'].includes(saved)) {
+      if (saved && ['dashboard', 'registrations', 'shareholders', 'investors', 'engagement', 'engagement-activity', 'engagement-events', 'engagement-analytics', 'documents'].includes(saved)) {
         return saved as ViewType;
       }
     }
@@ -559,6 +560,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
       case 'registrations': return 'Investor Registrations';
       case 'detail': return 'Verification Review';
       case 'shareholders': return 'Shareholders';
+      case 'investors': return 'Investors';
       case 'engagement': return 'Engagement';
       case 'engagement-activity': return 'Investor Activity';
       case 'engagement-events': return 'Events';
@@ -599,6 +601,10 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
           label: 'Dashboard',
           view: 'dashboard',
           onClick: () => setView('dashboard')
+        });
+        items.push({
+          label: 'Investors',
+          view: 'investors'
         });
         
         items.push({
@@ -641,6 +647,10 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
           label: 'Dashboard',
           view: 'dashboard',
           onClick: () => setView('dashboard')
+        });
+        items.push({
+          label: 'Investors',
+          view: 'investors'
         });
         
         // Add Registrations breadcrumb — clicking goes back to ALL (default) view
@@ -701,11 +711,26 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
           view: 'dashboard',
           onClick: () => setView('dashboard')
         });
-        
+        items.push({
+          label: 'Investors',
+          view: 'investors'
+        });
         items.push({
           label: 'Shareholders',
           view: 'shareholders',
           onClick: () => setView('shareholders')
+        });
+        break;
+
+      case 'investors':
+        items.push({
+          label: 'Dashboard',
+          view: 'dashboard',
+          onClick: () => setView('dashboard')
+        });
+        items.push({
+          label: 'Investors',
+          view: 'investors'
         });
         break;
 
@@ -869,6 +894,9 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
               applicants={applicants}
               applicantsLoading={applicantsLoading}
             />
+          )}
+          {view === 'investors' && (
+            <InvestorsPage applicants={applicants} applicantsLoading={applicantsLoading} />
           )}
           {view === 'engagement' && (
             <EngagementPage applicants={applicants} applicantsLoading={applicantsLoading} />

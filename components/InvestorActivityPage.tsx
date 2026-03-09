@@ -114,7 +114,7 @@ const InvestorActivityPage: React.FC<InvestorActivityPageProps> = ({ applicants,
   const [activitiesWithReplies, setActivitiesWithReplies] = useState<Map<string, UserActivity>>(new Map());
 
   // User Activity Log filters
-  const [activityTypeFilter, setActivityTypeFilter] = useState<'all' | 'comment' | 'reaction' | 'view' | 'login'>('all');
+  const [activityTypeFilter, setActivityTypeFilter] = useState<'all' | 'comment' | 'reaction' | 'view' | 'login' | 'download'>('all');
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [activityDateFilter, setActivityDateFilter] = useState<string>('');
   const [activitySortOrder, setActivitySortOrder] = useState<'newest' | 'oldest'>('newest');
@@ -917,7 +917,7 @@ const InvestorActivityPage: React.FC<InvestorActivityPageProps> = ({ applicants,
             <select
               value={activityTypeFilter}
               onChange={(e) => {
-                setActivityTypeFilter(e.target.value as 'all' | 'comment' | 'reaction' | 'view' | 'login');
+                setActivityTypeFilter(e.target.value as 'all' | 'comment' | 'reaction' | 'view' | 'login' | 'download');
                 setActivityPage(1);
               }}
               className="px-3 py-2 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg text-xs font-medium text-neutral-700 dark:text-neutral-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition-colors"
@@ -927,6 +927,7 @@ const InvestorActivityPage: React.FC<InvestorActivityPageProps> = ({ applicants,
               <option value="reaction">Likes Only</option>
               <option value="view">Viewed Only</option>
               <option value="login">Logged (Login/Logout)</option>
+              <option value="download">Download Only</option>
             </select>
 
             {/* User Search Input */}
@@ -950,6 +951,8 @@ const InvestorActivityPage: React.FC<InvestorActivityPageProps> = ({ applicants,
             <input
               type="date"
               value={activityDateFilter}
+              min="2026-01-01"
+              max={new Date().toISOString().split('T')[0]}
               onChange={(e) => {
                 setActivityDateFilter(e.target.value);
                 setActivityPage(1);

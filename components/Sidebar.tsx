@@ -23,10 +23,21 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   
+  // Track if Investors submenu is expanded
+  const isInvestorsSubmenuActive = currentView === 'shareholders' || currentView === 'registrations' || currentView === 'detail';
+  const [isInvestorsExpanded, setIsInvestorsExpanded] = useState(isInvestorsSubmenuActive);
+
   // Track if Engagement submenu is expanded
   const isEngagementSubmenuActive = currentView === 'engagement-activity' || currentView === 'engagement-events' || currentView === 'engagement-analytics';
   const [isEngagementExpanded, setIsEngagementExpanded] = useState(isEngagementSubmenuActive);
   
+  // Auto-expand if current view is an investors sub-page
+  useEffect(() => {
+    if (isInvestorsSubmenuActive) {
+      setIsInvestorsExpanded(true);
+    }
+  }, [isInvestorsSubmenuActive]);
+
   // Auto-expand if current view is an engagement sub-page
   useEffect(() => {
     if (isEngagementSubmenuActive) {
@@ -126,34 +137,109 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
           </svg>
           {!isCollapsed && <span>Dashboard</span>}
         </button>
+        {/* ── Investors Group ── */}
         <button 
-          onClick={() => onViewChange('shareholders')}
+          onClick={() => {
+            if (!isCollapsed) {
+              setIsInvestorsExpanded(!isInvestorsExpanded);
+            } else {
+              onViewChange('shareholders');
+            }
+          }}
           className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium relative ${
-            currentView === 'shareholders' 
-              ? isCollapsed 
-                ? 'text-[#082b4a] dark:text-[#00adf0] border-l-4 border-[#082b4a] dark:border-[#00adf0]' 
-                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border-l-4 border-[#082b4a] dark:border-[#00adf0]'
+            !isCollapsed && isInvestorsSubmenuActive
+              ? 'text-neutral-900 dark:text-white'
               : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'
           }`}
-          title={isCollapsed ? 'Shareholders' : ''}
+          title={isCollapsed ? 'Investors' : ''}
         >
-          <svg className={`w-5 h-5 flex-shrink-0 ${currentView === 'shareholders' && isCollapsed ? 'text-[#082b4a] dark:text-[#00adf0]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-          {!isCollapsed && <span>Shareholders</span>}
+          <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          {!isCollapsed && (
+            <>
+              <span className="flex-1 text-left">Investors</span>
+              <svg 
+                className={`w-4 h-4 transition-transform duration-200 ${isInvestorsExpanded ? 'rotate-180' : ''}`}
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24" 
+                strokeWidth="2" 
+                strokeLinecap="round" 
+                strokeLinejoin="round"
+              >
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </>
+          )}
         </button>
-        <button 
-          onClick={() => onViewChange('registrations')}
-          className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium relative ${
-            currentView === 'registrations' || currentView === 'detail' 
-              ? isCollapsed 
-                ? 'text-[#082b4a] dark:text-[#00adf0] border-l-4 border-[#082b4a] dark:border-[#00adf0]' 
-                : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white border-l-4 border-[#082b4a] dark:border-[#00adf0]'
-              : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'
-          }`}
-          title={isCollapsed ? 'Registrations' : ''}
-        >
-          <svg className={`w-5 h-5 flex-shrink-0 ${(currentView === 'registrations' || currentView === 'detail') && isCollapsed ? 'text-[#082b4a] dark:text-[#00adf0]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
-          {!isCollapsed && <span>Registrations</span>}
-        </button>
+        {/* Shareholders sub-item */}
+        {!isCollapsed && isInvestorsExpanded && (
+          <button 
+            onClick={() => onViewChange('shareholders')}
+            className={`w-full flex items-center gap-3 pl-8 pr-4 py-2 transition-all text-[13px] font-medium relative ${
+              currentView === 'shareholders'
+                ? 'text-[#082b4a] dark:text-[#00adf0] bg-neutral-50 dark:bg-neutral-800/50 border-l-2 border-[#082b4a] dark:border-[#00adf0]'
+                : 'text-neutral-900 dark:text-neutral-100 hover:text-[#082b4a] dark:hover:text-[#00adf0] hover:bg-neutral-50 dark:hover:bg-neutral-800/30'
+            }`}
+          >
+            <svg className="w-4 h-4 flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            <span>Shareholders</span>
+          </button>
+        )}
+        {/* Registrations sub-item */}
+        {!isCollapsed && isInvestorsExpanded && (
+          <button 
+            onClick={() => onViewChange('registrations')}
+            className={`w-full flex items-center gap-3 pl-8 pr-4 py-2 transition-all text-[13px] font-medium relative ${
+              currentView === 'registrations' || currentView === 'detail'
+                ? 'text-[#082b4a] dark:text-[#00adf0] bg-neutral-50 dark:bg-neutral-800/50 border-l-2 border-[#082b4a] dark:border-[#00adf0]'
+                : 'text-neutral-900 dark:text-neutral-100 hover:text-[#082b4a] dark:hover:text-[#00adf0] hover:bg-neutral-50 dark:hover:bg-neutral-800/30'
+            }`}
+          >
+            <svg className="w-4 h-4 flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+            </svg>
+            <span>Registrations</span>
+          </button>
+        )}
+        {/* Collapsed state - show investors sub-items */}
+        {isCollapsed && (
+          <>
+            <button 
+              onClick={() => onViewChange('shareholders')}
+              className={`w-full flex items-center justify-center px-2 py-1.5 transition-all relative ${
+                currentView === 'shareholders'
+                  ? 'text-[#082b4a] dark:text-[#00adf0] border-l-4 border-[#082b4a] dark:border-[#00adf0]'
+                  : 'text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+              }`}
+              title="Shareholders"
+            >
+              <svg className={`w-3.5 h-3.5 flex-shrink-0 ${currentView === 'shareholders' ? 'text-[#082b4a] dark:text-[#00adf0]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+              </svg>
+            </button>
+            <button 
+              onClick={() => onViewChange('registrations')}
+              className={`w-full flex items-center justify-center px-2 py-1.5 transition-all relative ${
+                currentView === 'registrations' || currentView === 'detail'
+                  ? 'text-[#082b4a] dark:text-[#00adf0] border-l-4 border-[#082b4a] dark:border-[#00adf0]'
+                  : 'text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+              }`}
+              title="Registrations"
+            >
+              <svg className={`w-3.5 h-3.5 flex-shrink-0 ${(currentView === 'registrations' || currentView === 'detail') ? 'text-[#082b4a] dark:text-[#00adf0]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+              </svg>
+            </button>
+          </>
+        )}
+        {/* ── Engagement Group ── */}
         <button 
           onClick={() => {
             if (!isCollapsed) {
