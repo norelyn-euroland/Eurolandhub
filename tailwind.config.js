@@ -75,8 +75,8 @@ module.exports = {
           '50%': { transform: 'translateX(-14px)' },
         },
         'star-twinkle': {
-          '0%, 100%': { opacity: '0.15', transform: 'scale(1)' },
-          '50%': { opacity: '0.85', transform: 'scale(1.4)' },
+          '0%, 100%': { opacity: '0.15', transform: 'scale(0.8) rotate(0deg)' },
+          '50%': { opacity: '0.9', transform: 'scale(1.3) rotate(15deg)' },
         },
         'moon-float': {
           '0%, 100%': { transform: 'translateY(0) rotate(0deg)' },
@@ -115,6 +115,19 @@ module.exports = {
           '0%, 100%': { transform: 'translateX(0) scaleX(1)', opacity: '0.06' },
           '50%': { transform: 'translateX(30px) scaleX(1.2)', opacity: '0.1' },
         },
+        'moon-rise': {
+          '0%': { transform: 'translateY(30px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
+        'particle-float': {
+          '0%, 100%': { transform: 'translateY(0) translateX(0)', opacity: '0.15' },
+          '33%': { transform: 'translateY(-12px) translateX(6px)', opacity: '0.45' },
+          '66%': { transform: 'translateY(-6px) translateX(-4px)', opacity: '0.25' },
+        },
+        'horizon-pulse': {
+          '0%, 100%': { opacity: '0.3' },
+          '50%': { opacity: '0.6' },
+        },
       },
       animation: {
         sweep: 'sweep 3s ease-in-out infinite',
@@ -135,6 +148,9 @@ module.exports = {
         'gradient-shift': 'gradient-shift 15s ease infinite',
         'lightning-flash': 'lightning-flash 8s ease-in-out infinite',
         'mist-drift': 'mist-drift 20s ease-in-out infinite',
+        'moon-rise': 'moon-rise 1.2s ease-out forwards',
+        'particle-float': 'particle-float 10s ease-in-out infinite',
+        'horizon-pulse': 'horizon-pulse 5s ease-in-out infinite',
       },
     },
   },

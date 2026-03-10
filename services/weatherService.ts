@@ -199,98 +199,98 @@ export interface WeatherGradient {
  * This overrides the default time-only theme when real weather data is available.
  */
 export function getWeatherGradient(category: WeatherCategory, isNight: boolean): WeatherGradient {
-  // ── Night Variants ──
+  // ── Night Variants — deep, dark backgrounds ──
   if (isNight) {
     switch (category) {
       case 'clear':
         return {
-          bgClass: 'bg-gradient-to-br from-indigo-900 via-purple-900/90 to-blue-950',
-          overlayClass: 'bg-gradient-to-br from-indigo-600/10 via-violet-700/5 to-transparent',
+          bgClass: 'bg-gradient-to-br from-slate-900 via-indigo-950 to-gray-950',
+          overlayClass: 'bg-gradient-to-br from-indigo-800/12 via-violet-900/8 to-transparent',
           textColor: 'text-white',
-          subtitleColor: 'text-slate-300/80',
+          subtitleColor: 'text-slate-300/85',
           iconColor: 'text-slate-300',
           iconFill: 'rgba(148, 163, 184, 0.25)',
-          glowColor: 'rgba(129, 140, 248, 0.18)',
+          glowColor: 'rgba(129, 140, 248, 0.20)',
           sweepTint: 'via-indigo-300/[0.04]',
-          shadowClass: 'shadow-lg shadow-indigo-950/30',
-          noiseOpacity: 'opacity-[0.025]',
+          shadowClass: 'shadow-lg shadow-indigo-950/40',
+          noiseOpacity: 'opacity-[0.03]',
         };
       case 'clouds':
       case 'overcast':
         return {
-          bgClass: 'bg-gradient-to-br from-slate-800 via-indigo-900/80 to-slate-900',
-          overlayClass: 'bg-gradient-to-br from-slate-600/10 via-indigo-700/5 to-transparent',
+          bgClass: 'bg-gradient-to-br from-gray-900 via-slate-900 to-indigo-950',
+          overlayClass: 'bg-gradient-to-br from-slate-700/10 via-indigo-800/6 to-transparent',
           textColor: 'text-white',
           subtitleColor: 'text-slate-300/80',
           iconColor: 'text-slate-400',
           iconFill: 'rgba(148, 163, 184, 0.20)',
           glowColor: 'rgba(100, 116, 139, 0.15)',
           sweepTint: 'via-slate-300/[0.03]',
-          shadowClass: 'shadow-lg shadow-slate-900/30',
-          noiseOpacity: 'opacity-[0.03]',
+          shadowClass: 'shadow-lg shadow-slate-950/35',
+          noiseOpacity: 'opacity-[0.035]',
         };
       case 'rain':
       case 'drizzle':
         return {
-          bgClass: 'bg-gradient-to-br from-slate-800 via-indigo-900 to-blue-950',
-          overlayClass: 'bg-gradient-to-br from-blue-700/10 via-indigo-800/5 to-transparent',
+          bgClass: 'bg-gradient-to-br from-slate-900 via-blue-950 to-indigo-950',
+          overlayClass: 'bg-gradient-to-br from-blue-800/10 via-indigo-900/6 to-transparent',
           textColor: 'text-white',
-          subtitleColor: 'text-slate-300/80',
+          subtitleColor: 'text-blue-200/80',
           iconColor: 'text-blue-300',
           iconFill: 'rgba(147, 197, 253, 0.20)',
           glowColor: 'rgba(96, 165, 250, 0.12)',
           sweepTint: 'via-blue-300/[0.04]',
-          shadowClass: 'shadow-lg shadow-blue-950/30',
-          noiseOpacity: 'opacity-[0.03]',
+          shadowClass: 'shadow-lg shadow-blue-950/35',
+          noiseOpacity: 'opacity-[0.035]',
         };
       case 'thunderstorm':
         return {
-          bgClass: 'bg-gradient-to-br from-slate-900 via-indigo-950 to-gray-950',
-          overlayClass: 'bg-gradient-to-br from-purple-700/10 via-indigo-900/5 to-transparent',
+          bgClass: 'bg-gradient-to-br from-gray-950 via-slate-950 to-indigo-950',
+          overlayClass: 'bg-gradient-to-br from-purple-800/10 via-indigo-950/6 to-transparent',
           textColor: 'text-white',
           subtitleColor: 'text-slate-300/70',
           iconColor: 'text-amber-300',
           iconFill: 'rgba(252, 211, 77, 0.20)',
           glowColor: 'rgba(252, 211, 77, 0.10)',
           sweepTint: 'via-amber-300/[0.03]',
-          shadowClass: 'shadow-lg shadow-slate-950/40',
-          noiseOpacity: 'opacity-[0.035]',
+          shadowClass: 'shadow-lg shadow-slate-950/45',
+          noiseOpacity: 'opacity-[0.04]',
         };
       case 'snow':
         return {
-          bgClass: 'bg-gradient-to-br from-slate-700 via-blue-900/80 to-indigo-950',
-          overlayClass: 'bg-gradient-to-br from-blue-300/10 via-slate-600/5 to-transparent',
+          bgClass: 'bg-gradient-to-br from-slate-800 via-blue-950 to-indigo-950',
+          overlayClass: 'bg-gradient-to-br from-blue-400/8 via-slate-700/5 to-transparent',
           textColor: 'text-white',
           subtitleColor: 'text-blue-100/80',
           iconColor: 'text-blue-200',
           iconFill: 'rgba(191, 219, 254, 0.25)',
           glowColor: 'rgba(191, 219, 254, 0.15)',
           sweepTint: 'via-blue-200/[0.04]',
-          shadowClass: 'shadow-lg shadow-blue-950/25',
-          noiseOpacity: 'opacity-[0.03]',
+          shadowClass: 'shadow-lg shadow-blue-950/30',
+          noiseOpacity: 'opacity-[0.035]',
         };
       default:
         return {
-          bgClass: 'bg-gradient-to-br from-slate-700 via-indigo-800/80 to-slate-900',
-          overlayClass: 'bg-gradient-to-br from-indigo-600/15 via-violet-700/8 to-transparent',
+          bgClass: 'bg-gradient-to-br from-slate-900 via-indigo-950 to-gray-950',
+          overlayClass: 'bg-gradient-to-br from-indigo-800/15 via-violet-900/8 to-transparent',
           textColor: 'text-white',
           subtitleColor: 'text-slate-300/80',
           iconColor: 'text-slate-300',
           iconFill: 'rgba(148, 163, 184, 0.22)',
-          glowColor: 'rgba(129, 140, 248, 0.15)',
+          glowColor: 'rgba(129, 140, 248, 0.18)',
           sweepTint: 'via-indigo-300/[0.04]',
-          shadowClass: 'shadow-lg shadow-slate-400/20',
-          noiseOpacity: 'opacity-[0.025]',
+          shadowClass: 'shadow-lg shadow-indigo-950/35',
+          noiseOpacity: 'opacity-[0.03]',
         };
     }
   }
 
-  // ── Day Variants ──
+  // ── Day Variants — light, bright, airy backgrounds ──
   switch (category) {
     case 'clear':
       return {
-        bgClass: 'bg-gradient-to-br from-sky-200 via-cyan-100 to-yellow-100/80',
-        overlayClass: 'bg-gradient-to-br from-sky-200/20 via-cyan-100/10 to-transparent',
+        bgClass: 'bg-gradient-to-br from-sky-200 via-blue-100 to-cyan-100',
+        overlayClass: 'bg-gradient-to-br from-sky-200/20 via-blue-100/12 to-amber-50/8',
         textColor: 'text-neutral-900',
         subtitleColor: 'text-neutral-600',
         iconColor: 'text-amber-500',
@@ -302,35 +302,35 @@ export function getWeatherGradient(category: WeatherCategory, isNight: boolean):
       };
     case 'clouds':
       return {
-        bgClass: 'bg-gradient-to-br from-slate-200 via-blue-100/80 to-sky-100',
-        overlayClass: 'bg-gradient-to-br from-slate-200/20 via-blue-100/10 to-transparent',
+        bgClass: 'bg-gradient-to-br from-sky-100 via-blue-100 to-slate-100',
+        overlayClass: 'bg-gradient-to-br from-sky-100/20 via-blue-50/12 to-transparent',
         textColor: 'text-neutral-900',
         subtitleColor: 'text-neutral-600',
         iconColor: 'text-slate-500',
         iconFill: 'rgba(148, 163, 184, 0.25)',
         glowColor: 'rgba(148, 163, 184, 0.18)',
         sweepTint: 'via-slate-400/[0.04]',
-        shadowClass: 'shadow-lg shadow-slate-200/30',
+        shadowClass: 'shadow-lg shadow-sky-200/25',
         noiseOpacity: 'opacity-[0.02]',
       };
     case 'overcast':
       return {
-        bgClass: 'bg-gradient-to-br from-gray-300 via-slate-200 to-neutral-200',
-        overlayClass: 'bg-gradient-to-br from-gray-300/15 via-slate-200/10 to-transparent',
+        bgClass: 'bg-gradient-to-br from-gray-200 via-slate-200 to-blue-100',
+        overlayClass: 'bg-gradient-to-br from-gray-200/15 via-slate-100/10 to-transparent',
         textColor: 'text-neutral-900',
         subtitleColor: 'text-neutral-600',
         iconColor: 'text-gray-500',
         iconFill: 'rgba(107, 114, 128, 0.22)',
         glowColor: 'rgba(107, 114, 128, 0.15)',
         sweepTint: 'via-gray-400/[0.03]',
-        shadowClass: 'shadow-lg shadow-gray-300/25',
+        shadowClass: 'shadow-lg shadow-gray-200/25',
         noiseOpacity: 'opacity-[0.02]',
       };
     case 'rain':
     case 'drizzle':
       return {
-        bgClass: 'bg-gradient-to-br from-slate-300 via-blue-200/80 to-indigo-200',
-        overlayClass: 'bg-gradient-to-br from-blue-200/20 via-slate-200/10 to-transparent',
+        bgClass: 'bg-gradient-to-br from-slate-200 via-blue-200 to-indigo-100',
+        overlayClass: 'bg-gradient-to-br from-blue-200/18 via-slate-100/10 to-transparent',
         textColor: 'text-neutral-900',
         subtitleColor: 'text-neutral-600',
         iconColor: 'text-blue-500',
@@ -338,25 +338,25 @@ export function getWeatherGradient(category: WeatherCategory, isNight: boolean):
         glowColor: 'rgba(59, 130, 246, 0.18)',
         sweepTint: 'via-blue-400/[0.05]',
         shadowClass: 'shadow-lg shadow-blue-200/25',
-        noiseOpacity: 'opacity-[0.025]',
+        noiseOpacity: 'opacity-[0.02]',
       };
     case 'thunderstorm':
       return {
-        bgClass: 'bg-gradient-to-br from-slate-400 via-indigo-300 to-purple-200',
-        overlayClass: 'bg-gradient-to-br from-indigo-300/15 via-purple-200/10 to-transparent',
+        bgClass: 'bg-gradient-to-br from-slate-300 via-indigo-200 to-purple-200',
+        overlayClass: 'bg-gradient-to-br from-indigo-200/15 via-purple-100/10 to-transparent',
         textColor: 'text-neutral-900',
         subtitleColor: 'text-neutral-700',
         iconColor: 'text-amber-500',
         iconFill: 'rgba(245, 158, 11, 0.25)',
         glowColor: 'rgba(245, 158, 11, 0.18)',
         sweepTint: 'via-amber-400/[0.04]',
-        shadowClass: 'shadow-lg shadow-indigo-300/25',
-        noiseOpacity: 'opacity-[0.03]',
+        shadowClass: 'shadow-lg shadow-indigo-200/25',
+        noiseOpacity: 'opacity-[0.025]',
       };
     case 'snow':
       return {
-        bgClass: 'bg-gradient-to-br from-blue-100 via-slate-100 to-white',
-        overlayClass: 'bg-gradient-to-br from-blue-100/20 via-slate-50/15 to-transparent',
+        bgClass: 'bg-gradient-to-br from-blue-100 via-slate-50 to-white',
+        overlayClass: 'bg-gradient-to-br from-blue-100/18 via-slate-50/12 to-transparent',
         textColor: 'text-neutral-900',
         subtitleColor: 'text-neutral-600',
         iconColor: 'text-blue-400',
@@ -368,28 +368,28 @@ export function getWeatherGradient(category: WeatherCategory, isNight: boolean):
       };
     case 'mist':
       return {
-        bgClass: 'bg-gradient-to-br from-gray-200 via-slate-200/80 to-neutral-200',
-        overlayClass: 'bg-gradient-to-br from-gray-200/15 via-slate-100/10 to-transparent',
+        bgClass: 'bg-gradient-to-br from-gray-200 via-slate-100 to-blue-50',
+        overlayClass: 'bg-gradient-to-br from-gray-100/15 via-slate-50/10 to-transparent',
         textColor: 'text-neutral-900',
         subtitleColor: 'text-neutral-600',
         iconColor: 'text-gray-400',
         iconFill: 'rgba(156, 163, 175, 0.22)',
         glowColor: 'rgba(156, 163, 175, 0.15)',
         sweepTint: 'via-gray-300/[0.03]',
-        shadowClass: 'shadow-lg shadow-gray-200/20',
-        noiseOpacity: 'opacity-[0.025]',
+        shadowClass: 'shadow-lg shadow-gray-100/20',
+        noiseOpacity: 'opacity-[0.02]',
       };
     default:
       return {
-        bgClass: 'bg-gradient-to-br from-sky-100 via-blue-100 to-indigo-100',
-        overlayClass: 'bg-gradient-to-br from-sky-200/20 via-blue-100/15 to-transparent',
+        bgClass: 'bg-gradient-to-br from-sky-100 via-blue-100 to-cyan-50',
+        overlayClass: 'bg-gradient-to-br from-sky-200/18 via-blue-100/12 to-transparent',
         textColor: 'text-neutral-900',
         subtitleColor: 'text-neutral-600',
         iconColor: 'text-sky-500',
         iconFill: 'rgba(56, 189, 248, 0.28)',
         glowColor: 'rgba(56, 189, 248, 0.22)',
         sweepTint: 'via-sky-500/[0.06]',
-        shadowClass: 'shadow-lg shadow-sky-200/30',
+        shadowClass: 'shadow-lg shadow-sky-200/25',
         noiseOpacity: 'opacity-[0.02]',
       };
   }

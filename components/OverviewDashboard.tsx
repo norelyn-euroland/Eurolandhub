@@ -27,6 +27,9 @@ import {
   getWidgetDateLine,
   isDaytime,
   getLocationString,
+  getSunPosition,
+  getMoonPosition,
+  getSunWarmth,
   type TimeContext,
 } from '../services/greetingTimeService';
 import {
@@ -1387,9 +1390,9 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
     };
   }, []);
 
-  // ── Live Clock (updates displayed time every 60 seconds) ──────
+  // ── Live Clock (updates every 30s for smooth celestial movement) ──
   useEffect(() => {
-    const clockTimer = setInterval(() => setLiveTime(new Date()), 60_000);
+    const clockTimer = setInterval(() => setLiveTime(new Date()), 30_000);
     return () => clearInterval(clockTimer);
   }, []);
 
@@ -1597,8 +1600,27 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
           // Cloud opacity — heavier for cloudy weather
           const cloudOpacity = isCloudy ? 0.22 : 0.12;
 
-          // Sun/moon position per segment — lower for dawn/evening (horizon feel)
-          const celestialTop = timeContext.segment === 'dawn' || timeContext.segment === 'evening' ? '55%' : '35%';
+          // ── Dynamic Celestial Positions ───────────────────────
+          const sunPos = getSunPosition(liveTime);
+          const moonPos = getMoonPosition(liveTime);
+          const sunWarmth = getSunWarmth(sunPos.progress);
+
+          // Sun color varies: warm orange at dawn/dusk, bright yellow at noon
+          const isLowSun = sunPos.progress < 0.12 || sunPos.progress > 0.88;
+          const isMidLowSun = sunPos.progress < 0.22 || sunPos.progress > 0.78;
+          const sunFillColor = isLowSun ? '#F97316' : isMidLowSun ? '#FBBF24' : '#F5C211';
+          const sunGlowColor = isLowSun
+            ? 'rgba(249, 115, 22, 0.55)'
+            : isMidLowSun
+              ? 'rgba(251, 191, 36, 0.50)'
+              : 'rgba(245, 194, 17, 0.45)';
+          const sunDiscSize = isCloudy ? 52 : 62;
+
+          // Radial glow follows sun/moon position
+          const celestialGlowX = daytime ? sunPos.x : moonPos.x;
+          const celestialGlowY = daytime ? sunPos.y : moonPos.y;
+          // Map from atmospheric container (right 55%) to full card coordinates
+          const glowCardX = 45 + (celestialGlowX / 100) * 55;
 
           // Weather emoji & display text
           const wxEmoji = hasRealWeather ? getWeatherEmoji(wxCategory, isNight) : '';
@@ -1628,11 +1650,11 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
               {/* ── Layer 2: Ambient overlay ──────────────────── */}
               <div className={`absolute inset-0 rounded-xl pointer-events-none transition-all duration-[2000ms] ease-in-out z-[1] ${theme.overlayClass}`} />
 
-              {/* ── Layer 3: Radial glow (behind celestial body) ─ */}
+              {/* ── Layer 3: Radial glow (follows celestial body) ─ */}
               <div
-                className="absolute inset-0 rounded-xl pointer-events-none transition-opacity duration-[2000ms] ease-in-out z-[2] animate-glow-breathe"
+                className="absolute inset-0 rounded-xl pointer-events-none transition-all duration-[2000ms] ease-in-out z-[2] animate-glow-breathe"
                 style={{
-                  background: `radial-gradient(ellipse 45% 70% at 78% ${celestialTop}, ${glowColor}, transparent 65%)`,
+                  background: `radial-gradient(ellipse 40% 65% at ${glowCardX}% ${celestialGlowY}%, ${daytime ? sunGlowColor : glowColor}, transparent 65%)`,
                   opacity: isPulsing ? 1 : 0.6,
                 }}
               />
@@ -1708,32 +1730,32 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
               {/* ── Layer 4: Atmospheric Scene (right half) ────── */}
               <div className="absolute right-0 top-0 w-[55%] h-full pointer-events-none z-[3]">
 
-                {/* ═══ Sun System (daytime + clear/clouds) — disc + glow + rays ═══ */}
+                {/* ═══ Sun System — dynamic arc position ═══ */}
                 {daytime && !isRainy && !isThunder && !isSnowy && (
                   <div
-                    className="absolute transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
-                    style={{ right: '18%', top: celestialTop }}
+                    className="absolute transition-all duration-[2000ms] ease-out group-hover:translate-x-1 group-hover:-translate-y-1"
+                    style={{ left: `${sunPos.x}%`, top: `${sunPos.y}%` }}
                   >
-                    {/* Large ambient glow — behind sun */}
+                    {/* Ambient glow behind sun */}
                     <div
                       className="absolute animate-celestial-glow blur-3xl rounded-full"
                       style={{
-                        width: 140, height: 140,
+                        width: 130, height: 130,
                         left: '50%', top: '50%',
                         transform: 'translate(-50%, -50%)',
-                        backgroundColor: glowColor,
+                        backgroundColor: sunGlowColor,
                       }}
                     />
 
-                    {/* Soft rays — subtle rotating ring (hidden on cloudy) */}
+                    {/* Rotating ray ring (hidden on cloudy) */}
                     {!isCloudy && (
                       <div
                         className="absolute rounded-full animate-spin-slow"
                         style={{
-                          width: 80, height: 80,
+                          width: 88, height: 88,
                           left: '50%', top: '50%',
                           transform: 'translate(-50%, -50%)',
-                          background: `conic-gradient(from 0deg, transparent, ${glowColor}, transparent, ${glowColor}, transparent, ${glowColor}, transparent)`,
+                          background: `conic-gradient(from 0deg, transparent, ${sunGlowColor}, transparent, ${sunGlowColor}, transparent, ${sunGlowColor}, transparent)`,
                           opacity: 0.15,
                           filter: 'blur(6px)',
                         }}
@@ -1744,20 +1766,55 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
                     <div
                       className="relative rounded-full"
                       style={{
-                        width: isCloudy ? 48 : 56,
-                        height: isCloudy ? 48 : 56,
-                        backgroundColor: fillColor,
+                        width: sunDiscSize,
+                        height: sunDiscSize,
+                        background: `radial-gradient(circle at 35% 35%, #FFE066, ${sunFillColor}, ${isLowSun ? '#C2410C' : '#D97706'})`,
                         border: '1px solid rgba(255, 255, 255, 0.35)',
-                        boxShadow: `0 0 28px 8px ${glowColor}, inset 0 0 12px rgba(255,255,255,0.2)`,
+                        boxShadow: `0 0 28px 8px ${sunGlowColor}, 0 0 50px 16px ${sunGlowColor.replace(/[\d.]+\)$/, '0.18)')}, inset 0 -3px 6px rgba(180, 100, 0, 0.25), inset 0 3px 6px rgba(255, 224, 102, 0.35)`,
                         transform: 'translate(-50%, -50%)',
-                        opacity: isCloudy ? 0.7 : 1,
+                        opacity: isCloudy ? 0.8 : 1,
                       }}
                     />
+
+                    {/* Cloud wrapping around the sun — bottom-right */}
+                    <svg
+                      className="absolute"
+                      style={{
+                        width: 110, height: 55,
+                        right: '-50px', bottom: '-40px',
+                        transform: 'translate(-50%, -50%)',
+                        filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.05))',
+                      }}
+                      viewBox="0 0 120 60"
+                    >
+                      <defs>
+                        <linearGradient id="sun-cloud-grad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="white" stopOpacity="0.95" />
+                          <stop offset="100%" stopColor="white" stopOpacity="0.7" />
+                        </linearGradient>
+                      </defs>
+                      <path d="M20 45 Q20 32 32 28 Q30 18 48 14 Q66 10 68 24 Q76 18 88 22 Q100 26 98 38 Q102 46 90 48 H28 Q18 48 20 45Z" fill="url(#sun-cloud-grad)" />
+                      <path d="M28 46 Q28 38 38 34 Q40 26 52 24 Q62 22 64 30 Q70 26 78 30 Q86 34 84 40 H34 Q28 44 28 46Z" fill="white" opacity="0.45" />
+                    </svg>
+
+                    {/* Cloud wrapping — left-bottom */}
+                    <svg
+                      className="absolute"
+                      style={{
+                        width: 80, height: 42,
+                        left: '-60px', bottom: '-30px',
+                        transform: 'translate(-50%, -50%)',
+                        filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.03))',
+                      }}
+                      viewBox="0 0 100 50"
+                    >
+                      <path d="M15 40 Q15 30 26 27 Q24 18 38 15 Q52 12 54 22 Q60 17 70 20 Q80 24 78 34 Q82 42 72 42 H24 Q15 43 15 40Z" fill="white" opacity="0.8" />
+                    </svg>
                   </div>
                 )}
 
-                {/* ═══ Weather Icon Override — Rain cloud (daytime rain) ═══ */}
-                {daytime && (isRainy || isThunder) && (
+                {/* ═══ Weather Override — Rain/Thunder cloud ═══ */}
+                {(isRainy || isThunder) && (
                   <div
                     className="absolute transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
                     style={{ right: '16%', top: '30%' }}
@@ -1771,17 +1828,17 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
                         backgroundColor: glowColor,
                       }}
                     />
-                    <svg viewBox="0 0 24 24" className="w-16 h-16 relative" style={{ filter: `drop-shadow(0 0 8px ${glowColor})`, transform: 'translate(-50%, -50%)' }}>
+                    <svg viewBox="0 0 24 24" className={`${daytime ? 'w-16 h-16' : 'w-14 h-14'} relative`} style={{ filter: `drop-shadow(0 0 8px ${glowColor})`, transform: 'translate(-50%, -50%)' }}>
                       <path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25" fill={fillColor} stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className={theme.iconColor} />
-                      <line x1="8" y1="19" x2="8" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.7" />
-                      <line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.5" />
-                      <line x1="16" y1="19" x2="16" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.7" />
+                      <line x1="8" y1="19" x2="8" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.6" />
+                      <line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.45" />
+                      <line x1="16" y1="19" x2="16" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.6" />
                     </svg>
                   </div>
                 )}
 
-                {/* ═══ Weather Icon Override — Snow cloud (daytime snow) ═══ */}
-                {daytime && isSnowy && (
+                {/* ═══ Weather Override — Snow cloud ═══ */}
+                {isSnowy && (
                   <div
                     className="absolute transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
                     style={{ right: '16%', top: '30%' }}
@@ -1795,20 +1852,20 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
                         backgroundColor: glowColor,
                       }}
                     />
-                    <svg viewBox="0 0 24 24" className="w-16 h-16 relative" style={{ filter: `drop-shadow(0 0 8px ${glowColor})`, transform: 'translate(-50%, -50%)' }}>
+                    <svg viewBox="0 0 24 24" className={`${daytime ? 'w-16 h-16' : 'w-14 h-14'} relative`} style={{ filter: `drop-shadow(0 0 8px ${glowColor})`, transform: 'translate(-50%, -50%)' }}>
                       <path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25" fill={fillColor} stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className={theme.iconColor} />
-                      <circle cx="8" cy="20" r="1" fill="currentColor" className={theme.iconColor} opacity="0.6" />
-                      <circle cx="12" cy="22" r="1" fill="currentColor" className={theme.iconColor} opacity="0.4" />
-                      <circle cx="16" cy="20" r="1" fill="currentColor" className={theme.iconColor} opacity="0.6" />
+                      <circle cx="8" cy="20" r="1" fill="currentColor" className={theme.iconColor} opacity="0.55" />
+                      <circle cx="12" cy="22" r="1" fill="currentColor" className={theme.iconColor} opacity="0.35" />
+                      <circle cx="16" cy="20" r="1" fill="currentColor" className={theme.iconColor} opacity="0.55" />
                     </svg>
                   </div>
                 )}
 
-                {/* ═══ Moon System (nighttime) — crescent + glow + shimmer ═══ */}
+                {/* ═══ Moon System — dynamic arc + rise animation ═══ */}
                 {!daytime && !isRainy && !isThunder && !isSnowy && (
                   <div
-                    className="absolute animate-moon-float transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
-                    style={{ right: '18%', top: celestialTop }}
+                    className="absolute animate-moon-rise transition-all duration-[2000ms] ease-out group-hover:translate-x-1 group-hover:-translate-y-1"
+                    style={{ left: `${moonPos.x}%`, top: `${moonPos.y}%` }}
                   >
                     {/* Moon ambient glow */}
                     <div
@@ -1824,97 +1881,60 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
                     <div
                       className="absolute rounded-full animate-pulse"
                       style={{
-                        width: 72, height: 72,
+                        width: 88, height: 88,
                         left: '50%', top: '50%',
                         transform: 'translate(-50%, -50%)',
-                        border: `1px solid rgba(255, 255, 255, 0.06)`,
+                        border: '1px solid rgba(255, 255, 255, 0.06)',
                         opacity: 0.5,
                       }}
                     />
-                    {/* Moon crescent */}
-                    <svg viewBox="0 0 24 24" className="w-14 h-14 relative" style={{ filter: `drop-shadow(0 0 10px ${glowColor})`, transform: 'translate(-50%, -50%)' }}>
-                      <path
-                        d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"
-                        fill={fillColor}
-                        stroke="currentColor"
-                        strokeWidth="0.5"
-                        className={theme.iconColor}
-                      />
-                    </svg>
-                  </div>
-                )}
-
-                {/* ═══ Night rain/thunder icon ═══ */}
-                {!daytime && (isRainy || isThunder) && (
-                  <div
-                    className="absolute transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
-                    style={{ right: '16%', top: '30%' }}
-                  >
+                    {/* Moon full disc + craters */}
                     <div
-                      className="absolute animate-celestial-glow blur-3xl rounded-full"
+                      className="relative rounded-full animate-moon-float"
                       style={{
-                        width: 100, height: 100,
-                        left: '50%', top: '50%',
+                        width: 62,
+                        height: 62,
+                        background: 'radial-gradient(circle at 35% 35%, #e8e8e8, #c0c0c0, #a8a8a8)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        boxShadow: `0 0 24px 6px ${glowColor}, inset 0 -3px 6px rgba(0,0,0,0.12), inset 0 3px 6px rgba(255,255,255,0.18)`,
                         transform: 'translate(-50%, -50%)',
-                        backgroundColor: glowColor,
                       }}
-                    />
-                    <svg viewBox="0 0 24 24" className="w-14 h-14 relative" style={{ filter: `drop-shadow(0 0 8px ${glowColor})`, transform: 'translate(-50%, -50%)' }}>
-                      <path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25" fill={fillColor} stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className={theme.iconColor} />
-                      <line x1="8" y1="19" x2="8" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.5" />
-                      <line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.4" />
-                      <line x1="16" y1="19" x2="16" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={theme.iconColor} opacity="0.5" />
-                    </svg>
+                    >
+                      <div className="absolute rounded-full" style={{ width: 12, height: 12, top: '22%', left: '18%', backgroundColor: 'rgba(0,0,0,0.10)', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.14)' }} />
+                      <div className="absolute rounded-full" style={{ width: 9, height: 9, top: '52%', left: '55%', backgroundColor: 'rgba(0,0,0,0.08)', boxShadow: 'inset 0 1px 1.5px rgba(0,0,0,0.10)' }} />
+                      <div className="absolute rounded-full" style={{ width: 6, height: 6, top: '36%', left: '62%', backgroundColor: 'rgba(0,0,0,0.06)', boxShadow: 'inset 0 0.5px 1px rgba(0,0,0,0.08)' }} />
+                    </div>
                   </div>
                 )}
 
-                {/* ═══ Night snow icon ═══ */}
-                {!daytime && isSnowy && (
-                  <div
-                    className="absolute transition-all duration-1000 group-hover:translate-x-1 group-hover:-translate-y-1"
-                    style={{ right: '16%', top: '30%' }}
-                  >
-                    <div
-                      className="absolute animate-celestial-glow blur-3xl rounded-full"
-                      style={{
-                        width: 100, height: 100,
-                        left: '50%', top: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        backgroundColor: glowColor,
-                      }}
-                    />
-                    <svg viewBox="0 0 24 24" className="w-14 h-14 relative" style={{ filter: `drop-shadow(0 0 8px ${glowColor})`, transform: 'translate(-50%, -50%)' }}>
-                      <path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25" fill={fillColor} stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className={theme.iconColor} />
-                      <circle cx="8" cy="20" r="1" fill="currentColor" className={theme.iconColor} opacity="0.5" />
-                      <circle cx="12" cy="22" r="1" fill="currentColor" className={theme.iconColor} opacity="0.3" />
-                      <circle cx="16" cy="20" r="1" fill="currentColor" className={theme.iconColor} opacity="0.5" />
-                    </svg>
-                  </div>
-                )}
-
-                {/* ═══ Clouds — visible in daytime or cloudy weather ═══ */}
+                {/* ═══ Clouds — visible daytime or cloudy ═══ */}
                 {showClouds && (
                   <>
-                    {/* Cloud 1 — large, slow drift right */}
                     <svg
                       className="absolute animate-cloud-drift transition-transform duration-1000 group-hover:translate-x-3"
-                      style={{ top: '10%', right: '2%', width: 110, opacity: cloudOpacity, animationDelay: '0s' }}
-                      viewBox="0 0 100 45" fill="white"
+                      style={{ top: '8%', right: '2%', width: 105, opacity: cloudOpacity, animationDelay: '0s' }}
+                      viewBox="0 0 100 45"
                     >
-                      <path d="M20 35 Q20 25 30 23 Q28 14 42 12 Q56 10 58 20 Q64 16 74 20 Q84 24 82 32 Q84 38 74 38 H28 Q20 38 20 35Z" />
+                      <defs>
+                        <linearGradient id="cloud-grad-1" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="white" stopOpacity="1" />
+                          <stop offset="100%" stopColor="white" stopOpacity="0.65" />
+                        </linearGradient>
+                      </defs>
+                      <path d="M20 35 Q20 25 30 23 Q28 14 42 12 Q56 10 58 20 Q64 16 74 20 Q84 24 82 32 Q84 38 74 38 H28 Q20 38 20 35Z" fill="url(#cloud-grad-1)" />
+                      <path d="M24 36 Q24 30 32 28 Q34 22 44 21 Q52 20 54 26 Q58 22 64 25 Q72 28 70 34 H30 Q24 37 24 36Z" fill="white" opacity="0.45" />
                     </svg>
-                    {/* Cloud 2 — medium, drift left */}
                     <svg
                       className="absolute animate-cloud-drift-reverse transition-transform duration-1000 group-hover:translate-x-2"
-                      style={{ top: '48%', right: '28%', width: 80, opacity: cloudOpacity * 0.7, animationDelay: '-14s' }}
-                      viewBox="0 0 100 45" fill="white"
+                      style={{ top: '45%', right: '30%', width: 75, opacity: cloudOpacity * 0.65, animationDelay: '-14s' }}
+                      viewBox="0 0 100 45"
                     >
-                      <path d="M18 34 Q18 26 28 24 Q26 16 38 13 Q52 10 54 20 Q60 16 68 19 Q78 22 76 30 Q78 36 70 36 H26 Q18 37 18 34Z" />
+                      <path d="M18 34 Q18 26 28 24 Q26 16 38 13 Q52 10 54 20 Q60 16 68 19 Q78 22 76 30 Q78 36 70 36 H26 Q18 37 18 34Z" fill="white" />
+                      <path d="M22 35 Q22 30 30 28 Q32 22 42 20 Q50 18 52 24 Q56 20 62 23 Q70 26 68 32 H28 Q22 36 22 35Z" fill="white" opacity="0.35" />
                     </svg>
-                    {/* Cloud 3 — small accent, bottom */}
                     <svg
                       className="absolute animate-cloud-drift transition-transform duration-1000 group-hover:translate-x-1"
-                      style={{ top: '75%', right: '6%', width: 55, opacity: cloudOpacity * 0.5, animationDelay: '-22s' }}
+                      style={{ top: '72%', right: '8%', width: 50, opacity: cloudOpacity * 0.45, animationDelay: '-22s' }}
                       viewBox="0 0 100 45" fill="white"
                     >
                       <path d="M22 34 Q22 26 32 24 Q30 17 44 15 Q56 13 58 22 Q66 18 74 22 Q82 26 80 32 Q82 37 72 37 H30 Q22 37 22 34Z" />
@@ -1922,38 +1942,80 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
                   </>
                 )}
 
-                {/* ═══ Stars (nighttime + clear) — twinkling white dots ═══ */}
+                {/* ═══ Stars — sparkle shapes (night + clear) ═══ */}
                 {!daytime && !isRainy && !isThunder && !isSnowy && !isCloudy && (
                   <>
                     {[
-                      { x: '12%', y: '15%', s: 2.5, d: '0s', dur: '4s' },
-                      { x: '40%', y: '8%', s: 1.8, d: '1.5s', dur: '5s' },
-                      { x: '72%', y: '25%', s: 2.2, d: '0.8s', dur: '4.5s' },
-                      { x: '22%', y: '58%', s: 1.5, d: '2.2s', dur: '3.5s' },
-                      { x: '85%', y: '12%', s: 2, d: '0.3s', dur: '5.5s' },
-                      { x: '58%', y: '50%', s: 1.3, d: '1.8s', dur: '4s' },
-                      { x: '32%', y: '35%', s: 1.8, d: '2.5s', dur: '3s' },
-                      { x: '90%', y: '42%', s: 1, d: '1.2s', dur: '6s' },
-                      { x: '8%', y: '42%', s: 1.4, d: '3s', dur: '4.8s' },
-                      { x: '52%', y: '72%', s: 1.1, d: '0.5s', dur: '5.2s' },
+                      { x: '8%',  y: '10%', s: 10, d: '0s',   dur: '4s' },
+                      { x: '35%', y: '6%',  s: 7,  d: '1.5s', dur: '5s' },
+                      { x: '68%', y: '18%', s: 9,  d: '0.8s', dur: '4.5s' },
+                      { x: '18%', y: '52%', s: 6,  d: '2.2s', dur: '3.5s' },
+                      { x: '82%', y: '8%',  s: 8,  d: '0.3s', dur: '5.5s' },
+                      { x: '55%', y: '45%', s: 5,  d: '1.8s', dur: '4s' },
+                      { x: '28%', y: '32%', s: 7,  d: '2.5s', dur: '3s' },
+                      { x: '88%', y: '38%', s: 5,  d: '1.2s', dur: '6s' },
+                      { x: '5%',  y: '38%', s: 6,  d: '3s',   dur: '4.8s' },
+                      { x: '48%', y: '68%', s: 5,  d: '0.5s', dur: '5.2s' },
+                      { x: '75%', y: '55%', s: 4,  d: '2.8s', dur: '4.2s' },
+                      { x: '42%', y: '22%', s: 6,  d: '1s',   dur: '5.8s' },
                     ].map((star, i) => (
-                      <div
-                        key={i}
-                        className="absolute rounded-full bg-white animate-star-twinkle"
+                      <svg
+                        key={`star-${i}`}
+                        className="absolute animate-star-twinkle"
                         style={{
                           left: star.x, top: star.y,
                           width: star.s, height: star.s,
                           animationDelay: star.d,
                           animationDuration: star.dur,
                         }}
-                      />
+                        viewBox="0 0 8 9"
+                        fill="white"
+                      >
+                        <path d="M2.83 3C2.05 3.85 1.11 4.3 0 4.35C1.11 4.41 2.05 4.86 2.83 5.71C3.61 6.55 4 7.56 4 8.73C4 7.96 4.17 7.25 4.52 6.59C4.89 5.93 5.37 5.4 5.98 5.01C6.6 4.6 7.27 4.39 8 4.35C6.88 4.29 5.94 3.85 5.16 3.01C4.38 2.16 4 1.16 4 0C4 1.16 3.61 2.16 2.83 3Z" />
+                      </svg>
                     ))}
                   </>
                 )}
 
-                {/* Dawn/Evening horizon line */}
+                {/* ═══ Floating Ambient Particles — depth layer ═══ */}
+                {[
+                  { x: '15%', y: '20%', s: 3,   d: '0s',   dur: '9s' },
+                  { x: '45%', y: '65%', s: 2.5, d: '2s',   dur: '11s' },
+                  { x: '70%', y: '30%', s: 2,   d: '4s',   dur: '10s' },
+                  { x: '30%', y: '80%', s: 2.5, d: '1s',   dur: '8s' },
+                  { x: '85%', y: '55%', s: 2,   d: '3s',   dur: '12s' },
+                  { x: '55%', y: '15%', s: 1.5, d: '5s',   dur: '10s' },
+                  { x: '10%', y: '60%', s: 2,   d: '6s',   dur: '9s' },
+                  { x: '92%', y: '20%', s: 1.5, d: '2.5s', dur: '11s' },
+                ].map((p, i) => (
+                  <div
+                    key={`particle-${i}`}
+                    className="absolute rounded-full animate-particle-float"
+                    style={{
+                      left: p.x, top: p.y,
+                      width: p.s, height: p.s,
+                      backgroundColor: daytime ? 'rgba(255,255,255,0.6)' : 'rgba(200,210,255,0.4)',
+                      animationDelay: p.d,
+                      animationDuration: p.dur,
+                    }}
+                  />
+                ))}
+
+                {/* ═══ Horizon glow — dawn/evening warm band ═══ */}
                 {(timeContext.segment === 'dawn' || timeContext.segment === 'evening') && (
-                  <div className="absolute bottom-[22%] left-[5%] right-[5%] h-px bg-white/[0.08]" />
+                  <>
+                    <div
+                      className="absolute animate-horizon-pulse"
+                      style={{
+                        bottom: '12%', left: 0, right: 0, height: '18%',
+                        background: timeContext.segment === 'dawn'
+                          ? 'linear-gradient(to top, rgba(251,146,60,0.18), rgba(251,191,36,0.08), transparent)'
+                          : 'linear-gradient(to top, rgba(239,68,68,0.12), rgba(251,146,60,0.06), transparent)',
+                        borderRadius: '0 0 0.75rem 0',
+                      }}
+                    />
+                    <div className="absolute bottom-[18%] left-[3%] right-[3%] h-px bg-white/[0.06]" />
+                  </>
                 )}
               </div>
 

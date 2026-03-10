@@ -100,3 +100,5 @@ export async function getPriceStats(range: TimeRange): Promise<{
   return { current, open, high, low, change, changePercent, avgVolume };
 }
 
+
+

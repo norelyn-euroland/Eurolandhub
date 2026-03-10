@@ -18,3 +18,5 @@ const InvestorsPage: React.FC<InvestorsPageProps> = ({ applicants, applicantsLoa
 
 export default InvestorsPage;
 
+
+

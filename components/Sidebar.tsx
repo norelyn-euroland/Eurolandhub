@@ -28,7 +28,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
   const [isInvestorsExpanded, setIsInvestorsExpanded] = useState(isInvestorsSubmenuActive);
 
   // Track if Engagement submenu is expanded
-  const isEngagementSubmenuActive = currentView === 'engagement-activity' || currentView === 'engagement-events' || currentView === 'engagement-analytics';
+  const isEngagementSubmenuActive = currentView === 'engagement-activity' || currentView === 'engagement-events' || currentView === 'engagement-meetings' || currentView === 'engagement-analytics';
   const [isEngagementExpanded, setIsEngagementExpanded] = useState(isEngagementSubmenuActive);
   
   // Auto-expand if current view is an investors sub-page
@@ -249,7 +249,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
             }
           }}
           className={`w-full flex items-center ${isCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 transition-all text-sm font-medium relative ${
-            !isCollapsed && (currentView === 'engagement-activity' || currentView === 'engagement-events' || currentView === 'engagement-analytics')
+            !isCollapsed && (currentView === 'engagement-activity' || currentView === 'engagement-events' || currentView === 'engagement-meetings' || currentView === 'engagement-analytics')
               ? 'text-neutral-900 dark:text-white'
               : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-900'
           }`}
@@ -313,6 +313,25 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
             <span>Events</span>
           </button>
         )}
+        {/* Meetings sub-item */}
+        {!isCollapsed && isEngagementExpanded && (
+          <button 
+            onClick={() => onViewChange('engagement-meetings')}
+            className={`w-full flex items-center gap-3 pl-8 pr-4 py-2 transition-all text-[13px] font-medium relative ${
+              currentView === 'engagement-meetings'
+                ? 'text-[#082b4a] dark:text-[#00adf0] bg-neutral-50 dark:bg-neutral-800/50 border-l-2 border-[#082b4a] dark:border-[#00adf0]'
+                : 'text-neutral-900 dark:text-neutral-100 hover:text-[#082b4a] dark:hover:text-[#00adf0] hover:bg-neutral-50 dark:hover:bg-neutral-800/30'
+            }`}
+          >
+            <svg className="w-4 h-4 flex-shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            <span>Meetings</span>
+          </button>
+        )}
         {/* Analytics sub-item */}
         {!isCollapsed && isEngagementExpanded && (
           <button 
@@ -363,6 +382,22 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange, theme, tog
                 <line x1="16" y1="2" x2="16" y2="6"/>
                 <line x1="8" y1="2" x2="8" y2="6"/>
                 <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </button>
+            <button 
+              onClick={() => onViewChange('engagement-meetings')}
+              className={`w-full flex items-center justify-center px-2 py-1.5 transition-all relative ${
+                currentView === 'engagement-meetings'
+                  ? 'text-[#082b4a] dark:text-[#00adf0] border-l-4 border-[#082b4a] dark:border-[#00adf0]'
+                  : 'text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+              }`}
+              title="Meetings"
+            >
+              <svg className={`w-3.5 h-3.5 flex-shrink-0 ${currentView === 'engagement-meetings' ? 'text-[#082b4a] dark:text-[#00adf0]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
               </svg>
             </button>
             <button 
