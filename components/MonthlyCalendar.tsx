@@ -93,8 +93,14 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
     }
   };
 
-  const getEventColor = (eventType: string) => {
-    switch (eventType) {
+  const getEventColor = (event: IREvent) => {
+    // Check if it's a task (starts with "task-")
+    if (event.id.startsWith('task-')) {
+      return 'bg-emerald-100 dark:bg-emerald-900/30 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-100';
+    }
+    
+    // Regular events
+    switch (event.eventType) {
       case 'meeting':
         return 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-900 dark:text-blue-100';
       case 'briefing':
@@ -214,19 +220,22 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({
 
               {/* Events list */}
               <div className="space-y-0.5 overflow-y-auto max-h-full">
-                {dayEvents.slice(0, compact ? 2 : 3).map((event) => (
-                  <div
-                    key={event.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onEventClick(event);
-                    }}
-                    className={`${eventTextClass} px-1 py-0.5 rounded font-medium border cursor-pointer hover:opacity-80 transition-opacity truncate ${getEventColor(event.eventType)}`}
-                    title={event.title}
-                  >
-                    {event.title}
-                  </div>
-                ))}
+                {dayEvents.slice(0, compact ? 2 : 3).map((event) => {
+                  const isTask = event.id.startsWith('task-');
+                  return (
+                    <div
+                      key={event.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEventClick(event);
+                      }}
+                      className={`${eventTextClass} px-1 py-0.5 rounded font-medium border cursor-pointer hover:opacity-80 transition-opacity truncate ${getEventColor(event)}`}
+                      title={event.title}
+                    >
+                      {isTask ? '• ' : ''}{event.title}
+                    </div>
+                  );
+                })}
                 {dayEvents.length > (compact ? 2 : 3) && (
                   <div className={`${eventTextClass} px-1 py-0.5 text-neutral-500 dark:text-neutral-400 font-medium`}>
                     +{dayEvents.length - (compact ? 2 : 3)} more

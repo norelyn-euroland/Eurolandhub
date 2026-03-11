@@ -39,10 +39,12 @@ const docToTodoTask = (id: string, data: DocumentData): TodoTask => {
   return {
     id,
     title: data.title || '',
+    description: data.description || undefined,
     completed: data.completed || false,
     createdAt: timestampToIso(data.createdAt),
     updatedAt: timestampToIso(data.updatedAt),
     createdBy: data.createdBy || '',
+    scheduledDate: data.scheduledDate || undefined,
   };
 };
 
@@ -58,13 +60,20 @@ export const todoService = {
     const newDocRef = doc(todosRef);
     const now = new Date().toISOString();
 
-    const taskData = {
+    const taskData: any = {
       title: task.title,
       completed: task.completed || false,
       createdBy: task.createdBy,
       createdAt: Timestamp.fromDate(new Date(now)),
       updatedAt: Timestamp.fromDate(new Date(now)),
     };
+
+    if (task.description) {
+      taskData.description = task.description;
+    }
+    if (task.scheduledDate) {
+      taskData.scheduledDate = task.scheduledDate;
+    }
 
     await setDoc(newDocRef, taskData);
 
@@ -103,7 +112,7 @@ export const todoService = {
   /**
    * Update an existing todo task
    */
-  async update(id: string, updates: Partial<Pick<TodoTask, 'title' | 'completed'>>): Promise<void> {
+  async update(id: string, updates: Partial<Pick<TodoTask, 'title' | 'description' | 'completed' | 'scheduledDate'>>): Promise<void> {
     const docRef = doc(db, TODOS_COLLECTION, id);
     const updateData: any = {
       updatedAt: Timestamp.fromDate(new Date()),
@@ -112,8 +121,14 @@ export const todoService = {
     if (updates.title !== undefined) {
       updateData.title = updates.title;
     }
+    if (updates.description !== undefined) {
+      updateData.description = updates.description || null;
+    }
     if (updates.completed !== undefined) {
       updateData.completed = updates.completed;
+    }
+    if (updates.scheduledDate !== undefined) {
+      updateData.scheduledDate = updates.scheduledDate || null;
     }
 
     await updateDoc(docRef, updateData);

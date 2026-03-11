@@ -208,6 +208,8 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
   const [toastMessage, setToastMessage] = useState('');
   const [toastVariant, setToastVariant] = useState<'success' | 'warning' | 'error' | 'info'>('success');
   const toastHideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isGeneratingRef = useRef<boolean>(false);
+  const lastGeneratedStyleRef = useRef<string | null>(null);
   const [recipientPage, setRecipientPage] = useState(0); // Track which page of recipients we're viewing
   const [emailRecipientTab, setEmailRecipientTab] = useState<'with-email' | 'no-email' | 'existing'>('with-email');
   const [isFinalExecuting, setIsFinalExecuting] = useState(false);
@@ -1170,9 +1172,15 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     });
   };
 
-  // Handle generating invitation message
+  // Handle generating invitation message (manual trigger from button)
   const handleGenerateMessage = async () => {
+    // Prevent if already generating
+    if (isGeneratingRef.current) return;
+    
+    isGeneratingRef.current = true;
     setIsGeneratingMessage(true);
+    lastGeneratedStyleRef.current = messageStyle; // Update ref to prevent auto-regeneration
+    
     try {
       // Generate a TEMPLATE with raw placeholders (no real names/links baked in)
       const response = await fetch('/api/generate-invitation-message', {
@@ -1200,16 +1208,41 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     } catch (error: any) {
       triggerToast(`Error: ${error.message || 'Failed to generate message'}`, 'error');
     } finally {
+      isGeneratingRef.current = false;
       setIsGeneratingMessage(false);
     }
   };
 
+  // Reset generation refs when leaving SEND_INVITATION step
+  useEffect(() => {
+    if (currentStep !== 'SEND_INVITATION') {
+      isGeneratingRef.current = false;
+      lastGeneratedStyleRef.current = null;
+    }
+  }, [currentStep]);
+
   // Auto-generate message when style changes (only if we're on SEND_INVITATION step)
   useEffect(() => {
-    if (currentStep === 'SEND_INVITATION' && messageStyle && !isGeneratingMessage) {
+    // Only generate if:
+    // 1. We're on the SEND_INVITATION step
+    // 2. messageStyle is set
+    // 3. Not currently generating
+    // 4. The style has actually changed from the last generated style
+    if (
+      currentStep === 'SEND_INVITATION' && 
+      messageStyle && 
+      !isGeneratingRef.current &&
+      lastGeneratedStyleRef.current !== messageStyle
+    ) {
       // Small delay to avoid rapid regeneration when user is still selecting
       const timeoutId = setTimeout(async () => {
+        // Check again to prevent race conditions
+        if (isGeneratingRef.current) return;
+        
+        isGeneratingRef.current = true;
         setIsGeneratingMessage(true);
+        lastGeneratedStyleRef.current = messageStyle;
+        
         try {
           const response = await fetch('/api/generate-invitation-message', {
             method: 'POST',
@@ -1236,12 +1269,13 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
         } catch (error: any) {
           triggerToast(`Error: ${error.message || 'Failed to generate message'}`, 'error');
         } finally {
+          isGeneratingRef.current = false;
           setIsGeneratingMessage(false);
         }
       }, 300);
       return () => clearTimeout(timeoutId);
     }
-  }, [messageStyle, currentStep, isGeneratingMessage]);
+  }, [messageStyle, currentStep]); // Removed isGeneratingMessage from dependencies
 
   // Helper function to trigger toast notification
   const triggerToast = (message: string, variant: 'success' | 'warning' | 'error' | 'info' = 'success') => {

@@ -460,8 +460,10 @@ export interface Document {
 export interface TodoTask {
   id: string;
   title: string;
+  description?: string; // Optional task description
   completed: boolean;
   createdAt: string; // ISO timestamp
   updatedAt: string; // ISO timestamp
   createdBy: string; // IRO user ID
+  scheduledDate?: string; // ISO date string (YYYY-MM-DD) - optional, for tasks scheduled for a specific day
 }
