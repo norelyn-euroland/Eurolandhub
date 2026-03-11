@@ -2483,15 +2483,17 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
       </div>{/* end Leaderboard card */}
 
       {/* Row 5: Recent User Activities — Full Width */}
-      <RecentUserActivitiesTable
-        recentActivities={recentActivities}
-        engagementLoading={engagementLoading}
-        onViewAll={() => {
-          sessionStorage.setItem('scrollTo', 'user-activity-log');
-          onViewChange?.('engagement-activity');
-        }}
-        limit={20}
-      />
+      <div className="h-[420px]">
+        <RecentUserActivitiesTable
+          recentActivities={recentActivities}
+          engagementLoading={engagementLoading}
+          onViewAll={() => {
+            sessionStorage.setItem('scrollTo', 'user-activity-log');
+            onViewChange?.('engagement-activity');
+          }}
+          limit={15}
+        />
+      </div>
 
     </div>
   );

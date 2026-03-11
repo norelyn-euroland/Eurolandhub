@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 
 interface UserActivity {
   id: string;
@@ -16,8 +16,10 @@ interface RecentUserActivitiesTableProps {
   recentActivities: UserActivity[];
   engagementLoading: boolean;
   onViewAll?: () => void;
-  limit?: number; // Default to 20
+  limit?: number; // Default to 15
 }
+
+type ActivityFilter = 'all' | 'comment' | 'reaction' | 'download' | 'view' | 'login';
 
 const Avatar: React.FC<{ name: string; size?: number; profilePictureUrl?: string }> = ({ name, size = 32, profilePictureUrl }) => {
   const initials = name
@@ -41,9 +43,50 @@ const RecentUserActivitiesTable: React.FC<RecentUserActivitiesTableProps> = ({
   recentActivities,
   engagementLoading,
   onViewAll,
-  limit = 20,
+  limit = 15,
 }) => {
-  const displayActivities = recentActivities.slice(0, limit);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+  const filterDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target as Node)) {
+        setShowFilterDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Filter activities based on search and activity type
+  const filteredActivities = useMemo(() => {
+    let filtered = recentActivities;
+
+    // Filter by search query (user name)
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter((activity) =>
+        activity.userName.toLowerCase().includes(query)
+      );
+    }
+
+    // Filter by activity type
+    if (activityFilter !== 'all') {
+      filtered = filtered.filter((activity) => {
+        if (activityFilter === 'reaction') {
+          return activity.activityType === 'reaction';
+        }
+        return activity.activityType === activityFilter;
+      });
+    }
+
+    return filtered;
+  }, [recentActivities, searchQuery, activityFilter]);
+
+  const displayActivities = filteredActivities.slice(0, limit);
 
   const getActivityIcon = (activityType: string, details?: string) => {
     const iconClass = "w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400";
@@ -130,21 +173,83 @@ const RecentUserActivitiesTable: React.FC<RecentUserActivitiesTableProps> = ({
 
   return (
     <div className="bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl overflow-hidden shadow-sm h-full flex flex-col">
-      <div className="px-3 py-2.5 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between shrink-0">
-        <div>
-          <h3 className="text-xs font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Recent User Activities</h3>
-          <p className="text-[8px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">From registered users (verified and unverified)</p>
+      <div className="px-3 py-2.5 border-b border-neutral-100 dark:border-neutral-800 shrink-0">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <h3 className="text-xs font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Recent User Activities</h3>
+            <p className="text-[8px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">From registered users (verified and unverified)</p>
+          </div>
+          {onViewAll && (
+            <button 
+              onClick={onViewAll}
+              className="px-2 py-0.5 text-[8px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider"
+            >
+              View All
+            </button>
+          )}
         </div>
-        {onViewAll && (
-          <button 
-            onClick={onViewAll}
-            className="px-2 py-0.5 text-[8px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-md hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider"
-          >
-            View All
-          </button>
-        )}
+
+        {/* Search and Filters Row */}
+        <div className="flex items-center gap-2">
+          {/* Search Input */}
+          <div className="relative flex-1 min-w-0">
+            <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search users..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-7 pr-2 py-1.5 text-[9px] bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-md text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500/30 focus:border-blue-500 transition-colors"
+            />
+          </div>
+
+          {/* Filter Dropdown */}
+          <div className="relative shrink-0" ref={filterDropdownRef}>
+            <button
+              onClick={() => setShowFilterDropdown(!showFilterDropdown)}
+              className={`px-2.5 py-1.5 rounded-lg border transition-all duration-200 ${
+                activityFilter !== 'all'
+                  ? 'bg-primary dark:bg-primary-light text-white dark:text-neutral-900 border-primary dark:border-primary-light'
+                  : 'bg-neutral-50 dark:bg-neutral-800/60 text-neutral-400 dark:text-neutral-500 border-neutral-200/80 dark:border-neutral-700/50 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+              }`}
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                <path d="M22 3H2l3 9h14l-3 9"/><path d="M6 12h12"/>
+              </svg>
+            </button>
+            {showFilterDropdown && (
+              <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-neutral-800 border border-neutral-200/80 dark:border-neutral-700/50 rounded-lg shadow-lg z-50">
+                {([
+                  { value: 'all', label: 'All Activities' },
+                  { value: 'comment', label: 'Comment' },
+                  { value: 'reaction', label: 'Likes' },
+                  { value: 'download', label: 'Download' },
+                  { value: 'view', label: 'View' },
+                  { value: 'login', label: 'Logged In' },
+                ] as const).map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => {
+                      setActivityFilter(option.value);
+                      setShowFilterDropdown(false);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors duration-200 ${
+                      activityFilter === option.value
+                        ? 'bg-primary dark:bg-primary-light text-white dark:text-neutral-900'
+                        : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-700'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-      <div className="overflow-x-auto flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto min-h-0">
         <table className="w-full text-left">
           <thead className="sticky top-0 z-10">
             <tr className="bg-neutral-50 dark:bg-neutral-800/80 text-[8px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-[0.1em]">
