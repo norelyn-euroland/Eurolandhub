@@ -144,7 +144,7 @@ export interface ShareholdingsVerificationState {
 }
 
 // @google/genai guidelines: Define a shared ViewType for navigation consistency
-export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders' | 'investors' | 'engagement' | 'engagement-activity' | 'engagement-events' | 'engagement-meetings' | 'engagement-analytics' | 'documents';
+export type ViewType = 'dashboard' | 'registrations' | 'detail' | 'shareholders' | 'investors' | 'engagement' | 'engagement-activity' | 'engagement-events' | 'engagement-analytics' | 'documents';
 
 /**
  * Tab filter type for registrations page
@@ -452,4 +452,16 @@ export interface Document {
   updatedAt: string; // ISO timestamp
   summary: string;
   summaryRegenerationCount?: number;
+}
+
+/**
+ * Todo Task interface for IRO task management
+ */
+export interface TodoTask {
+  id: string;
+  title: string;
+  completed: boolean;
+  createdAt: string; // ISO timestamp
+  updatedAt: string; // ISO timestamp
+  createdBy: string; // IRO user ID
 }

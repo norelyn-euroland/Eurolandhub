@@ -16,7 +16,6 @@ import EngagementPage from './components/EngagementPage';
 import InvestorsPage from './components/InvestorsPage';
 import InvestorActivityPage from './components/InvestorActivityPage';
 import EventsPage from './components/EventsPage';
-import MeetingsPage from './components/MeetingsPage';
 import EngagementAnalyticsPage from './components/EngagementAnalyticsPage';
 import DocumentsPage from './components/DocumentsPage';
 import ThemeToggle from './components/ThemeToggle';
@@ -40,7 +39,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
   const getInitialView = (): ViewType => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('eurolandhub_view');
-      if (saved && ['dashboard', 'registrations', 'shareholders', 'investors', 'engagement', 'engagement-activity', 'engagement-events', 'engagement-meetings', 'engagement-analytics', 'documents'].includes(saved)) {
+      if (saved && ['dashboard', 'registrations', 'shareholders', 'investors', 'engagement', 'engagement-activity', 'engagement-events', 'engagement-analytics', 'documents'].includes(saved)) {
         return saved as ViewType;
       }
     }
@@ -564,8 +563,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
       case 'investors': return 'Investors';
       case 'engagement': return 'Engagement';
       case 'engagement-activity': return 'Investor Activity';
-      case 'engagement-events': return 'Events';
-      case 'engagement-meetings': return 'Meetings';
+      case 'engagement-events': return 'Meetings';
       case 'engagement-analytics': return 'Engagement Analytics';
       case 'documents': return 'Documents';
       default: return 'Dashboard';
@@ -776,26 +774,9 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
           view: 'engagement'
         });
         items.push({
-          label: 'Events',
+          label: 'Meetings',
           view: 'engagement-events',
           onClick: () => setView('engagement-events')
-        });
-        break;
-
-      case 'engagement-meetings':
-        items.push({
-          label: 'Dashboard',
-          view: 'dashboard',
-          onClick: () => setView('dashboard')
-        });
-        items.push({
-          label: 'Engagement',
-          view: 'engagement'
-        });
-        items.push({
-          label: 'Meetings',
-          view: 'engagement-meetings',
-          onClick: () => setView('engagement-meetings')
         });
         break;
 
@@ -925,9 +906,6 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
           )}
           {view === 'engagement-events' && (
             <EventsPage applicants={applicants} applicantsLoading={applicantsLoading} />
-          )}
-          {view === 'engagement-meetings' && (
-            <MeetingsPage applicants={applicants} applicantsLoading={applicantsLoading} />
           )}
           {view === 'engagement-analytics' && (
             <EngagementAnalyticsPage applicants={applicants} applicantsLoading={applicantsLoading} />

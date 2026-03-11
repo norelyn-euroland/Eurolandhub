@@ -320,7 +320,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
   const valueText = typeof value === 'number' ? value.toLocaleString() : value;
 
   return (
-    <div className="group relative rounded-xl bg-white dark:bg-[#1a1a1a] p-4 shadow-md border border-neutral-200/80 dark:border-white/[0.04] flex flex-col justify-between transition-all duration-300 hover:border-neutral-300 dark:hover:border-white/10 hover:-translate-y-0.5 h-[180px] overflow-visible">
+    <div className="group relative rounded-xl bg-white dark:bg-[#1a1a1a] p-4 shadow-md border border-neutral-200/80 dark:border-white/[0.04] flex flex-col justify-between transition-all duration-300 hover:border-neutral-300 dark:hover:border-white/10 hover:-translate-y-0.5 h-full overflow-visible">
 
       {/* Micro-texture overlay for dark mode */}
       <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden">

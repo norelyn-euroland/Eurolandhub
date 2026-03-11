@@ -18,14 +18,18 @@ interface CreateEventModalProps {
     selectedParticipants: string[];
   }) => Promise<void>;
   applicants: Applicant[];
+  initialDateTime?: string;
+  initialEventType?: IREventType;
 }
 
-const EVENT_TYPES: { value: IREventType; label: string }[] = [
-  { value: 'meeting', label: 'Investor Meeting' },
-  { value: 'briefing', label: 'Shareholder Briefing' },
-  { value: 'webinar', label: 'Webinar' },
-  { value: 'earnings_discussion', label: 'Earnings Discussion' },
-  { value: 'other', label: 'Other' },
+const EVENT_TYPES: { value: IREventType; label: string; category: string }[] = [
+  { value: 'meeting', label: 'Shareholder Meeting', category: 'Shareholder Meetings' },
+  { value: 'meeting', label: 'Investor Call', category: 'Investor Calls' },
+  { value: 'briefing', label: 'Internal Strategy Meeting', category: 'Internal Meetings' },
+  { value: 'webinar', label: 'Investor Webinar', category: 'Investor Calls' },
+  { value: 'briefing', label: 'Board Meeting', category: 'Internal Meetings' },
+  { value: 'other', label: 'General Note', category: 'Notes' },
+  { value: 'earnings_discussion', label: 'Earnings Discussion', category: 'Investor Calls' },
 ];
 
 const PARTICIPANT_MODES: { value: ParticipantMode; label: string; description: string }[] = [
@@ -39,6 +43,8 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({
   onClose,
   onSave,
   applicants,
+  initialDateTime,
+  initialEventType,
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -60,6 +66,12 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({
     if (isOpen) {
       setHasUnsavedChanges(false);
       setShowCloseConfirm(false);
+      if (initialDateTime) {
+        setDateTime(initialDateTime);
+      }
+      if (initialEventType) {
+        setEventType(initialEventType);
+      }
     } else {
       setTitle('');
       setDescription('');
@@ -73,7 +85,7 @@ const CreateEventModal: React.FC<CreateEventModalProps> = ({
       setParticipantSearch('');
       setHasUnsavedChanges(false);
     }
-  }, [isOpen]);
+  }, [isOpen, initialDateTime, initialEventType]);
 
   // Track unsaved changes
   useEffect(() => {

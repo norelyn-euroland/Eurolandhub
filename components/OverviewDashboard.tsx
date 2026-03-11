@@ -19,6 +19,13 @@ import type { PressRelease } from './PressReleaseSection';
 import { getAllPressReleases } from '../services/pressReleaseService';
 import { getDataByRange, getLatestPrice, getPriceStats, type ShareDataPoint, type TimeRange } from '../services/shareDataService';
 import { releasedDocumentsService, DOCUMENT_TAGS, getDocumentTypeLabel, type ReleasedDocument } from '../services/releasedDocumentsService';
+import TopEngagedInvestorsTable from './TopEngagedInvestorsTable';
+import TopContentTable from './TopContentTable';
+import RecentUserActivitiesTable from './RecentUserActivitiesTable';
+
+// Lazy load heavy components for better performance
+const CalendarWidget = React.lazy(() => import('./CalendarWidget'));
+const TodoTaskWidget = React.lazy(() => import('./TodoTaskWidget'));
 import {
   shouldTriggerGreetingAnimation,
   getCurrentTimeContext,
@@ -859,9 +866,17 @@ const ReleasedDocumentsPanel: React.FC<ReleasedDocumentsPanelProps> = ({ onViewA
         d.summary.toLowerCase().includes(searchQuery.toLowerCase())
       );
   
-  const totalPages = Math.ceil(filteredBySearch.length / itemsPerPage);
+  // Sort by publishDate DESC (newest first)
+  const sortedDocs = [...filteredBySearch].sort((a, b) => 
+    new Date(b.publishDate).getTime() - new Date(a.publishDate).getTime()
+  );
+  
+  const totalPages = Math.ceil(sortedDocs.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const displayDocs = filteredBySearch.slice(startIndex, startIndex + itemsPerPage);
+  const displayDocs = sortedDocs.slice(startIndex, startIndex + itemsPerPage);
+  
+  // Pad with empty rows to always show 5 items (fixed height)
+  const paddedDocs = [...displayDocs, ...Array(Math.max(0, itemsPerPage - displayDocs.length)).fill(null)];
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -931,51 +946,57 @@ const ReleasedDocumentsPanel: React.FC<ReleasedDocumentsPanelProps> = ({ onViewA
         </div>
       </div>
 
-      {/* Document List — flex-1 ensures it takes remaining space so pagination stays pinned */}
-      <div className="flex-1 space-y-0 divide-y divide-neutral-100/80 dark:divide-neutral-800/50">
+      {/* Document List — Fixed height to always show 5 items */}
+      <div className="h-[280px] overflow-y-auto overflow-x-hidden space-y-0 divide-y divide-neutral-100/80 dark:divide-neutral-800/50">
         {loading ? (
-          <div className="flex items-center justify-center py-8">
+          <div className="flex items-center justify-center h-full">
             <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : displayDocs.length > 0 ? displayDocs.map((doc) => {
+        ) : paddedDocs.length > 0 ? paddedDocs.map((doc, index) => {
+          // Handle empty rows (null entries)
+          if (!doc) {
+            return (
+              <div key={`empty-${index}`} className="h-[56px] py-2"></div>
+            );
+          }
           const docTypeLabel = getDocumentTypeLabel(doc.type);
           const views = doc.views || 0;
           const comments = doc.comments || 0;
           const engagement = views + (comments * 3);
           return (
-            <div key={doc.id} className="py-2 first:pt-0 group/doc cursor-pointer transition-all duration-200 hover:bg-neutral-50/50 dark:hover:bg-neutral-800/20 -mx-1 px-1 rounded">
+            <div key={doc.id} className="h-[56px] py-2 first:pt-0 group/doc cursor-pointer transition-all duration-200 hover:bg-neutral-50/50 dark:hover:bg-neutral-800/20 rounded">
               {/* Title + Tag */}
-              <div className="flex items-center justify-between gap-2 mb-0.5">
-                <h4 className="text-[11px] font-bold text-neutral-900 dark:text-white leading-tight group-hover/doc:text-primary dark:group-hover/doc:text-primary-light transition-colors line-clamp-1 flex-1">{doc.title}</h4>
-                <span className={`shrink-0 px-1.5 py-px text-[7px] font-bold uppercase tracking-wider rounded border ${TAG_COLORS[docTypeLabel] || 'bg-neutral-100 text-neutral-600 border-neutral-200'}`}>{docTypeLabel}</span>
+              <div className="flex items-center justify-between gap-1.5 mb-0.5 min-w-0">
+                <h4 className="text-[11px] font-bold text-neutral-900 dark:text-white leading-tight group-hover/doc:text-primary dark:group-hover/doc:text-primary-light transition-colors truncate flex-1 min-w-0">{doc.title}</h4>
+                <span className={`shrink-0 px-1 py-px text-[7px] font-bold uppercase tracking-wider rounded border ${TAG_COLORS[docTypeLabel] || 'bg-neutral-100 text-neutral-600 border-neutral-200'}`}>{docTypeLabel}</span>
               </div>
 
               {/* Upload Date + Metrics inline */}
-              <div className="flex items-center gap-2.5">
-                <span className="text-[9px] text-neutral-400 dark:text-neutral-500 font-medium">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-[9px] text-neutral-400 dark:text-neutral-500 font-medium shrink-0">
                   {formatDocDate(doc.createdAt)}
                 </span>
                 {views > 0 && (
                   <>
-                    <span className="text-neutral-200 dark:text-neutral-700">·</span>
-                    <span className="flex items-center gap-0.5 text-[9px] text-neutral-400 dark:text-neutral-500">
-                      <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>
+                    <span className="text-neutral-200 dark:text-neutral-700 shrink-0">·</span>
+                    <span className="flex items-center gap-0.5 text-[9px] text-neutral-400 dark:text-neutral-500 shrink-0">
+                      <svg className="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>
                       <span className="font-medium">{views.toLocaleString()}</span>
                     </span>
                   </>
                 )}
                 {comments > 0 && (
                   <>
-                    <span className="text-neutral-200 dark:text-neutral-700">·</span>
-                    <span className="flex items-center gap-0.5 text-[9px] text-neutral-400 dark:text-neutral-500">
-                      <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
+                    <span className="text-neutral-200 dark:text-neutral-700 shrink-0">·</span>
+                    <span className="flex items-center gap-0.5 text-[9px] text-neutral-400 dark:text-neutral-500 shrink-0">
+                      <svg className="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>
                       <span className="font-medium">{comments}</span>
                     </span>
                   </>
                 )}
                 {engagement > 0 && (
-                  <span className="flex items-center gap-0.5 text-[9px] text-neutral-400 dark:text-neutral-500 ml-auto">
-                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
+                  <span className="flex items-center gap-0.5 text-[9px] text-neutral-400 dark:text-neutral-500 ml-auto shrink-0">
+                    <svg className="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
                     <span className="font-medium">{engagement.toLocaleString()}</span>
                   </span>
                 )}
@@ -1202,18 +1223,18 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
   // Memoized engagement data
   const topInvestors = useMemo(() => {
     return engagementRecords
-      .sort((a, b) => b.engagementScore - a.engagementScore)
-      .slice(0, 5); // Top 5 for dashboard
+      .sort((a, b) => b.engagementScore - a.engagementScore);
+      // Limit will be applied in component (Top 10)
   }, [engagementRecords]);
 
   const topContent = useMemo(() => {
     const content = generateMostEngagedContent(engagementRecords);
-    return content.slice(0, 5); // Top 5 for dashboard
+    return content; // Limit will be applied in component (Top 10)
   }, [engagementRecords]);
 
   const recentActivities = useMemo(() => {
     const activities = generateUserActivities(engagementRecords);
-    return activities.slice(0, 5); // Latest 5 for dashboard
+    return activities; // Limit will be applied in component (20 records)
   }, [engagementRecords]);
   const [statusCache, setStatusCache] = useState<Record<string, string>>({});
   
@@ -1565,9 +1586,11 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
   }
 
   return (
-    <div className="space-y-6 max-w-screen-2xl mx-auto pb-10">
-      {/* Greetings Card + Share Price Widget Side by Side */}
-      <div className="flex gap-5 items-stretch">
+    <div className="space-y-3 max-w-screen-2xl mx-auto pb-6">
+      {/* Row 1: Greetings Card (70%) + Share Price (30%) */}
+      <div className="grid grid-cols-1 lg:grid-cols-10 gap-3">
+        {/* Greetings Card - 70% (7 columns out of 10) */}
+        <div className="lg:col-span-7 min-h-[180px]">
         {/* Left: Greetings Card — Weather-Reactive Ambient Widget */}
         {(() => {
           // Determine weather category & night status from real data when available
@@ -2067,9 +2090,11 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
             </div>
           );
         })()}
+        </div>{/* end col-span-7 (Greetings Card - 70%) */}
 
-        {/* Right: Share Price Widget */}
-        <div className="flex-shrink-0 w-[340px] h-[220px] rounded-xl bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] shadow-md relative overflow-hidden">
+        {/* Share Price — 30% (3 columns out of 10) */}
+        <div className="lg:col-span-3">
+          <div className="h-full min-h-[200px] rounded-xl bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] shadow-md relative overflow-hidden">
           {/* Noise texture */}
           <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden z-0">
             <svg className="absolute inset-0 w-full h-full opacity-[0.02] dark:opacity-[0.05]">
@@ -2197,147 +2222,51 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
             </div>
             <p className="text-[8px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">Last updated</p>
           </div>
+        </div>{/* end share price card */}
+        </div>{/* end col-span-3 (Share Price - 30%) */}
+      </div>{/* end Row 1 grid */}
+
+      {/* Row 2: Calendar + To-Do Task (combined) (70%) + Shareholder Snapshot (30%) */}
+      <div className="grid grid-cols-1 lg:grid-cols-10 gap-3">
+        {/* Calendar + To-Do Task Combined Container - 70% (7 columns out of 10) */}
+        <div className="lg:col-span-7 bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl shadow-sm p-3 relative overflow-hidden min-h-[340px]">
+          {/* Noise texture */}
+          <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden z-0">
+            <svg className="absolute inset-0 w-full h-full opacity-[0.02] dark:opacity-[0.05]">
+              <filter id="calendar-todo-noise"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" stitchTiles="stitch" /><feColorMatrix type="saturate" values="0" /></filter>
+              <rect width="100%" height="100%" filter="url(#calendar-todo-noise)" />
+            </svg>
+          </div>
+          <div className="relative z-10 h-full flex flex-col lg:flex-row gap-3">
+            {/* Calendar Widget - Takes most of the space */}
+            <div className="flex-1 min-w-0">
+              <React.Suspense fallback={
+                <div className="h-full flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              }>
+                <CalendarWidget />
+              </React.Suspense>
+            </div>
+            
+            {/* Divider */}
+            <div className="hidden lg:block w-px bg-neutral-200/80 dark:bg-neutral-700/50"></div>
+            
+            {/* To-Do Task Widget - Fixed width sidebar */}
+            <div className="lg:w-[220px] shrink-0">
+              <React.Suspense fallback={
+                <div className="h-full flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              }>
+                <TodoTaskWidget noContainer={true} />
+              </React.Suspense>
+            </div>
+          </div>
         </div>
-      </div>
-
-      <div className="grid grid-cols-4 gap-5 overflow-visible">
-        {(() => {
-          // Calculate new dashboard metrics
-          const totalOfficialShareholders = officialShareholders.length;
-          
-          const verifiedCount = officialShareholders.filter(sh => sh.status === 'VERIFIED').length;
-          const verifiedPercentage = totalOfficialShareholders > 0 
-            ? Math.round((verifiedCount / totalOfficialShareholders) * 100) 
-            : 0;
-          
-          // Active Users (Last 30 Days)
-          const thirtyDaysAgo = new Date();
-          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-          const activeUsers30Days = applicants.filter(a => {
-            const internalStatus = (statusCache[a.id] || 'REGISTRATION_PENDING') as any;
-            const isVerified = getGeneralAccountStatus(internalStatus) === 'VERIFIED';
-            if (!isVerified) return false;
-            
-            if (a.lastActive && a.lastActive !== 'Never') {
-              try {
-                const lastActiveDate = new Date(a.lastActive);
-                if (!isNaN(lastActiveDate.getTime())) {
-                  return lastActiveDate >= thirtyDaysAgo;
-                }
-              } catch (e) {}
-            }
-            
-            const activityDate = a.accountClaimedAt 
-              ? new Date(a.accountClaimedAt)
-              : a.submissionDate 
-                ? new Date(a.submissionDate)
-                : null;
-            
-            if (activityDate && !isNaN(activityDate.getTime())) {
-              return activityDate >= thirtyDaysAgo;
-            }
-            
-            return true;
-          }).length;
-          
-          // Pending Activation (Pre-Verified accounts not yet claimed)
-          const pendingActivation = officialShareholders.filter(sh => sh.status === 'PRE-VERIFIED').length;
-          
-          // Calculate trends (simplified - comparing last 30 days vs previous 30 days)
-          const calculateTrend = (current: number, previous: number) => {
-            if (previous === 0) {
-              return current > 0 ? { percent: 100, direction: 'up' as const } : { percent: 0, direction: 'neutral' as const };
-            }
-            const percent = ((current - previous) / previous) * 100;
-            return { 
-              percent: Math.abs(percent), 
-              direction: percent > 0 ? 'up' as const : percent < 0 ? 'down' as const : 'neutral' as const 
-            };
-          };
-          
-          // For trends, we'll use a simple calculation based on recent additions
-          // In a real implementation, you'd compare periods
-          const totalTrend = calculateTrend(totalOfficialShareholders, Math.max(0, totalOfficialShareholders - 10));
-          const verifiedTrend = calculateTrend(verifiedCount, Math.max(0, verifiedCount - 5));
-          const activeTrend = calculateTrend(activeUsers30Days, Math.max(0, activeUsers30Days - 3));
-          const pendingTrend = calculateTrend(pendingActivation, Math.max(0, pendingActivation - 2));
-          
-          const metrics = [
-            {
-              label: 'Total Official Shareholders',
-              value: totalOfficialShareholders,
-              trend: totalTrend,
-              subtitle: 'Base universe of investors',
-              chartColor: '#4F46E5'
-            },
-            {
-              label: 'Verified Accounts Rate',
-              value: `${verifiedPercentage}%`,
-              trend: verifiedTrend,
-              subtitle: `${verifiedCount} / ${totalOfficialShareholders} activated`,
-              chartColor: '#10B981',
-              tooltipSymbol: '%'
-            },
-            {
-              label: 'Active Users (Last 30 Days)',
-              value: activeUsers30Days,
-              trend: activeTrend,
-              subtitle: 'Users who logged in or interacted',
-              chartColor: '#3B82F6'
-            },
-            {
-              label: 'Pending Activation',
-              value: pendingActivation,
-              trend: pendingTrend,
-              subtitle: 'Pre-verified accounts awaiting claim',
-              chartColor: '#F59E0B'
-            }
-          ];
-          
-          // Deterministic seeded random — stable across re-renders, changes weekly.
-          const seededRandom = (seed: number): number => {
-            const x = Math.sin(seed * 9301 + 49297) * 233280;
-            return x - Math.floor(x);
-          };
-          
-          return metrics.map((stat, i) => {
-            const numericValue = typeof stat.value === 'string' && stat.value.includes('%')
-              ? parseFloat(stat.value.replace('%', ''))
-              : typeof stat.value === 'number'
-                ? stat.value
-                : 0;
-            
-            const weekSeed = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
-            const chartData = Array.from({ length: 7 }, (_, idx) => {
-              const progress = idx / 6;
-              const trendMultiplier = stat.trend.direction === 'up' 
-                ? 1 + (stat.trend.percent / 100) * progress
-                : stat.trend.direction === 'down'
-                ? 1 - (stat.trend.percent / 100) * progress
-                : 1;
-              return numericValue * trendMultiplier * (1 + (seededRandom(weekSeed + i * 7 + idx) - 0.5) * 0.1);
-            });
-            
-            return (
-              <MetricCard
-                key={i}
-                title={stat.label}
-                value={stat.value}
-                trend={stat.trend}
-                subtitle={stat.subtitle || 'compared to last week'}
-                chartData={chartData}
-                chartColor={stat.chartColor}
-                tooltipSymbol={stat.tooltipSymbol}
-              />
-            );
-          });
-        })()}
-      </div>
-
-      {/* Row 3: Shareholder Snapshot (40%) + Documents Released (60%) — fixed height to prevent layout shift */}
-      <div className="grid grid-cols-1 lg:grid-cols-10 gap-5" style={{ gridAutoRows: '1fr' }}>
-        {/* Left: Shareholder Snapshot (40% = 4/10) */}
-        <div className="lg:col-span-4 bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl shadow-md p-5 relative overflow-hidden min-h-[460px]">
+        
+        {/* Shareholder Snapshot - 30% (3 columns out of 10) */}
+        <div className="lg:col-span-3 bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl shadow-sm p-3 relative overflow-hidden min-h-[340px]">
           {/* Noise texture */}
           <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden">
             <svg className="absolute inset-0 w-full h-full opacity-[0.02] dark:opacity-[0.05]">
@@ -2350,19 +2279,159 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
               <div>
                 <h3 className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Shareholder Snapshot</h3>
                 <p className="text-[9px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">User Segmentation Overview</p>
-        </div>
+              </div>
               <div className="flex items-center gap-2 text-neutral-300 dark:text-neutral-600">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
                   <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
                 </svg>
               </div>
             </div>
-        <ShareholderSnapshot applicants={applicants} />
+            <ShareholderSnapshot applicants={applicants} />
           </div>
         </div>
+      </div>
 
-        {/* Right: Documents Released Panel (60% = 6/10) */}
-        <div className="lg:col-span-6 bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl shadow-md p-5 relative overflow-hidden min-h-[460px]">
+      {/* Row 3: Metrics Cards (50%) + Documents Released (50%) */}
+      <div className="grid grid-cols-1 lg:grid-cols-10 gap-3">
+        {/* Metrics Cards - 50% (5 columns out of 10), 4 cards in 2x2 grid */}
+        <div className="lg:col-span-5">
+          <div className="grid grid-cols-2 gap-3 overflow-visible h-[400px]">
+            {(() => {
+              // Calculate new dashboard metrics
+              const totalOfficialShareholders = officialShareholders.length;
+              
+              const verifiedCount = officialShareholders.filter(sh => sh.status === 'VERIFIED').length;
+              const verifiedPercentage = totalOfficialShareholders > 0 
+                ? Math.round((verifiedCount / totalOfficialShareholders) * 100) 
+                : 0;
+              
+              // Active Users (Last 30 Days)
+              const thirtyDaysAgo = new Date();
+              thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+              const activeUsers30Days = applicants.filter(a => {
+                const internalStatus = (statusCache[a.id] || 'REGISTRATION_PENDING') as any;
+                const isVerified = getGeneralAccountStatus(internalStatus) === 'VERIFIED';
+                if (!isVerified) return false;
+                
+                if (a.lastActive && a.lastActive !== 'Never') {
+                  try {
+                    const lastActiveDate = new Date(a.lastActive);
+                    if (!isNaN(lastActiveDate.getTime())) {
+                      return lastActiveDate >= thirtyDaysAgo;
+                    }
+                  } catch (e) {}
+                }
+                
+                const activityDate = a.accountClaimedAt 
+                  ? new Date(a.accountClaimedAt)
+                  : a.submissionDate 
+                    ? new Date(a.submissionDate)
+                    : null;
+                
+                if (activityDate && !isNaN(activityDate.getTime())) {
+                  return activityDate >= thirtyDaysAgo;
+                }
+                
+                return true;
+              }).length;
+              
+              // Pending Activation (Pre-Verified accounts not yet claimed)
+              const pendingActivation = officialShareholders.filter(sh => sh.status === 'PRE-VERIFIED').length;
+              
+              // Calculate trends (simplified - comparing last 30 days vs previous 30 days)
+              const calculateTrend = (current: number, previous: number) => {
+                if (previous === 0) {
+                  return current > 0 ? { percent: 100, direction: 'up' as const } : { percent: 0, direction: 'neutral' as const };
+                }
+                const percent = ((current - previous) / previous) * 100;
+                return { 
+                  percent: Math.abs(percent), 
+                  direction: percent > 0 ? 'up' as const : percent < 0 ? 'down' as const : 'neutral' as const 
+                };
+              };
+              
+              // For trends, we'll use a simple calculation based on recent additions
+              // In a real implementation, you'd compare periods
+              const totalTrend = calculateTrend(totalOfficialShareholders, Math.max(0, totalOfficialShareholders - 10));
+              const verifiedTrend = calculateTrend(verifiedCount, Math.max(0, verifiedCount - 5));
+              const activeTrend = calculateTrend(activeUsers30Days, Math.max(0, activeUsers30Days - 3));
+              const pendingTrend = calculateTrend(pendingActivation, Math.max(0, pendingActivation - 2));
+              
+              const metrics = [
+                {
+                  label: 'Total Official Shareholders',
+                  value: totalOfficialShareholders,
+                  trend: totalTrend,
+                  subtitle: 'Base universe of investors',
+                  chartColor: '#4F46E5'
+                },
+                {
+                  label: 'Verified Accounts Rate',
+                  value: `${verifiedPercentage}%`,
+                  trend: verifiedTrend,
+                  subtitle: `${verifiedCount} / ${totalOfficialShareholders} activated`,
+                  chartColor: '#10B981',
+                  tooltipSymbol: '%'
+                },
+                {
+                  label: 'Active Users (Last 30 Days)',
+                  value: activeUsers30Days,
+                  trend: activeTrend,
+                  subtitle: 'Users who logged in or interacted',
+                  chartColor: '#3B82F6'
+                },
+                {
+                  label: 'Pending Activation',
+                  value: pendingActivation,
+                  trend: pendingTrend,
+                  subtitle: 'Pre-verified accounts awaiting claim',
+                  chartColor: '#F59E0B'
+                }
+              ];
+              
+              // Deterministic seeded random — stable across re-renders, changes weekly.
+              const seededRandom = (seed: number): number => {
+                const x = Math.sin(seed * 9301 + 49297) * 233280;
+                return x - Math.floor(x);
+              };
+              
+              return metrics.map((stat, i) => {
+                const numericValue = typeof stat.value === 'string' && stat.value.includes('%')
+                  ? parseFloat(stat.value.replace('%', ''))
+                  : typeof stat.value === 'number'
+                    ? stat.value
+                    : 0;
+                
+                const weekSeed = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
+                const chartData = Array.from({ length: 7 }, (_, idx) => {
+                  const progress = idx / 6;
+                  const trendMultiplier = stat.trend.direction === 'up' 
+                    ? 1 + (stat.trend.percent / 100) * progress
+                    : stat.trend.direction === 'down'
+                    ? 1 - (stat.trend.percent / 100) * progress
+                    : 1;
+                  return numericValue * trendMultiplier * (1 + (seededRandom(weekSeed + i * 7 + idx) - 0.5) * 0.1);
+                });
+                
+                return (
+                  <MetricCard
+                    key={i}
+                    title={stat.label}
+                    value={stat.value}
+                    trend={stat.trend}
+                    subtitle={stat.subtitle || 'compared to last week'}
+                    chartData={chartData}
+                    chartColor={stat.chartColor}
+                    tooltipSymbol={stat.tooltipSymbol}
+                  />
+                );
+              });
+            })()}
+          </div>
+        </div>
+        
+        {/* Documents Released - 50% (5 columns out of 10) */}
+        <div className="lg:col-span-5 bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl shadow-sm p-3 relative overflow-hidden h-[400px]">
           {/* Noise texture */}
           <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden">
             <svg className="absolute inset-0 w-full h-full opacity-[0.02] dark:opacity-[0.05]">
@@ -2379,376 +2448,50 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
         </div>
       </div>
 
-      {/* Top Engaged Retail Investors */}
-      <div className="bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl overflow-hidden shadow-md">
-        <div className="px-6 py-5 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Top Engaged Retail Investors</h3>
-            <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">Ranked by engagement score</p>
+      {/* Row 4: Leaderboard — Full Width (Top Engaged Retail Investors + Top Content by Engagement) */}
+      <div className="bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl shadow-sm p-3 relative overflow-hidden">
+        {/* Leaderboard heading */}
+        <div className="mb-3 pb-2.5 border-b border-neutral-100 dark:border-neutral-800">
+          <h2 className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-[0.1em]">Leaderboard</h2>
+          <p className="text-[9px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">Top performers ranked by engagement score</p>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {/* Top Engaged Retail Investors */}
+          <div className="h-full">
+            <TopEngagedInvestorsTable
+              topInvestors={topInvestors}
+              applicants={applicants}
+              engagementLoading={engagementLoading}
+              onViewAll={() => onViewChange?.('engagement-activity')}
+              onViewAnalytics={() => onViewChange?.('engagement-analytics')}
+              limit={10}
+              fixedHeight={true}
+            />
           </div>
-          <button 
-            onClick={() => onViewChange?.('engagement-activity')}
-            className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider"
-          >
-            View All
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-neutral-50/50 dark:bg-neutral-800/50 text-[9px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-[0.12em]">
-                <th className="px-6 py-3 w-14 text-center">Rank</th>
-                <th className="px-6 py-3">Shareholder</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Holdings</th>
-                <th className="px-6 py-3">Engagement</th>
-                <th className="px-6 py-3 text-right">Last Activity</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-100/80 dark:divide-neutral-800/50">
-              {engagementLoading ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center">
-                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                    <p className="text-[10px] text-neutral-400 dark:text-neutral-500">Loading engagement data...</p>
-                  </td>
-                </tr>
-              ) : topInvestors.length > 0 ? (
-                topInvestors.map((record, index) => {
-                  const applicant = applicants.find(a => a.id === record.investorId);
-                  if (!applicant) return null;
-                  
-                  const holdings = applicant.holdingsRecord?.sharesHeld || 0;
-                  const formatRelativeTime = (iso: string): string => {
-                    const diff = Date.now() - new Date(iso).getTime();
-                    const mins = Math.floor(diff / 60000);
-                    if (mins < 1) return 'Just now';
-                    if (mins < 60) return `${mins}m ago`;
-                    const hours = Math.floor(mins / 60);
-                    if (hours < 24) return `${hours}h ago`;
-                    const days = Math.floor(hours / 24);
-                    if (days < 7) return `${days}d ago`;
-                    const weeks = Math.floor(days / 7);
-                    if (weeks < 4) return `${weeks}w ago`;
-                    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                  };
-                  
-                  return (
-                    <tr key={record.investorId} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
-                      <td className="px-6 py-3.5 text-center">
-                        <span className="text-xs font-bold text-neutral-500 dark:text-neutral-400">#{index + 1}</span>
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <div className="flex items-center gap-2.5">
-                          <Avatar name={record.investorName} size={32} profilePictureUrl={record.profilePictureUrl} />
-                          <div className="min-w-0 flex-1">
-                            <Tooltip content={record.investorName}>
-                              <p className="text-xs font-bold text-neutral-900 dark:text-white truncate max-w-[180px]">{record.investorName}</p>
-                            </Tooltip>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3.5">
-                        {record.userStatus === 'verified' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/40">
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                              <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
-                              <path d="m9 12 2 2 4-4"/>
-                            </svg>
-                            Verified
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 border border-neutral-200/60 dark:border-neutral-700/40">
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                              <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
-                            </svg>
-                            Unverified
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-3.5">
-                        {holdings > 0 ? (
-                          <span className="text-xs font-bold text-neutral-900 dark:text-white">{holdings.toLocaleString()}</span>
-                        ) : (
-                          <span className="text-[10px] text-neutral-400 dark:text-neutral-500">—</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-neutral-900 dark:text-white min-w-[2rem]">{record.engagementScore}</span>
-                          <div className="flex-1 h-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden max-w-[100px]">
-                            <div 
-                              className="h-full bg-blue-500/70 dark:bg-blue-400/60 rounded-full transition-all duration-500"
-                              style={{ width: `${record.engagementScore}%` }}
-                            />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3.5 text-right">
-                        <span className="text-[10px] text-neutral-400 dark:text-neutral-500">{formatRelativeTime(record.lastActive)}</span>
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={6} className="px-6 py-10 text-center text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest">
-                    No engaged investors found
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="px-6 py-3 border-t border-neutral-100 dark:border-neutral-800">
-          <p className="text-[10px] text-neutral-400 dark:text-neutral-500">
-            <strong className="text-neutral-500 dark:text-neutral-400">Engagement Criteria:</strong> Activity frequency, content views, recent interactions, holdings quantity, and communication engagement.
-          </p>
-        </div>
-      </div>
-
-      {/* Top Content by Engagement */}
-      <div className="bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl overflow-hidden shadow-md">
-        <div className="px-6 py-5 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Top Content by Engagement</h3>
-            <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">Ranked by read rate and interactions</p>
+          {/* Top Content by Engagement */}
+          <div className="h-full">
+            <TopContentTable
+              topContent={topContent}
+              engagementLoading={engagementLoading}
+              onViewAll={() => onViewChange?.('engagement-activity')}
+              onViewAnalytics={() => onViewChange?.('engagement-analytics')}
+              limit={10}
+              fixedHeight={true}
+            />
           </div>
-          <button 
-            onClick={() => onViewChange?.('engagement-activity')}
-            className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider"
-          >
-            View All
-          </button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-neutral-50/50 dark:bg-neutral-800/50 text-[9px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-[0.12em]">
-                <th className="px-6 py-3">Content</th>
-                <th className="px-6 py-3 text-right">Read Rate</th>
-                <th className="px-6 py-3 text-right">Interactions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-100/80 dark:divide-neutral-800/50">
-              {engagementLoading ? (
-                <tr>
-                  <td colSpan={3} className="px-6 py-10 text-center">
-                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                    <p className="text-[10px] text-neutral-400 dark:text-neutral-500">Loading content data...</p>
-                  </td>
-                </tr>
-              ) : topContent.length > 0 ? (
-                topContent.map((content, index) => (
-                  <tr key={index} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
-                    <td className="px-6 py-3.5">
-                      <p className="text-xs font-bold text-neutral-900 dark:text-white">{content.title}</p>
-                    </td>
-                    <td className="px-6 py-3.5 text-right">
-                      <span className="text-xs font-bold text-neutral-900 dark:text-white">{content.readPercentage}%</span>
-                    </td>
-                    <td className="px-6 py-3.5 text-right">
-                      <span className="text-xs font-bold text-neutral-900 dark:text-white">{content.interactions}</span>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={3} className="px-6 py-10 text-center text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest">
-                    No content data available
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <div className="px-6 py-3 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
-          <p className="text-[10px] text-neutral-400 dark:text-neutral-500">
-            <strong className="text-neutral-500 dark:text-neutral-400">Engagement:</strong> Views, downloads, time spent, shares, interactions.
-          </p>
-          <button 
-            onClick={() => onViewChange?.('engagement-analytics')}
-            className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider"
-          >
-            Analytics →
-          </button>
-        </div>
-      </div>
+      </div>{/* end Leaderboard card */}
 
-      {/* Recent User Activities */}
-      <div className="bg-white dark:bg-[#1a1a1a] border border-neutral-200/80 dark:border-white/[0.04] rounded-xl overflow-hidden shadow-md">
-        <div className="px-6 py-5 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-black text-neutral-900 dark:text-white uppercase tracking-[0.08em]">Recent User Activities</h3>
-            <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-medium mt-0.5">From registered users (verified and unverified)</p>
-          </div>
-          <button 
-            onClick={() => {
-              sessionStorage.setItem('scrollTo', 'user-activity-log');
-              onViewChange?.('engagement-activity');
-            }}
-            className="px-3 py-1.5 text-[10px] font-bold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors uppercase tracking-wider"
-          >
-            View All
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-neutral-50/50 dark:bg-neutral-800/50 text-[9px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-[0.12em]">
-                <th className="px-6 py-3">User</th>
-                <th className="px-6 py-3">Activity</th>
-                <th className="px-6 py-3">Content</th>
-                <th className="px-6 py-3 text-right">Time</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-100/80 dark:divide-neutral-800/50">
-              {engagementLoading ? (
-                <tr>
-                  <td colSpan={4} className="px-6 py-10 text-center">
-                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                    <p className="text-[10px] text-neutral-400 dark:text-neutral-500">Loading activities...</p>
-                  </td>
-                </tr>
-              ) : recentActivities.length > 0 ? (
-                recentActivities.map((activity) => {
-                  const getActivityIcon = () => {
-                    const iconClass = "w-5 h-5 text-neutral-600 dark:text-neutral-400";
-                    switch (activity.activityType) {
-                      case 'view':
-                        return <span className="text-lg">👁</span>;
-                      case 'comment':
-                        return <span className="text-lg">💬</span>;
-                      case 'download':
-                        return (
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={iconClass}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                          </svg>
-                        );
-                      case 'reaction':
-                        // Check if it's a like or dislike based on details or use like by default
-                        const isDislike = activity.details?.toLowerCase().includes('dislike') || false;
-                        if (isDislike) {
-                          return (
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={iconClass}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M7.498 15.25H4.372c-1.026 0-1.945-.694-2.054-1.715a12.137 12.137 0 0 1-.068-1.285c0-2.848.992-5.464 2.649-7.521C5.287 4.247 5.886 4 6.504 4h4.016a4.5 4.5 0 0 1 1.423.23l3.114 1.04a4.5 4.5 0 0 0 1.423.23h1.294M7.498 15.25c.618 0 .991.724.725 1.282A7.471 7.471 0 0 0 7.5 19.75 2.25 2.25 0 0 0 9.75 22a.75.75 0 0 0 .75-.75v-.633c0-.573.11-1.14.322-1.672.304-.76.93-1.33 1.653-1.715a9.04 9.04 0 0 0 2.86-2.4c.498-.634 1.226-1.08 2.032-1.08h.384m-10.253 1.5H9.7m8.075-9.75c.01.05.027.1.05.148.593 1.2.925 2.55.925 3.977 0 1.487-.36 2.89-.999 4.125m.023-8.25c-.076-.365.183-.75.575-.75h.908c.889 0 1.713.518 1.972 1.368.339 1.11.521 2.287.521 3.507 0 1.553-.295 3.036-.831 4.398-.306.774-1.086 1.227-1.918 1.227h-1.053c-.472 0-.745-.556-.5-.96a8.95 8.95 0 0 0 .303-.54" />
-                            </svg>
-                          );
-                        }
-                        return (
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={iconClass}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6.633 10.25c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 0 1 2.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 0 0 .322-1.672V2.75a.75.75 0 0 1 .75-.75 2.25 2.25 0 0 1 2.25 2.25c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282m0 0h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 0 1-2.649 7.521c-.388.482-.987.729-1.605.729H13.48c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 0 0-1.423-.23H5.904m10.598-9.75H14.25M5.904 18.5c.083.205.173.405.27.602.197.4-.078.898-.523.898h-.908c-.889 0-1.713-.518-1.972-1.368a12 12 0 0 1-.521-3.507c0-1.553.295-3.036.831-4.398C3.387 9.953 4.167 9.5 5 9.5h1.053c.472 0 .745.556.5.96a8.958 8.958 0 0 0-1.302 4.665c0 1.194.232 2.333.654 3.375Z" />
-                          </svg>
-                        );
-                      case 'login':
-                        // Check if it's login or logout based on details
-                        const isLogout = activity.details?.toLowerCase().includes('logout') || activity.details?.toLowerCase().includes('logged out') || false;
-                        if (isLogout) {
-                          return (
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={iconClass}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H2.25" />
-                            </svg>
-                          );
-                        }
-                        return (
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={iconClass}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" />
-                          </svg>
-                        );
-                      case 'registration':
-                        return <span className="text-lg">📝</span>;
-                      default:
-                        return <span className="text-lg">📄</span>;
-                    }
-                  };
-
-                  const getActivityLabel = () => {
-                    switch (activity.activityType) {
-                      case 'view':
-                        return 'Viewed';
-                      case 'comment':
-                        return 'Commented';
-                      case 'download':
-                        return 'Downloaded';
-                      case 'reaction':
-                        const isDislike = activity.details?.toLowerCase().includes('dislike') || false;
-                        return isDislike ? 'Disliked' : 'Liked';
-                      case 'login':
-                        const isLogout = activity.details?.toLowerCase().includes('logout') || activity.details?.toLowerCase().includes('logged out') || false;
-                        return isLogout ? 'Logged out' : 'Logged in';
-                      case 'registration':
-                        return 'Registered';
-                      default:
-                        return 'Interacted';
-                    }
-                  };
-
-                  const formatRelativeTime = (iso: string): string => {
-                    const diff = Date.now() - new Date(iso).getTime();
-                    const mins = Math.floor(diff / 60000);
-                    if (mins < 1) return 'Just now';
-                    if (mins < 60) return `${mins}m ago`;
-                    const hours = Math.floor(mins / 60);
-                    if (hours < 24) return `${hours}h ago`;
-                    const days = Math.floor(hours / 24);
-                    if (days < 7) return `${days}d ago`;
-                    const weeks = Math.floor(days / 7);
-                    if (weeks < 4) return `${weeks}w ago`;
-                    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                  };
-
-                  return (
-                    <tr key={activity.id} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors">
-                      <td className="px-6 py-3.5">
-                        <div className="flex items-center gap-2.5">
-                          <Avatar name={activity.userName} size={32} profilePictureUrl={undefined} />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <p className="text-xs font-bold text-neutral-900 dark:text-white">{activity.userName}</p>
-                              {activity.userStatus === 'verified' && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full text-[9px] font-bold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/40">
-                                  <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                                    <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
-                                    <path d="m9 12 2 2 4-4"/>
-                                  </svg>
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="flex items-center justify-center">{getActivityIcon()}</span>
-                          <span className="text-[11px] text-neutral-700 dark:text-neutral-300">{getActivityLabel()}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3.5">
-                        {activity.contentTitle ? (
-                          <span className="text-[11px] text-neutral-700 dark:text-neutral-300 truncate max-w-[200px]" title={activity.contentTitle}>
-                            {activity.contentTitle}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-neutral-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-3.5 text-right">
-                        <span className="text-[10px] text-neutral-400 dark:text-neutral-500">{formatRelativeTime(activity.timestamp)}</span>
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={4} className="px-6 py-10 text-center text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest">
-                    No recent activities found
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Row 5: Recent User Activities — Full Width */}
+      <RecentUserActivitiesTable
+        recentActivities={recentActivities}
+        engagementLoading={engagementLoading}
+        onViewAll={() => {
+          sessionStorage.setItem('scrollTo', 'user-activity-log');
+          onViewChange?.('engagement-activity');
+        }}
+        limit={20}
+      />
 
     </div>
   );

@@ -1,49 +1,12 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Applicant, EngagementRecord, IREvent, IREventType, ParticipantMode } from '../lib/types';
 import { eventService } from '../services/eventService';
 import CreateEventModal from './CreateEventModal';
+import MiniCalendar from './MiniCalendar';
+import WeeklyCalendar from './WeeklyCalendar';
 import { generateEngagementRecords } from '../lib/engagementService';
-
-// ── Constants ───────────────────────────────────────────────────────────
-
-const ITEMS_PER_PAGE = 10;
-
-const DOCUMENT_TITLES = [
-  'Q4 2025 Earnings Report',
-  'ESG Impact Report 2025',
-  'Dividend Declaration – FY2025',
-  'Board Governance Charter Update',
-  'Annual General Meeting Notice 2026',
-  'Strategic Partnership Press Release',
-  'Q3 2025 Investor Presentation',
-  'Material Information Disclosure',
-  'Sustainability Roadmap 2026',
-  'Corporate Governance Report',
-];
-
-const EVENT_TYPE_LABELS: Record<IREventType, string> = {
-  meeting: 'Meeting',
-  briefing: 'Briefing',
-  webinar: 'Webinar',
-  earnings_discussion: 'Earnings',
-  other: 'Other',
-};
-
-// ── Helper Functions ───────────────────────────────────────────────────
-
-const formatEventDate = (iso: string): string => {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-};
-
-// ── Main Component ──────────────────────────────────────────────────────
 
 interface EventsPageProps {
   applicants: Applicant[];
@@ -53,17 +16,29 @@ interface EventsPageProps {
 const EventsPage: React.FC<EventsPageProps> = ({ applicants, applicantsLoading }) => {
   // ─ State ─
   const [engagementRecords, setEngagementRecords] = useState<EngagementRecord[]>([]);
-
-  // Event management state
   const [events, setEvents] = useState<IREvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [isCreateEventOpen, setIsCreateEventOpen] = useState(false);
-  const [eventToast, setEventToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
-    show: false,
-    message: '',
-    type: 'success',
+  const [selectedEvent, setSelectedEvent] = useState<IREvent | null>(null);
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState<{ date: Date; hour: number } | null>(null);
+  const [showNotesDropdown, setShowNotesDropdown] = useState(false);
+  const [selectedEventTypeForCreate, setSelectedEventTypeForCreate] = useState<IREventType | null>(null);
+  const [eventTypeFilters, setEventTypeFilters] = useState<Record<string, boolean>>({
+    'Shareholder Meetings': true,
+    'Internal Meetings': true,
+    'Investor Calls': true,
+    'Notes': true,
   });
 
+  const eventTypeOptions = [
+    { type: 'meeting' as IREventType, label: 'Shareholder Meeting', category: 'Shareholder Meetings' },
+    { type: 'meeting' as IREventType, label: 'Investor Call', category: 'Investor Calls' },
+    { type: 'briefing' as IREventType, label: 'Internal Strategy Meeting', category: 'Internal Meetings' },
+    { type: 'webinar' as IREventType, label: 'Investor Webinar', category: 'Investor Calls' },
+    { type: 'briefing' as IREventType, label: 'Board Meeting', category: 'Internal Meetings' },
+    { type: 'other' as IREventType, label: 'General Note', category: 'Notes' },
+  ];
 
   // ─ Data generation (for event participant selection) ─
   useEffect(() => {
@@ -88,14 +63,25 @@ const EventsPage: React.FC<EventsPageProps> = ({ applicants, applicantsLoading }
     return () => unsubscribe();
   }, []);
 
-  // Toast auto-hide
-  useEffect(() => {
-    if (eventToast.show) {
-      const timer = setTimeout(() => setEventToast((prev) => ({ ...prev, show: false })), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [eventToast.show]);
-
+  // ─ Filter events based on type filters ─
+  const filteredEvents = useMemo(() => {
+    return events.filter((event) => {
+      // Map event types to filter categories
+      if (event.eventType === 'meeting' && !eventTypeFilters['Shareholder Meetings'] && !eventTypeFilters['Investor Calls']) {
+        return false;
+      }
+      if (event.eventType === 'briefing' && !eventTypeFilters['Internal Meetings']) {
+        return false;
+      }
+      if (event.eventType === 'other' && !eventTypeFilters['Notes']) {
+        return false;
+      }
+      if (event.eventType === 'webinar' && !eventTypeFilters['Investor Calls']) {
+        return false;
+      }
+      return true;
+    });
+  }, [events, eventTypeFilters]);
 
   const handleCreateEvent = useCallback(
     async (data: {
@@ -139,34 +125,64 @@ const EventsPage: React.FC<EventsPageProps> = ({ applicants, applicantsLoading }
         },
       });
 
-      setEventToast({ show: true, message: `Event "${data.title}" created successfully`, type: 'success' });
+      setIsCreateEventOpen(false);
+      setSelectedTimeSlot(null);
     },
     [applicants, engagementRecords]
   );
 
-  const handleDeleteEvent = useCallback(async (eventId: string) => {
-    try {
-      await eventService.delete(eventId);
-      setEventToast({ show: true, message: 'Event deleted', type: 'success' });
-    } catch (error) {
-      setEventToast({ show: true, message: 'Failed to delete event', type: 'error' });
-    }
-  }, []);
+  const handleTimeSlotClick = (date: Date, hour: number) => {
+    setSelectedTimeSlot({ date, hour });
+    setIsCreateEventOpen(true);
+  };
 
+  const handleEventClick = (event: IREvent) => {
+    setSelectedEvent(event);
+  };
+
+  const handleDateSelect = (date: Date) => {
+    setSelectedDate(date);
+  };
+
+  const handleWeekNavigation = (direction: 'prev' | 'next') => {
+    const newDate = new Date(selectedDate);
+    newDate.setDate(selectedDate.getDate() + (direction === 'prev' ? -7 : 7));
+    setSelectedDate(newDate);
+  };
+
+  const handleGoToToday = () => {
+    setSelectedDate(new Date());
+  };
+
+  // Calculate week dates for highlighting in mini calendar
+  const weekDates = useMemo(() => {
+    const dates: Date[] = [];
+    const dayOfWeek = selectedDate.getDay();
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // Adjust for Sunday = 0
+    const monday = new Date(selectedDate);
+    monday.setDate(selectedDate.getDate() + mondayOffset);
+
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + i);
+      dates.push(date);
+    }
+    return dates;
+  }, [selectedDate]);
 
   // ─ Loading state ─
-  if (applicantsLoading) {
+  if (applicantsLoading || eventsLoading) {
     return (
       <div className="space-y-8 max-w-screen-2xl mx-auto">
         <div className="flex items-end justify-between">
           <div>
-            <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 tracking-tighter uppercase">Events</h2>
+            <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 tracking-tighter uppercase">Meetings</h2>
             <p className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.2em] mt-1">
-              Create and manage investor engagement events
+              Create and manage investor engagement meetings
             </p>
           </div>
         </div>
-        <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl h-[400px] animate-pulse" />
+        <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl h-[600px] animate-pulse" />
       </div>
     );
   }
@@ -177,174 +193,164 @@ const EventsPage: React.FC<EventsPageProps> = ({ applicants, applicantsLoading }
       <div className="flex items-end justify-between">
         <div>
           <h2 className="text-2xl font-black text-neutral-900 dark:text-neutral-100 tracking-tighter uppercase">
-            Events
+            Meetings
           </h2>
           <p className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-[0.2em] mt-1">
-            Create and manage investor engagement events
+            Create and manage investor engagement meetings
           </p>
         </div>
-        <div className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">
-          {events.length} events scheduled
-        </div>
-      </div>
-
-      {/* ══════════════════════════════════════════════════════════════
-          EVENT & MEETING MANAGEMENT
-         ══════════════════════════════════════════════════════════════ */}
-      <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-neutral-200 dark:border-neutral-700 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-black text-neutral-900 dark:text-neutral-100 uppercase tracking-wider">
-              Event & Meeting Management
-            </h3>
-            <p className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-[0.15em] mt-0.5">
-              Schedule and manage investor events
-            </p>
-          </div>
+        <div className="flex items-center gap-2">
+          {/* Notes Button */}
           <button
-            onClick={() => setIsCreateEventOpen(true)}
+            onClick={() => {
+              setSelectedEventTypeForCreate('other');
+              setIsCreateEventOpen(true);
+            }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            Create Event
+            Notes
           </button>
-        </div>
 
-        {eventsLoading ? (
-          <div className="p-8 text-center">
-            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">Loading events...</p>
-          </div>
-        ) : events.length === 0 ? (
-          <div className="p-10 text-center">
-            <div className="w-14 h-14 bg-neutral-50 dark:bg-neutral-900 rounded-full flex items-center justify-center mx-auto mb-3 border border-dashed border-neutral-200 dark:border-neutral-700">
-              <svg className="w-7 h-7 text-neutral-400 dark:text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-1">No events yet</p>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-4">
-              Create your first investor event or meeting
-            </p>
+          {/* Dropdown Menu for Event Types */}
+          <div className="relative">
             <button
-              onClick={() => setIsCreateEventOpen(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors"
+              onClick={() => setShowNotesDropdown(!showNotesDropdown)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5"
             >
-              Create Event
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
             </button>
-          </div>
-        ) : (
-          <div className="divide-y divide-neutral-100 dark:divide-neutral-700/50">
-            {events.map((event) => {
-              const totalInvited = event.invitations.invited.length;
-              const accepted = event.invitations.accepted.length;
-              const declined = event.invitations.declined.length;
-              const pending = event.invitations.pending.length;
-              const isPast = new Date(event.dateTime) < new Date();
-
-              return (
-                <div key={event.id} className="px-5 py-4 hover:bg-neutral-50/50 dark:hover:bg-neutral-700/20 transition-colors">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3 flex-1 min-w-0">
-                      {/* Event type icon */}
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${isPast ? 'bg-neutral-100 dark:bg-neutral-700' : 'bg-blue-50 dark:bg-blue-900/30'}`}>
-                        <svg className={`w-4.5 h-4.5 ${isPast ? 'text-neutral-400' : 'text-blue-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <h4 className="text-xs font-bold text-neutral-900 dark:text-neutral-100 truncate">
-                            {event.title}
-                          </h4>
-                          <span className={`inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${
-                            isPast
-                              ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'
-                              : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-                          }`}>
-                            {isPast ? 'Past' : 'Upcoming'}
-                          </span>
-                          <span className="text-[9px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">
-                            {EVENT_TYPE_LABELS[event.eventType]}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mb-2">
-                          {formatEventDate(event.dateTime)}
-                          {event.location && ` · ${event.location}`}
-                        </p>
-                        {/* Invitation metrics */}
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-1">
-                            <span className="text-[10px] font-bold text-neutral-500 dark:text-neutral-400">Invited:</span>
-                            <span className="text-[10px] font-bold text-neutral-900 dark:text-neutral-100">{totalInvited}</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                            <span className="text-[10px] font-medium text-neutral-600 dark:text-neutral-400">{accepted} accepted</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
-                            <span className="text-[10px] font-medium text-neutral-600 dark:text-neutral-400">{declined} declined</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                            <span className="text-[10px] font-medium text-neutral-600 dark:text-neutral-400">{pending} pending</span>
-                          </div>
-                        </div>
-                        {/* RSVP progress bar */}
-                        {totalInvited > 0 && (
-                          <div className="flex h-1.5 rounded-full overflow-hidden mt-2 max-w-xs bg-neutral-100 dark:bg-neutral-700">
-                            <div className="bg-emerald-500 transition-all" style={{ width: `${(accepted / totalInvited) * 100}%` }} />
-                            <div className="bg-red-400 transition-all" style={{ width: `${(declined / totalInvited) * 100}%` }} />
-                            <div className="bg-amber-400 transition-all" style={{ width: `${(pending / totalInvited) * 100}%` }} />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    {/* Actions */}
+            {showNotesDropdown && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setShowNotesDropdown(false)}
+                />
+                <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-xl z-20 py-1">
+                  {eventTypeOptions.map((option, index) => (
                     <button
-                      onClick={() => handleDeleteEvent(event.id)}
-                      className="p-1.5 text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors shrink-0"
-                      title="Delete event"
+                      key={index}
+                      onClick={() => {
+                        setSelectedEventTypeForCreate(option.type);
+                        setShowNotesDropdown(false);
+                        setIsCreateEventOpen(true);
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors"
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
+                      {option.label}
                     </button>
-                  </div>
+                  ))}
                 </div>
-              );
-            })}
+              </>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
+      {/* ── Calendar Layout ───────────────────────────────────────── */}
+      <div className="flex gap-6">
+        {/* Left Sidebar - Mini Calendar & Filters */}
+        <div className="w-64 flex-shrink-0 space-y-4">
+          {/* Mini Calendar */}
+          <MiniCalendar selectedDate={selectedDate} onDateSelect={handleDateSelect} weekDates={weekDates} />
+
+          {/* My Calendars Section */}
+          <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-4">
+            <h3 className="text-xs font-bold text-neutral-900 dark:text-neutral-100 uppercase tracking-wider mb-3">
+              My Calendars
+            </h3>
+            <div className="space-y-2">
+              {Object.entries(eventTypeFilters).map(([type, enabled]) => (
+                <label
+                  key={type}
+                  className="flex items-center gap-2 cursor-pointer group"
+                >
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(e) =>
+                      setEventTypeFilters((prev) => ({
+                        ...prev,
+                        [type]: e.target.checked,
+                      }))
+                    }
+                    className="w-4 h-4 rounded border-neutral-300 dark:border-neutral-600 text-blue-500 focus:ring-blue-500"
+                  />
+                  <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300 group-hover:text-neutral-900 dark:group-hover:text-neutral-100 transition-colors">
+                    {type}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Main Calendar Area */}
+        <div className="flex-1 min-w-0">
+          <WeeklyCalendar
+            selectedDate={selectedDate}
+            events={filteredEvents}
+            onEventClick={handleEventClick}
+            onTimeSlotClick={handleTimeSlotClick}
+            onWeekNavigate={handleWeekNavigation}
+            onGoToToday={handleGoToToday}
+          />
+        </div>
+      </div>
 
       {/* ── Create Event Modal ─────────────────────────────────────── */}
       <CreateEventModal
         isOpen={isCreateEventOpen}
-        onClose={() => setIsCreateEventOpen(false)}
-        onSave={handleCreateEvent}
+        onClose={() => {
+          setIsCreateEventOpen(false);
+          setSelectedTimeSlot(null);
+          setSelectedEventTypeForCreate(null);
+        }}
+        onSave={async (data) => {
+          await handleCreateEvent(data);
+          setSelectedEventTypeForCreate(null);
+        }}
         applicants={applicants}
+        initialDateTime={selectedTimeSlot ? (() => {
+          const date = new Date(selectedTimeSlot.date);
+          date.setHours(selectedTimeSlot.hour, 0, 0, 0);
+          return date.toISOString().slice(0, 16);
+        })() : undefined}
+        initialEventType={selectedEventTypeForCreate}
       />
 
-      {/* ── Event Toast ────────────────────────────────────────────── */}
-      {eventToast.show && (
-        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl shadow-lg border flex items-center gap-2 transition-all duration-300 ${
-          eventToast.type === 'success'
-            ? 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400'
-            : 'bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-700 text-red-700 dark:text-red-400'
-        }`}>
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            {eventToast.type === 'success' ? (
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            )}
-          </svg>
-          <span className="text-xs font-bold">{eventToast.message}</span>
+      {/* ── Event Detail Modal (placeholder for future) ──────────── */}
+      {selectedEvent && (
+        <div
+          className="fixed inset-0 bg-neutral-900/40 dark:bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center"
+          onClick={() => setSelectedEvent(null)}
+        >
+          <div
+            className="bg-white dark:bg-neutral-800 rounded-xl shadow-2xl p-6 max-w-lg mx-4 border border-neutral-200 dark:border-neutral-700"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-4">
+              <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{selectedEvent.title}</h3>
+              <button
+                onClick={() => setSelectedEvent(null)}
+                className="p-1 text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="space-y-3 text-sm text-neutral-600 dark:text-neutral-400">
+              <p><strong>Date:</strong> {new Date(selectedEvent.dateTime).toLocaleString()}</p>
+              {selectedEvent.location && <p><strong>Location:</strong> {selectedEvent.location}</p>}
+              {selectedEvent.meetingLink && <p><strong>Meeting Link:</strong> <a href={selectedEvent.meetingLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{selectedEvent.meetingLink}</a></p>}
+              {selectedEvent.description && <p><strong>Description:</strong> {selectedEvent.description}</p>}
+            </div>
+          </div>
         </div>
       )}
     </div>
