@@ -3,6 +3,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Applicant, BreadcrumbItem } from '../lib/types';
+import { useData } from '../hooks/useData';
 
 interface HeaderProps {
   viewTitle: string;
@@ -17,6 +18,7 @@ const Header: React.FC<HeaderProps> = ({
   onNotificationAction,
   breadcrumbItems = [],
 }) => {
+  const { refreshApplicants, applicantsLoading } = useData();
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(() => new Set(['shareholders_new_data']));
   const notifRef = useRef<HTMLDivElement>(null);
@@ -135,6 +137,25 @@ const Header: React.FC<HeaderProps> = ({
       {renderBreadcrumb()}
       
       <div className="flex items-center gap-6">
+        {/* Manual Refresh Button */}
+        <button
+          onClick={refreshApplicants}
+          disabled={applicantsLoading}
+          className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          aria-label="Refresh data"
+          title="Refresh applicants data"
+        >
+          <svg 
+            className={`w-4 h-4 ${applicantsLoading ? 'animate-spin' : ''}`} 
+            fill="none" 
+            stroke="currentColor" 
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {applicantsLoading ? 'Refreshing...' : 'Refresh'}
+        </button>
+        
         <div className="relative" ref={notifRef}>
           <button
             onClick={() => setIsNotifOpen(v => !v)}

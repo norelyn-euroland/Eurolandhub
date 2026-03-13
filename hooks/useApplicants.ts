@@ -1,136 +1,81 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useCallback } from 'react';
 import { Applicant, RegistrationStatus } from '../lib/types';
 import { applicantService } from '../lib/firestore-service';
+import { useData } from './useData';
 
 interface UseApplicantsOptions {
   status?: RegistrationStatus;
   limitCount?: number;
   autoFetch?: boolean;
-  realTime?: boolean; // Enable real-time updates
+  realTime?: boolean; // Deprecated - kept for backward compatibility
 }
 
 /**
- * Custom hook for managing applicants data from Firestore with real-time updates
+ * Custom hook for managing applicants data - now wraps centralized DataProvider
+ * @deprecated The real-time subscription is handled by DataProvider. This hook is kept for backward compatibility.
  */
 export const useApplicants = (options: UseApplicantsOptions = { autoFetch: true, realTime: true }) => {
-  const [applicants, setApplicants] = useState<Applicant[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-  const unsubscribeRef = useRef<(() => void) | null>(null);
+  const { 
+    applicants, 
+    applicantsLoading, 
+    refreshApplicants,
+    getApplicantById 
+  } = useData();
 
-  const fetchApplicants = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await applicantService.getAll({
-        status: options.status,
-        limitCount: options.limitCount
-      });
-      setApplicants(data);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to fetch applicants'));
-      console.error('Error fetching applicants:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [options.status, options.limitCount]);
+  // Filter applicants by status if provided (client-side filtering)
+  const filteredApplicants = options.status 
+    ? applicants.filter(a => a.status === options.status)
+    : applicants;
 
-  // Set up real-time subscription with polling
-  useEffect(() => {
-    if (options.autoFetch === false) return;
-    
-    if (options.realTime !== false) {
-      // Use real-time subscription
-      setLoading(true);
-      setError(null);
-      
-      try {
-        const unsubscribe = applicantService.subscribeToApplicants(
-          (data) => {
-            setApplicants(data);
-            setLoading(false);
-            setError(null);
-          },
-          {
-            status: options.status,
-            limitCount: options.limitCount
-          }
-        );
-        
-        unsubscribeRef.current = unsubscribe;
-        
-        // Real-time subscription handles all updates automatically
-        // No polling needed - Firestore onSnapshot pushes updates immediately
-        
-        return () => {
-          if (unsubscribeRef.current) {
-            unsubscribeRef.current();
-            unsubscribeRef.current = null;
-          }
-        };
-      } catch (err) {
-        setError(err instanceof Error ? err : new Error('Failed to subscribe to applicants'));
-        console.error('Error setting up subscription:', err);
-        setLoading(false);
-        // Fallback to one-time fetch
-        fetchApplicants();
-      }
-    } else {
-      // Use one-time fetch
-      fetchApplicants();
-    }
-  }, [options.status, options.limitCount, options.autoFetch, options.realTime, fetchApplicants]);
+  // Apply limit if provided
+  const limitedApplicants = options.limitCount
+    ? filteredApplicants.slice(0, options.limitCount)
+    : filteredApplicants;
 
   const createApplicant = useCallback(async (applicant: Applicant) => {
     try {
       await applicantService.create(applicant);
-      await fetchApplicants(); // Refresh list
+      await refreshApplicants(); // Refresh from DataProvider
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to create applicant'));
       throw err;
     }
-  }, [fetchApplicants]);
+  }, [refreshApplicants]);
 
   const updateApplicant = useCallback(async (applicantId: string, updates: Partial<Applicant>) => {
     try {
       await applicantService.update(applicantId, updates);
-      await fetchApplicants(); // Refresh list
+      await refreshApplicants(); // Refresh from DataProvider
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to update applicant'));
       throw err;
     }
-  }, [fetchApplicants]);
+  }, [refreshApplicants]);
 
   const updateApplicantStatus = useCallback(async (applicantId: string, status: RegistrationStatus) => {
     try {
       await applicantService.updateStatus(applicantId, status);
-      await fetchApplicants(); // Refresh list
+      await refreshApplicants(); // Refresh from DataProvider
     } catch (err) {
-      setError(err instanceof Error ? new Error('Failed to update status') : err);
       throw err;
     }
-  }, [fetchApplicants]);
+  }, [refreshApplicants]);
 
   const deleteApplicant = useCallback(async (applicantId: string) => {
     try {
       await applicantService.delete(applicantId);
-      await fetchApplicants(); // Refresh list
+      await refreshApplicants(); // Refresh from DataProvider
     } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to delete applicant'));
       throw err;
     }
-  }, [fetchApplicants]);
+  }, [refreshApplicants]);
 
   return {
-    applicants,
-    loading,
-    error,
-    fetchApplicants,
+    applicants: limitedApplicants,
+    loading: applicantsLoading,
+    error: null, // Errors are handled by DataProvider
+    fetchApplicants: refreshApplicants,
     createApplicant,
     updateApplicant,
     updateApplicantStatus,
     deleteApplicant
   };
 };
-
-

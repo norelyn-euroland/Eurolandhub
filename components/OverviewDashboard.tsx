@@ -13,7 +13,7 @@ import {
   generateUserActivities,
 } from '../lib/engagementService';
 import MetricCard from './MetricCard';
-import { officialShareholderService } from '../lib/firestore-service';
+import { useData } from '../hooks/useData';
 import { PressReleasePreview, PressReleaseDetail, AllPressReleasesView } from './PressReleaseSection';
 import type { PressRelease } from './PressReleaseSection';
 import { getAllPressReleases } from '../services/pressReleaseService';
@@ -1200,8 +1200,10 @@ const Avatar: React.FC<{ name: string; size?: number; profilePictureUrl?: string
 };
 
 const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onViewChange }) => {
+  // Get officialShareholders from centralized DataProvider
+  const { officialShareholders } = useData();
+  
   const [selectedInvestor, setSelectedInvestor] = useState<Applicant | null>(null);
-  const [officialShareholders, setOfficialShareholders] = useState<OfficialShareholder[]>([]);
   const [engagementRecords, setEngagementRecords] = useState<any[]>([]);
   const [engagementLoading, setEngagementLoading] = useState(true);
 
@@ -1308,18 +1310,7 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
     fetchShareData();
   }, [shareRange]);
 
-  // Subscribe to official shareholders for real-time updates
-  useEffect(() => {
-    const unsubscribe = officialShareholderService.subscribeToOfficialShareholders(
-      (shareholders) => {
-        setOfficialShareholders(shareholders);
-      }
-    );
-
-    return () => {
-      unsubscribe();
-    };
-  }, []);
+  // officialShareholders are provided by DataProvider - no subscription needed
 
   // Compute statuses asynchronously and cache them
   useEffect(() => {

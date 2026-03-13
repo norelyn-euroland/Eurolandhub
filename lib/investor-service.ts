@@ -197,10 +197,7 @@ export async function saveInvestor(investor: ExtractedInvestor): Promise<SaveInv
     let uploadDate: string | undefined;
     if (hasEmail) {
       try {
-        const allApplicants = await applicantService.getAll();
-        const existingApplicant = allApplicants.find(a => 
-          a.email && a.email.toLowerCase() === investor.email.toLowerCase().trim()
-        );
+        const existingApplicant = await applicantService.getByEmail(investor.email);
         if (existingApplicant?.submissionDate) {
           uploadDate = existingApplicant.submissionDate; // Use pre-verified account creation date
         }
@@ -255,10 +252,7 @@ export async function saveInvestor(investor: ExtractedInvestor): Promise<SaveInv
       // Check if applicant with this email already exists
       try {
         // Try to find existing applicant by email
-        const allApplicants = await applicantService.getAll();
-        const existingApplicant = allApplicants.find(a => 
-          a.email && a.email.toLowerCase() === investor.email.toLowerCase().trim()
-        );
+        const existingApplicant = await applicantService.getByEmail(investor.email);
         
         if (existingApplicant) {
           // Update existing applicant with pre-verified fields

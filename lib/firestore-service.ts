@@ -818,9 +818,9 @@ export const applicantService = {
       
       const q = query(collection(db, COLLECTIONS.APPLICANTS), ...constraints);
       
-      // Use onSnapshot with source: 'server' to prevent cache and get real-time updates
-      // Include metadata to detect changes
-      return onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
+      // Use onSnapshot for real-time updates
+      // Removed includeMetadataChanges to prevent firing on local pending writes
+      return onSnapshot(q, (snapshot) => {
         try {
           // Firestore onSnapshot automatically handles deletions - deleted docs are removed from snapshot.docs
           // This means the callback will receive an updated array without deleted documents

@@ -5,6 +5,7 @@ import { ISSUER_SAMPLE } from '../lib/issuer-sample';
 import { MOCK_APPLICANTS } from '../lib/mockApplicants';
 import { shareholderService, batchService, officialShareholderService, applicantService } from '../lib/firestore-service';
 import { Shareholder, Applicant, RegistrationStatus, OfficialShareholder } from '../lib/types';
+import { useData } from '../hooks/useData';
 import { getWorkflowStatusInternal, getGeneralAccountStatus } from '../lib/shareholdingsVerification';
 import MetricCard from './MetricCard';
 import Tooltip from './Tooltip';
@@ -31,18 +32,20 @@ interface ShareholdersRegistryProps {
 type TabType = 'shareholder' | 'all-users';
 
 const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery, applicants, applicantsLoading }) => {
+  // Get data from centralized DataProvider
+  const { officialShareholders, getApplicantById } = useData();
+  
   const [isAuditOpen, setIsAuditOpen] = useState(false);
   const [issuer, setIssuer] = useState<Shareholder | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('shareholder');
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [displayTab, setDisplayTab] = useState<TabType>('shareholder');
   const [verifiedShareholders, setVerifiedShareholders] = useState<(Shareholder | Applicant)[]>([]);
-  const [loadingShareholders, setLoadingShareholders] = useState(true);
+  const [loadingShareholders, setLoadingShareholders] = useState(false);
   const [allUsers, setAllUsers] = useState<Applicant[]>([]);
   const [loadingAllUsers, setLoadingAllUsers] = useState(true);
   const [allShareholders, setAllShareholders] = useState<Shareholder[]>([]);
-  const [officialShareholders, setOfficialShareholders] = useState<OfficialShareholder[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadToast, setUploadToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({ show: false, message: '', type: 'success' });
   const [selectedUser, setSelectedUser] = useState<Applicant | null>(null);
@@ -54,15 +57,6 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest'); // Sort order for shareholder tab: newest to oldest or oldest to newest
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
-
-  // Keep a stable ref to the latest applicants so the Firestore subscription callback
-  // can read fresh applicant data without needing `applicants` as an effect dependency.
-  // If `applicants` were a dependency the entire subscription would be rebuilt on every
-  // parent re-render (which happens on every Firestore write), causing subtle list reorders.
-  const applicantsRef = useRef<Applicant[]>(applicants);
-  useEffect(() => {
-    applicantsRef.current = applicants;
-  });
 
   // Sync selectedUser with updated applicant data when applicants prop changes
   useEffect(() => {
@@ -203,60 +197,54 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     return filtered;
   };
 
-  // Real-time subscription for official shareholders (consolidated collection)
+  // Process officialShareholders from DataProvider (no subscription needed)
   useEffect(() => {
-    setLoading(true);
+    if (officialShareholders.length === 0) {
+      setLoading(true);
+      return;
+    }
     
-    // Set up real-time subscription for official shareholders
-    const unsubscribeOfficialShareholders = officialShareholderService.subscribeToOfficialShareholders(
-      (officialShareholders) => {
-        // Convert to Shareholder format for compatibility
-        const shareholders = officialShareholders.map(os => ({
-          id: os.id,
-          name: os.name,
-          firstName: os.firstName,
-          holdings: os.holdings || 0,
-          stake: os.ownershipPercentage || 0, // Use ownershipPercentage for backward compatibility
-          rank: os.rank || 0,
-          coAddress: os.coAddress || '',
-          country: os.country || '',
-          accountType: os.accountType || '',
-        }));
-        
-        setAllShareholders(shareholders);
-        
-        // Find SM Investment Corporation (case-insensitive search) from Firestore
-        const smInvestment = officialShareholders.find(
-          sh => sh.name.toLowerCase().includes('sm investment') || 
-                sh.name.toLowerCase().includes('sm investments')
-        );
-
-        if (smInvestment) {
-          // Convert to Shareholder format for issuer
-          setIssuer({
-            id: smInvestment.id,
-            name: smInvestment.name,
-            firstName: smInvestment.firstName,
-            holdings: smInvestment.holdings || 0,
-            stake: smInvestment.ownershipPercentage || 0,
-            rank: smInvestment.rank || 0,
-            coAddress: smInvestment.coAddress || '',
-            country: smInvestment.country || '',
-            accountType: smInvestment.accountType || '',
-          });
-        } else {
-          // Fallback to issuer sample data if not found in Firestore
-          setIssuer(ISSUER_SAMPLE);
-        }
-        
-        setLoading(false);
-      }
+    // Convert to Shareholder format for compatibility
+    const shareholders = officialShareholders.map(os => ({
+      id: os.id,
+      name: os.name,
+      firstName: os.firstName,
+      holdings: os.holdings || 0,
+      stake: os.ownershipPercentage || 0, // Use ownershipPercentage for backward compatibility
+      rank: os.rank || 0,
+      coAddress: os.coAddress || '',
+      country: os.country || '',
+      accountType: os.accountType || '',
+    }));
+    
+    setAllShareholders(shareholders);
+    
+    // Find SM Investment Corporation (case-insensitive search) from Firestore
+    const smInvestment = officialShareholders.find(
+      sh => sh.name.toLowerCase().includes('sm investment') || 
+            sh.name.toLowerCase().includes('sm investments')
     );
 
-    return () => {
-      unsubscribeOfficialShareholders();
-    };
-  }, []);
+    if (smInvestment) {
+      // Convert to Shareholder format for issuer
+      setIssuer({
+        id: smInvestment.id,
+        name: smInvestment.name,
+        firstName: smInvestment.firstName,
+        holdings: smInvestment.holdings || 0,
+        stake: smInvestment.ownershipPercentage || 0,
+        rank: smInvestment.rank || 0,
+        coAddress: smInvestment.coAddress || '',
+        country: smInvestment.country || '',
+        accountType: smInvestment.accountType || '',
+      });
+    } else {
+      // Fallback to issuer sample data if not found in Firestore
+      setIssuer(ISSUER_SAMPLE);
+    }
+    
+    setLoading(false);
+  }, [officialShareholders]);
 
   // Close filter dropdown on click outside
   useEffect(() => {
@@ -269,51 +257,41 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Real-time subscription for official shareholders
+  // Process official shareholders from DataProvider (no subscription needed)
   // This collection tracks PRE-VERIFIED, VERIFIED, and NULL status investors independently
   useEffect(() => {
     if (displayTab !== 'shareholder') {
       return;
     }
 
+    if (officialShareholders.length === 0) {
+      setLoadingShareholders(true);
+      return;
+    }
+
     setLoadingShareholders(true);
     
-    // Set up real-time subscription for official shareholders
-    const unsubscribeOfficial = officialShareholderService.subscribeToOfficialShareholders(
-      async (officialShareholdersList) => {
-        setOfficialShareholders(officialShareholdersList);
-        
-        // Fetch corresponding applicant data in PARALLEL (not sequential) to avoid slow reordering
-        // NOTE: We do NOT write back to Firestore inside this callback — any update inside the
-        // subscription triggers a new snapshot, which would cause an infinite reorder loop.
-        const officialInvestorsWithData: (OfficialShareholder & { applicant?: Applicant })[] = 
-          await Promise.all(
-            officialShareholdersList.map(async (officialShareholder) => {
-              let applicant: Applicant | undefined;
+    // Match official shareholders with applicants using in-memory lookups (no Firestore reads)
+    const officialInvestorsWithData: (OfficialShareholder & { applicant?: Applicant })[] = 
+      officialShareholders.map((officialShareholder) => {
+        let applicant: Applicant | undefined;
 
-              // 1. Try applicantId first (most reliable link)
-              if (officialShareholder.applicantId) {
-                try {
-                  applicant = await applicantService.getById(officialShareholder.applicantId) || undefined;
-                } catch {
-                  // silently ignore — fallback below
-                }
-              }
+        // 1. Try applicantId first (most reliable link) - use O(1) lookup from DataProvider
+        if (officialShareholder.applicantId) {
+          applicant = getApplicantById(officialShareholder.applicantId);
+        }
 
-              // 2. Fallback: match in already-loaded applicants list by email or registrationId
-              // Read from the ref (always fresh) — NOT from the closure over `applicants` prop
-              // so we don't need `applicants` in the effect dependency array
-              if (!applicant) {
-                applicant = applicantsRef.current.find(a =>
-                  (a.email && officialShareholder.email &&
-                    a.email.toLowerCase() === officialShareholder.email!.toLowerCase()) ||
-                  a.registrationId === officialShareholder.id
-                );
-              }
-
-              return { ...officialShareholder, applicant };
-            })
+        // 2. Fallback: match in already-loaded applicants list by email or registrationId
+        if (!applicant) {
+          applicant = applicants.find(a =>
+            (a.email && officialShareholder.email &&
+              a.email.toLowerCase() === officialShareholder.email!.toLowerCase()) ||
+            a.registrationId === officialShareholder.id
           );
+        }
+
+        return { ...officialShareholder, applicant };
+      });
         
         // Helper: pick the most meaningful "last activity" date for a record.
         // Priority (most recent meaningful event wins):
@@ -398,20 +376,9 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
             : dateA.localeCompare(dateB);  // oldest first
         });
         
-        setVerifiedShareholders(displayData as Applicant[]);
-        setLoadingShareholders(false);
-      }
-    );
-
-    return () => {
-      unsubscribeOfficial();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayTab, sortOrder]);
-  // NOTE: `applicants` is intentionally omitted from this dependency array.
-  // We access it via `applicantsRef.current` inside the callback so the subscription
-  // is not torn-down and rebuilt on every parent re-render (which happens on every
-  // Firestore write). Rebuilding causes subtle, hard-to-notice list reordering.
+    setVerifiedShareholders(displayData as Applicant[]);
+    setLoadingShareholders(false);
+  }, [displayTab, sortOrder, officialShareholders, applicants, getApplicantById]);
 
 
   // Fetch all users (basic sign-ups without share claims) for All Users tab

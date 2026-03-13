@@ -2,8 +2,9 @@ import React, { useEffect, useLayoutEffect, useMemo, useState, startTransition, 
 // @google/genai guidelines: Import ViewType from shared types
 import { RegistrationStatus, Applicant, ViewType, RegistrationsTabType, BreadcrumbItem, Theme } from './lib/types';
 import { ensureWorkflow, recordManualReview, recordRequestInfo } from './lib/shareholdingsVerification';
-import { useApplicants } from './hooks/useApplicants';
+import { useData } from './hooks/useData';
 import { applicantService } from './lib/firestore-service';
+import { DataProvider } from './contexts/DataContext';
 import { useAuth } from './hooks/useAuth';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -57,7 +58,7 @@ const AuthedApp: React.FC<AuthedAppProps> = ({ theme, toggleTheme }) => {
   };
   
   const [selectedApplicantId, setSelectedApplicantId] = useState<string | null>(getInitialSelectedApplicantId);
-  const { applicants, loading: applicantsLoading } = useApplicants({ realTime: true });
+  const { applicants, applicantsLoading } = useData();
   
   // Find selected applicant from applicants list
   const selectedApplicant = selectedApplicantId 
@@ -1005,27 +1006,29 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="relative min-h-screen">
-      {isAuthenticated && (
-        <div
-          className={`transition-opacity duration-300 ease-out ${appVisible ? 'opacity-100' : 'opacity-0'}`}
-          style={{ transitionDuration: `${FADE_DURATION_MS}ms` }}
-        >
-          <AuthedApp theme={theme} toggleTheme={toggleTheme} />
-        </div>
-      )}
+    <DataProvider>
+      <div className="relative min-h-screen">
+        {isAuthenticated && (
+          <div
+            className={`transition-opacity duration-300 ease-out ${appVisible ? 'opacity-100' : 'opacity-0'}`}
+            style={{ transitionDuration: `${FADE_DURATION_MS}ms` }}
+          >
+            <AuthedApp theme={theme} toggleTheme={toggleTheme} />
+          </div>
+        )}
 
-      {!isAuthenticated && loginMounted && (
-        <div
-          className={`transition-opacity duration-300 ease-out ${
-            loginVisible ? 'opacity-100' : 'opacity-0'
-          }`}
-          style={{ transitionDuration: `${FADE_DURATION_MS}ms` }}
-        >
-          <LoginPage />
-        </div>
-      )}
-    </div>
+        {!isAuthenticated && loginMounted && (
+          <div
+            className={`transition-opacity duration-300 ease-out ${
+              loginVisible ? 'opacity-100' : 'opacity-0'
+            }`}
+            style={{ transitionDuration: `${FADE_DURATION_MS}ms` }}
+          >
+            <LoginPage />
+          </div>
+        )}
+      </div>
+    </DataProvider>
   );
 };
 

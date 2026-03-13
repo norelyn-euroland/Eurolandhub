@@ -9,7 +9,7 @@ import Tooltip from './Tooltip';
 import { getWorkflowStatusInternal, getGeneralAccountStatus, getWorkflowStatusFrontendLabel } from '../lib/shareholdingsVerification';
 import AddInvestorModal from './AddInvestorModal';
 import MetricCard from './MetricCard';
-import { officialShareholderService } from '../lib/firestore-service';
+import { useData } from '../hooks/useData';
 
 // Helper function to get initials (first letter of first name and last name)
 const getInitials = (fullName: string): string => {
@@ -122,7 +122,9 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || '');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [statusCache, setStatusCache] = useState<Record<string, string>>({});
-  const [officialShareholders, setOfficialShareholders] = useState<OfficialShareholder[]>([]);
+  
+  // Get officialShareholders from centralized DataProvider
+  const { officialShareholders } = useData();
   
   const exportRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLDivElement>(null);
@@ -151,18 +153,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
     computeStatuses();
   }, [applicants]);
 
-  // Subscribe to official shareholders for real-time updates
-  useEffect(() => {
-    const unsubscribe = officialShareholderService.subscribeToOfficialShareholders(
-      (shareholders) => {
-        setOfficialShareholders(shareholders);
-      }
-    );
-
-    return () => {
-      unsubscribe();
-    };
-  }, []);
+  // officialShareholders are provided by DataProvider - no subscription needed
 
   // Close dropdowns on click outside
   useEffect(() => {
