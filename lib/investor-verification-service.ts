@@ -1,21 +1,22 @@
 /**
  * Investor Verification Service
  * Checks if investors exist in the database and returns verification results
+ * Now uses officialShareholders collection (consolidated)
  */
 
 import { ExtractedInvestor } from './investor-extractor.js';
-import { Shareholder } from './types.js';
-import { shareholderService } from './firestore-service.js';
+import { OfficialShareholder } from './types.js';
+import { officialShareholderService } from './firestore-service.js';
 
 export interface VerificationResult {
-  existing: Array<{ investor: ExtractedInvestor; existingData: Shareholder }>;
+  existing: Array<{ investor: ExtractedInvestor; existingData: OfficialShareholder }>;
   new: ExtractedInvestor[];
   stats: { existingCount: number; newCount: number; totalCount: number };
 }
 
 /**
  * Verify investors against the database
- * Checks if each investor exists in the shareholders collection by holdingId
+ * Checks if each investor exists in the officialShareholders collection by holdingId
  * 
  * @param investors - Array of investors to verify
  * @returns Promise with verification results
@@ -23,7 +24,7 @@ export interface VerificationResult {
 export async function verifyInvestors(
   investors: ExtractedInvestor[]
 ): Promise<VerificationResult> {
-  const existing: Array<{ investor: ExtractedInvestor; existingData: Shareholder }> = [];
+  const existing: Array<{ investor: ExtractedInvestor; existingData: OfficialShareholder }> = [];
   const newInvestors: ExtractedInvestor[] = [];
 
   // Check each investor against the database
@@ -35,14 +36,14 @@ export async function verifyInvestors(
     }
 
     try {
-      // Check if shareholder exists by holdingId
-      const existingShareholder = await shareholderService.getById(investor.holdingId);
+      // Check if official shareholder exists by holdingId
+      const existingOfficialShareholder = await officialShareholderService.getById(investor.holdingId);
       
-      if (existingShareholder) {
+      if (existingOfficialShareholder) {
         // Investor exists in database
         existing.push({
           investor,
-          existingData: existingShareholder,
+          existingData: existingOfficialShareholder,
         });
       } else {
         // Investor is new

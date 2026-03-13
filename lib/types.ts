@@ -274,23 +274,31 @@ export type ShareholderStatusType = 'PRE-VERIFIED' | 'VERIFIED' | 'NULL';
 
 /**
  * Official Shareholder Record
- * Tracks official investors from masterlist (pre-verified, verified, no-contact)
- * This collection persists independently of applicants collection
+ * Consolidated collection for all IRO-uploaded investors and registry data
+ * Replaces the separate 'shareholders' collection - single source of truth
+ * Tracks: Raw registry data (NULL), Pre-verified accounts (PRE-VERIFIED), Verified accounts (VERIFIED)
  */
 export interface OfficialShareholder {
   id: string; // Registration ID (holdingId) - primary key
   name: string; // Full name
+  firstName?: string; // First name (from registry data)
+  // Contact information
   email?: string; // Email if available
   phone?: string; // Phone if available
   country?: string; // Country if available
-  status: ShareholderStatusType; // PRE-VERIFIED, VERIFIED, or NULL
-  applicantId?: string; // Link to applicants collection if account exists
+  coAddress?: string; // Correspondence address (from registry data)
+  // Status and ranking
+  status: ShareholderStatusType; // PRE-VERIFIED, VERIFIED, or NULL (raw registry data)
+  rank?: number; // Rank in ownership reports (for sorting)
+  // Holdings information
   holdings?: number; // Number of shares held
-  stake?: number; // Ownership percentage
+  ownershipPercentage?: number; // Computed ownership percentage: (holdings / totalSharesOutstanding) * 100
   accountType?: string; // Account type (Ordinary, etc.)
+  // Links
+  applicantId?: string; // Link to applicants collection if account exists
   // Timestamps
-  createdAt: string; // ISO timestamp when record was created
-  updatedAt: string; // ISO timestamp when record was last updated
+  createdAt: string; // ISO timestamp when IRO first uploaded the information or pre-verified account was created
+  updatedAt: string; // ISO timestamp when IRO first uploaded OR when pre-verified account was created (not just when updated)
   // Status-specific fields
   emailSentAt?: string; // ISO timestamp when invitation email was sent (for PRE-VERIFIED)
   accountClaimedAt?: string; // ISO timestamp when account was claimed (for VERIFIED)

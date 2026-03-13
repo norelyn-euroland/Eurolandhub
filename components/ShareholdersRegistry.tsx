@@ -173,23 +173,47 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     return filtered;
   };
 
-  // Real-time subscription for shareholders (masterlist)
+  // Real-time subscription for official shareholders (consolidated collection)
   useEffect(() => {
     setLoading(true);
     
-    // Set up real-time subscription for shareholders
-    const unsubscribeShareholders = shareholderService.subscribeToShareholders(
-      (shareholders) => {
+    // Set up real-time subscription for official shareholders
+    const unsubscribeOfficialShareholders = officialShareholderService.subscribeToOfficialShareholders(
+      (officialShareholders) => {
+        // Convert to Shareholder format for compatibility
+        const shareholders = officialShareholders.map(os => ({
+          id: os.id,
+          name: os.name,
+          firstName: os.firstName,
+          holdings: os.holdings || 0,
+          stake: os.ownershipPercentage || 0, // Use ownershipPercentage for backward compatibility
+          rank: os.rank || 0,
+          coAddress: os.coAddress || '',
+          country: os.country || '',
+          accountType: os.accountType || '',
+        }));
+        
         setAllShareholders(shareholders);
         
         // Find SM Investment Corporation (case-insensitive search) from Firestore
-        const smInvestment = shareholders.find(
+        const smInvestment = officialShareholders.find(
           sh => sh.name.toLowerCase().includes('sm investment') || 
                 sh.name.toLowerCase().includes('sm investments')
         );
 
         if (smInvestment) {
-          setIssuer(smInvestment);
+          // Convert to Shareholder format for issuer
+          setIssuer({
+            id: smInvestment.id,
+            name: smInvestment.name,
+            firstName: smInvestment.firstName,
+            holdings: smInvestment.holdings || 0,
+            stake: smInvestment.ownershipPercentage || 0,
+            rank: smInvestment.rank || 0,
+            coAddress: smInvestment.coAddress || '',
+            country: smInvestment.country || '',
+            accountType: smInvestment.accountType || '',
+          });
         } else {
           // Fallback to issuer sample data if not found in Firestore
           setIssuer(ISSUER_SAMPLE);
@@ -200,7 +224,7 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     );
 
     return () => {
-      unsubscribeShareholders();
+      unsubscribeOfficialShareholders();
     };
   }, []);
 

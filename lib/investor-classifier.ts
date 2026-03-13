@@ -5,8 +5,8 @@
  */
 
 import { ExtractedInvestor } from './investor-extractor.js';
-import { shareholderService, applicantService } from './firestore-service.js';
-import type { Shareholder } from './types.js';
+import { officialShareholderService, applicantService } from './firestore-service.js';
+import type { OfficialShareholder } from './types.js';
 import type { Applicant } from './types.js';
 
 export interface ClassifiedInvestor {
@@ -183,10 +183,10 @@ async function findExistingId(
   const variations = getIdVariations(holdingId);
   if (variations.length === 0) return null;
 
-  // 1) Shareholder by any ID variation
+  // 1) Official Shareholder by any ID variation
   for (const v of variations) {
-    const shareholder = await shareholderService.getById(v);
-    if (shareholder) return shareholder.id;
+    const officialShareholder = await officialShareholderService.getById(v);
+    if (officialShareholder) return officialShareholder.id;
   }
 
   // 2) Applicant by registrationId (any variation)
@@ -208,16 +208,16 @@ async function findExistingId(
     }
   }
 
-  // 4) Full scan: shareholders and applicants with flexible id + name matching
-  const [allShareholders, allApplicants] = await Promise.all([
-    shareholderService.getAll({ limitCount: 5000 }),
+  // 4) Full scan: official shareholders and applicants with flexible id + name matching
+  const [allOfficialShareholders, allApplicants] = await Promise.all([
+    officialShareholderService.getAll({ limitCount: 5000 }),
     applicantService.getAll({ limitCount: 5000 }),
   ]);
 
   const norm6 = (holdingId || '').replace(/\D/g, '').slice(-6);
   if (!norm6) return null;
 
-  for (const s of allShareholders) {
+  for (const s of allOfficialShareholders) {
     const sid = (s.id || '').replace(/\D/g, '');
     const sidLast6 = sid.length >= 6 ? sid.slice(-6) : sid;
     if (sidLast6 === norm6 || sid === norm6 || variations.includes(s.id)) return s.id;
@@ -234,7 +234,7 @@ async function findExistingId(
 
   if (investorName && investorName.trim()) {
     const invName = (investorName || '').trim().toLowerCase();
-    for (const s of allShareholders) {
+    for (const s of allOfficialShareholders) {
       const sName = (s.name || '').trim().toLowerCase();
       const sid = (s.id || '').replace(/\D/g, '').slice(-6);
       if (sid === norm6 && sName && (sName === invName || namesSimilar(invName, sName))) return s.id;
@@ -252,14 +252,14 @@ async function findExistingId(
 /** Check for suspected match: similar registration ID (1 digit diff) or similar name */
 async function findSuspectedMatch(
   investor: ExtractedInvestor,
-  shareholders: Shareholder[],
+  officialShareholders: OfficialShareholder[],
   applicants: Applicant[]
 ): Promise<{ similarTo: string; reason: string; existingId: string } | null> {
   const holdingId = normalizeHoldingId(investor.holdingId || '');
   const investorName = (investor.investorName || '').trim();
 
-  // Check shareholders
-  for (const s of shareholders) {
+  // Check official shareholders
+  for (const s of officialShareholders) {
     const sid = (s.id || '').replace(/\D/g, '').slice(-6);
     if (sid.length < 6) continue;
     const diff = digitDiffCount(holdingId, sid);
@@ -610,7 +610,7 @@ export async function classifyInvestors(
 
   // Load all data once at the start (shared across all investors)
   const [allShareholders, allApplicants] = await Promise.all([
-    shareholderService.getAll({ limitCount: 5000 }),
+    officialShareholderService.getAll({ limitCount: 5000 }),
     applicantService.getAll({ limitCount: 5000 }),
   ]);
 

@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Applicant, RegistrationStatus, ComplianceStatus } from '../lib/types';
-import { shareholderService } from '../lib/firestore-service';
+import { officialShareholderService } from '../lib/firestore-service';
 import { Shareholder } from '../lib/types';
 import { applicantService } from '../lib/firestore-service';
 import { getWorkflowStatusInternal, markUserResponse, markComplianceComplete } from '../lib/shareholdingsVerification';
@@ -269,7 +269,7 @@ const ApplicantDetail: React.FC<ApplicantDetailProps> = ({ applicant, onBack, on
     // Search for shareholder in Firestore
     const searchShareholder = async () => {
       try {
-        const match = await shareholderService.getById(registrationId.trim());
+        const match = await officialShareholderService.getById(registrationId.trim());
         setMatchedShareholder(match);
       } catch (error) {
         console.error('Error searching for shareholder:', error);

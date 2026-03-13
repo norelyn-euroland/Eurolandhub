@@ -8,8 +8,8 @@
  * - Investors are added via batch upload
  */
 
-import { Applicant, OfficialShareholder, ShareholderStatusType, Shareholder } from './types.js';
-import { officialShareholderService, applicantService, shareholderService } from './firestore-service.js';
+import { Applicant, OfficialShareholder, ShareholderStatusType } from './types.js';
+import { officialShareholderService, applicantService } from './firestore-service.js';
 import { RegistrationStatus } from './types.js';
 
 /**
@@ -152,14 +152,14 @@ export async function syncVerifiedApplicantToOfficialShareholders(applicant: App
                           applicant.registrationId || 
                           applicant.id;
 
-    // Check if this investor exists in shareholders masterlist
-    let shareholder: Shareholder | null = null;
+    // Check if this investor exists in official shareholders collection
+    let existingOfficialShareholder: OfficialShareholder | null = null;
     try {
-      shareholder = await shareholderService.getById(registrationId);
+      existingOfficialShareholder = await officialShareholderService.getById(registrationId);
     } catch (error) {
       // If not found by ID, try to find by name/email match
-      const allShareholders = await shareholderService.getAll();
-      shareholder = allShareholders.find(sh => 
+      const allOfficialShareholders = await officialShareholderService.getAll({ limitCount: 10000 });
+      existingOfficialShareholder = allOfficialShareholders.find(sh => 
         sh.name === applicant.fullName ||
         (sh.name && applicant.fullName && sh.name.toLowerCase() === applicant.fullName.toLowerCase())
       ) || null;
@@ -169,17 +169,21 @@ export async function syncVerifiedApplicantToOfficialShareholders(applicant: App
     const officialShareholder: OfficialShareholder = {
       id: registrationId,
       name: applicant.fullName,
+      firstName: existingOfficialShareholder?.firstName,
       email: applicant.email || undefined,
       phone: applicant.phoneNumber || undefined,
       country: applicant.location || undefined,
+      coAddress: existingOfficialShareholder?.coAddress,
+      rank: existingOfficialShareholder?.rank,
       status: 'VERIFIED', // Verified applicants are always VERIFIED
       applicantId: applicant.id,
-      holdings: shareholder?.holdings || applicant.holdingsRecord?.sharesHeld || undefined,
-      stake: shareholder?.stake || applicant.holdingsRecord?.ownershipPercentage || undefined,
-      accountType: shareholder?.accountType || applicant.holdingsRecord?.sharesClass || undefined,
-      createdAt: applicant.submissionDate || now,
-      updatedAt: now,
+      holdings: existingOfficialShareholder?.holdings || applicant.holdingsRecord?.sharesHeld || undefined,
+      ownershipPercentage: existingOfficialShareholder?.ownershipPercentage || applicant.holdingsRecord?.ownershipPercentage || (existingOfficialShareholder?.holdings || applicant.holdingsRecord?.sharesHeld ? ((existingOfficialShareholder?.holdings || applicant.holdingsRecord?.sharesHeld || 0) / 25_381_100) * 100 : undefined),
+      accountType: existingOfficialShareholder?.accountType || applicant.holdingsRecord?.sharesClass || undefined,
+      createdAt: existingOfficialShareholder?.createdAt || applicant.submissionDate || now,
+      updatedAt: existingOfficialShareholder?.updatedAt || applicant.submissionDate || now, // Preserve original upload date
       accountClaimedAt: applicant.shareholdingsVerification?.step6?.verifiedAt || now,
+      emailSentAt: existingOfficialShareholder?.emailSentAt || applicant.emailSentAt,
     };
 
     await officialShareholderService.upsert(officialShareholder);
@@ -245,9 +249,17 @@ export async function migrateToOfficialShareholders(): Promise<{ created: number
     const applicants = await applicantService.getAll();
     console.log(`Found ${applicants.length} applicants to process`);
 
-    // Get all shareholders from masterlist
-    const shareholders = await shareholderService.getAll();
-    console.log(`Found ${shareholders.length} shareholders from masterlist`);
+    // Get all shareholders from masterlist (legacy collection - will be migrated)
+    // Note: After consolidation, this will be empty as all data moves to officialShareholders
+    let shareholders: Array<{ id: string; name: string; holdings?: number; stake?: number; accountType?: string; firstName?: string; coAddress?: string; country?: string; rank?: number }> = [];
+    try {
+      // Try to import shareholderService for migration (backward compatibility)
+      const { shareholderService } = await import('./firestore-service.js');
+      shareholders = await shareholderService.getAll({ limitCount: 10000 }) as any[];
+      console.log(`Found ${shareholders.length} shareholders from masterlist to migrate`);
+    } catch (error) {
+      console.warn('Shareholders collection not found or already migrated:', error);
+    }
 
     // Process applicants:
     // 1. Pre-verified applicants (IRO created)
@@ -264,16 +276,28 @@ export async function migrateToOfficialShareholders(): Promise<{ created: number
             status = 'PRE-VERIFIED';
           }
 
+          // Find matching shareholder data for additional fields
+          const matchingShareholder = shareholders.find(sh => sh.id === applicant.registrationId);
+          
+          const holdings = matchingShareholder?.holdings || applicant.holdingsRecord?.sharesHeld || undefined;
+          const ownershipPercentage = holdings ? (holdings / 25_381_100) * 100 : (applicant.holdingsRecord?.ownershipPercentage || undefined);
+          
           const officialShareholder: OfficialShareholder = {
             id: applicant.registrationId,
             name: applicant.fullName,
+            firstName: matchingShareholder?.firstName,
             email: applicant.email || undefined,
             phone: applicant.phoneNumber || undefined,
             country: applicant.location || undefined,
+            coAddress: matchingShareholder?.coAddress,
+            rank: matchingShareholder?.rank,
             status,
             applicantId: applicant.id,
+            holdings,
+            ownershipPercentage,
+            accountType: matchingShareholder?.accountType || applicant.holdingsRecord?.sharesClass || undefined,
             createdAt: applicant.submissionDate || new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            updatedAt: applicant.submissionDate || new Date().toISOString(), // Use pre-verified account creation date
             emailSentAt: applicant.emailSentAt || undefined,
             accountClaimedAt: applicant.accountClaimedAt || undefined,
           };
@@ -297,32 +321,40 @@ export async function migrateToOfficialShareholders(): Promise<{ created: number
           // Check if already exists
           const existing = await officialShareholderService.getById(registrationId);
           
-          // Find matching shareholder from masterlist
-          let shareholder: Shareholder | null = null;
+          // Find matching shareholder from masterlist (legacy - for migration only)
+          let shareholder: { holdings?: number; stake?: number; accountType?: string; firstName?: string; coAddress?: string; rank?: number } | null = null;
           try {
-            shareholder = await shareholderService.getById(registrationId);
+            const { shareholderService } = await import('./firestore-service.js');
+            shareholder = await shareholderService.getById(registrationId) as any;
           } catch (error) {
-            // Try to find by name match
-            const allShareholders = await shareholderService.getAll();
-            shareholder = allShareholders.find(sh => 
-              sh.name === applicant.fullName ||
-              (sh.name && applicant.fullName && sh.name.toLowerCase() === applicant.fullName.toLowerCase())
-            ) || null;
+            // Try to find by name match in shareholders list (if available)
+            if (shareholders.length > 0) {
+              shareholder = shareholders.find(sh => 
+                sh.name === applicant.fullName ||
+                (sh.name && applicant.fullName && sh.name.toLowerCase() === applicant.fullName.toLowerCase())
+              ) || null;
+            }
           }
 
+          const holdings = shareholder?.holdings || applicant.holdingsRecord?.sharesHeld || undefined;
+          const ownershipPercentage = holdings ? (holdings / 25_381_100) * 100 : (applicant.holdingsRecord?.ownershipPercentage || undefined);
+          
           const officialShareholder: OfficialShareholder = {
             id: registrationId,
             name: applicant.fullName,
+            firstName: shareholder?.firstName,
             email: applicant.email || undefined,
             phone: applicant.phoneNumber || undefined,
             country: applicant.location || undefined,
+            coAddress: shareholder?.coAddress,
+            rank: shareholder?.rank,
             status: 'VERIFIED',
             applicantId: applicant.id,
-            holdings: shareholder?.holdings || applicant.holdingsRecord?.sharesHeld || undefined,
-            stake: shareholder?.stake || applicant.holdingsRecord?.ownershipPercentage || undefined,
+            holdings,
+            ownershipPercentage,
             accountType: shareholder?.accountType || applicant.holdingsRecord?.sharesClass || undefined,
             createdAt: applicant.submissionDate || new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            updatedAt: applicant.submissionDate || new Date().toISOString(), // Use account creation date
             accountClaimedAt: applicant.shareholdingsVerification?.step6?.verifiedAt || undefined,
           };
 
@@ -355,15 +387,21 @@ export async function migrateToOfficialShareholders(): Promise<{ created: number
 
           if (!matchingApplicant) {
             // This is a NULL status investor (no contact, no account)
+            const holdings = shareholder.holdings || undefined;
+            const ownershipPercentage = holdings ? (holdings / 25_381_100) * 100 : undefined;
+            
             const officialShareholder: OfficialShareholder = {
               id: shareholder.id,
               name: shareholder.name,
+              firstName: shareholder.firstName,
               email: undefined,
               phone: undefined,
               country: shareholder.country || undefined,
+              coAddress: shareholder.coAddress,
+              rank: shareholder.rank,
               status: 'NULL',
-              holdings: shareholder.holdings || undefined,
-              stake: shareholder.stake || undefined,
+              holdings,
+              ownershipPercentage,
               accountType: shareholder.accountType || undefined,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),

@@ -2532,11 +2532,177 @@ app.post('/api/parse-document', (req, res) => {
   req.pipe(busboy);
 });
 
+/**
+ * POST /api/migrate-shareholders
+ * Migrates all shareholders from the legacy 'shareholders' collection to 'officialShareholders'
+ * This consolidates all IRO-uploaded investors into a single collection
+ */
+app.post('/api/migrate-shareholders', async (req, res) => {
+  console.log('[migrate-shareholders] Migration request received');
+  try {
+    const { shareholderService, officialShareholderService } = await import('./lib/firestore-service.js');
+    const { ShareholderStatusType } = await import('./lib/types.js');
+    
+    console.log('Starting migration from shareholders to officialShareholders...');
+    
+    // Get all shareholders from legacy collection
+    const shareholders = await shareholderService.getAll({ limitCount: 10000 });
+    console.log(`Found ${shareholders.length} shareholders to migrate`);
+
+    let migrated = 0;
+    let skipped = 0;
+    let errors = 0;
+    const errorDetails = [];
+
+    for (const shareholder of shareholders) {
+      try {
+        // Check if already exists in officialShareholders
+        const existing = await officialShareholderService.getById(shareholder.id);
+        
+        if (existing) {
+          // Update existing record with missing fields from legacy collection
+          const holdings = existing.holdings || shareholder.holdings || undefined;
+          const ownershipPercentage = holdings ? (holdings / 25_381_100) * 100 : existing.ownershipPercentage;
+          
+          const updateData = {
+            firstName: existing.firstName || shareholder.firstName,
+            coAddress: existing.coAddress || shareholder.coAddress,
+            rank: existing.rank || shareholder.rank,
+            holdings,
+            ownershipPercentage,
+            accountType: existing.accountType || shareholder.accountType,
+            country: existing.country || shareholder.country,
+            // Update status to PRE-VERIFIED if it's currently NULL (migrated investors should be pre-verified)
+            status: existing.status === 'NULL' ? 'PRE-VERIFIED' : existing.status,
+            // Preserve original timestamps
+            createdAt: existing.createdAt,
+            updatedAt: existing.updatedAt,
+          };
+          
+          await officialShareholderService.update(shareholder.id, updateData);
+          migrated++;
+        } else {
+          // Create new official shareholder with PRE-VERIFIED status (IRO-uploaded investors)
+          const holdings = shareholder.holdings || undefined;
+          const ownershipPercentage = holdings ? (holdings / 25_381_100) * 100 : undefined;
+          
+          const officialShareholder = {
+            id: shareholder.id,
+            name: shareholder.name,
+            firstName: shareholder.firstName,
+            country: shareholder.country || undefined,
+            coAddress: shareholder.coAddress || undefined,
+            rank: shareholder.rank,
+            status: 'PRE-VERIFIED', // IRO-uploaded investors are pre-verified
+            holdings,
+            ownershipPercentage,
+            accountType: shareholder.accountType || undefined,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(), // IRO upload date
+          };
+
+          await officialShareholderService.create(officialShareholder);
+          migrated++;
+        }
+      } catch (error) {
+        errors++;
+        const errorMsg = `Error migrating shareholder ${shareholder.id}: ${error instanceof Error ? error.message : String(error)}`;
+        errorDetails.push(errorMsg);
+        console.error(errorMsg);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Migration completed: ${migrated} migrated, ${skipped} skipped, ${errors} errors`,
+      stats: {
+        total: shareholders.length,
+        migrated,
+        skipped,
+        errors,
+      },
+      errors: errors > 0 ? errorDetails : undefined,
+    });
+  } catch (error) {
+    console.error('Error in migration API:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * POST /api/update-null-to-preverified
+ * Updates existing NULL status official shareholders to PRE-VERIFIED
+ * This updates any records that were previously migrated with NULL status
+ */
+app.post('/api/update-null-to-preverified', async (req, res) => {
+  console.log('[update-null-to-preverified] Update request received');
+  try {
+    const { officialShareholderService } = await import('./lib/firestore-service.js');
+    const { ShareholderStatusType } = await import('./lib/types.js');
+    
+    console.log('Starting update of NULL status to PRE-VERIFIED...');
+    
+    // Get all official shareholders
+    const allOfficialShareholders = await officialShareholderService.getAll({ limitCount: 10000 });
+    console.log(`Found ${allOfficialShareholders.length} official shareholders to check`);
+
+    let updated = 0;
+    let skipped = 0;
+    let errors = 0;
+    const errorDetails = [];
+
+    for (const shareholder of allOfficialShareholders) {
+      try {
+        // Only update if status is NULL
+        if (shareholder.status === 'NULL') {
+          await officialShareholderService.update(shareholder.id, {
+            status: 'PRE-VERIFIED',
+            // Preserve all other fields and timestamps
+          });
+          updated++;
+        } else {
+          skipped++;
+        }
+      } catch (error) {
+        errors++;
+        const errorMsg = `Error updating shareholder ${shareholder.id}: ${error instanceof Error ? error.message : String(error)}`;
+        errorDetails.push(errorMsg);
+        console.error(errorMsg);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Update completed: ${updated} updated to PRE-VERIFIED, ${skipped} skipped (already correct status), ${errors} errors`,
+      stats: {
+        total: allOfficialShareholders.length,
+        updated,
+        skipped,
+        errors,
+      },
+      errors: errors > 0 ? errorDetails : undefined,
+    });
+  } catch (error) {
+    console.error('Error in update API:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 API Server running on http://localhost:${PORT}`);
   console.log(`📡 Health check: http://localhost:${PORT}/health`);
   console.log(`📄 Parse endpoint: http://localhost:${PORT}/api/parse-document`);
+  console.log(`🔄 Migration endpoint: http://localhost:${PORT}/api/migrate-shareholders`);
+  console.log(`🔄 Update endpoint: http://localhost:${PORT}/api/update-null-to-preverified`);
   console.log(`✅ CORS enabled for: http://localhost:3000`);
 });
 

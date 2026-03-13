@@ -4,9 +4,8 @@
  */
 
 import { ExtractedInvestor } from './investor-extractor.js';
-import { Shareholder, Applicant, RegistrationStatus, WorkflowStage, AccountStatus, SystemStatus } from './types.js';
-import { shareholderService } from './firestore-service.js';
-import { applicantService } from './firestore-service.js';
+import { Shareholder, Applicant, RegistrationStatus, WorkflowStage, AccountStatus, SystemStatus, OfficialShareholder, ShareholderStatusType } from './types.js';
+import { officialShareholderService, applicantService } from './firestore-service.js';
 import { addHoldingsUpdateTimestamp, addHoldingsUpdateSnapshot } from './holdings-update-logger.js';
 
 export interface SaveInvestorResult {
@@ -49,7 +48,7 @@ function extractFirstName(fullName: string): string | undefined {
 }
 
 /**
- * Convert ExtractedInvestor to Shareholder
+ * Convert ExtractedInvestor to Shareholder (legacy - kept for backward compatibility)
  */
 function investorToShareholder(investor: ExtractedInvestor): Shareholder {
   return {
@@ -62,6 +61,49 @@ function investorToShareholder(investor: ExtractedInvestor): Shareholder {
     coAddress: investor.coAddress || '',
     country: investor.country || '',
     accountType: investor.accountType || '',
+  };
+}
+
+// Total shares outstanding for ownership percentage calculation
+const TOTAL_SHARES_OUTSTANDING = 25_381_100;
+
+/**
+ * Calculate ownership percentage from holdings
+ */
+function calculateOwnershipPercentage(holdings: number): number | undefined {
+  if (!holdings || holdings <= 0) return undefined;
+  return (holdings / TOTAL_SHARES_OUTSTANDING) * 100;
+}
+
+/**
+ * Convert ExtractedInvestor to OfficialShareholder
+ * This is the new consolidated format - all IRO uploads go here
+ * updatedAt reflects when IRO first uploaded the information or when pre-verified account was created
+ */
+function investorToOfficialShareholder(investor: ExtractedInvestor, hasEmail: boolean, uploadDate?: string): OfficialShareholder {
+  const now = uploadDate || new Date().toISOString(); // Use provided upload date or current time
+  const status: ShareholderStatusType = hasEmail ? 'PRE-VERIFIED' : 'NULL';
+  const holdings = parseNumeric(investor.holdings) || undefined;
+  
+  return {
+    id: investor.holdingId,
+    name: investor.investorName,
+    firstName: extractFirstName(investor.investorName),
+    // Contact information
+    email: investor.email && investor.email.trim() ? investor.email.trim() : undefined,
+    phone: investor.phone && investor.phone.trim() ? investor.phone.trim() : undefined,
+    country: investor.country || undefined,
+    coAddress: investor.coAddress || undefined,
+    // Status and ranking
+    status,
+    rank: 0, // Will be calculated later
+    // Holdings information
+    holdings,
+    ownershipPercentage: calculateOwnershipPercentage(holdings || 0), // Computed from holdings
+    accountType: investor.accountType || undefined,
+    // Timestamps - both set to IRO upload date or pre-verified account creation date
+    createdAt: now,
+    updatedAt: now, // Reflects when IRO uploaded, not when record was last modified
   };
 }
 
@@ -127,8 +169,9 @@ function validateInvestor(investor: ExtractedInvestor): { valid: boolean; error?
  * Save investor to Firestore
  * 
  * Logic:
- * - If email exists: Save to both shareholders and applicants collections
- * - If no email: Save only to shareholders collection
+ * - All IRO uploads go directly to officialShareholders collection (consolidated)
+ * - If email exists: Also save to applicants collection (pre-verified account)
+ * - Status: NULL (no email), PRE-VERIFIED (has email), VERIFIED (account claimed)
  * 
  * @param investor - The investor data to save
  * @returns Promise with shareholder ID and optional applicant ID
@@ -143,42 +186,66 @@ export async function saveInvestor(investor: ExtractedInvestor): Promise<SaveInv
   const hasEmail = investor.email && investor.email.trim() !== '';
   
   try {
-    // Always save to shareholders collection
-    const shareholder = investorToShareholder(investor);
+    // Check if official shareholder already exists
+    const existingOfficialShareholder = await officialShareholderService.getById(investor.holdingId);
+    const isUpdate = !!existingOfficialShareholder;
     
-    // Check if shareholder already exists
-    const existingShareholder = await shareholderService.getById(shareholder.id);
-    const isUpdate = !!existingShareholder;
-    
-    if (isUpdate) {
-      // Update existing shareholder
-      await shareholderService.update(shareholder.id, shareholder);
-    } else {
-      // Create new shareholder
-      await shareholderService.create(shareholder);
-    }
-    
-    // Sync to official shareholders collection (for no-contact investors or when email doesn't exist)
-    if (!hasEmail) {
+    // Determine the upload/creation date:
+    // - For new records: use current time (IRO is uploading now)
+    // - For updates: preserve original createdAt/updatedAt (when IRO first uploaded)
+    // - If pre-verified account exists: use its submissionDate
+    let uploadDate: string | undefined;
+    if (hasEmail) {
       try {
-        const { createOfficialShareholderFromMasterlist } = await import('./official-shareholder-sync.js');
-        await createOfficialShareholderFromMasterlist(
-          shareholder.id,
-          shareholder.name,
-          undefined, // no email
-          undefined, // no phone
-          shareholder.country,
-          shareholder.holdings,
-          shareholder.stake,
-          shareholder.accountType
+        const allApplicants = await applicantService.getAll();
+        const existingApplicant = allApplicants.find(a => 
+          a.email && a.email.toLowerCase() === investor.email.toLowerCase().trim()
         );
-      } catch (syncError) {
-        console.error('Error creating official shareholder from masterlist:', syncError);
+        if (existingApplicant?.submissionDate) {
+          uploadDate = existingApplicant.submissionDate; // Use pre-verified account creation date
+        }
+      } catch (error) {
+        // If we can't find applicant, use current time
       }
     }
     
+    // Always save to officialShareholders collection (consolidated - replaces shareholders)
+    const officialShareholder = investorToOfficialShareholder(investor, hasEmail, uploadDate);
+    
+    if (isUpdate) {
+      // Update existing official shareholder (preserve original timestamps and status)
+      const updateData: Partial<OfficialShareholder> = {
+        // Update contact information
+        name: officialShareholder.name,
+        firstName: officialShareholder.firstName,
+        email: officialShareholder.email,
+        phone: officialShareholder.phone,
+        country: officialShareholder.country,
+        coAddress: officialShareholder.coAddress,
+        // Update holdings and computed ownership percentage
+        holdings: officialShareholder.holdings,
+        ownershipPercentage: officialShareholder.ownershipPercentage,
+        accountType: officialShareholder.accountType,
+        // Preserve original timestamps (when IRO first uploaded)
+        createdAt: existingOfficialShareholder.createdAt,
+        updatedAt: existingOfficialShareholder.updatedAt, // Keep original upload date
+        // Preserve status and links
+        status: existingOfficialShareholder.status,
+        applicantId: existingOfficialShareholder.applicantId,
+        emailSentAt: existingOfficialShareholder.emailSentAt,
+        accountClaimedAt: existingOfficialShareholder.accountClaimedAt,
+      };
+      await officialShareholderService.update(officialShareholder.id, updateData);
+    } else {
+      // Create new official shareholder (timestamps set to IRO upload date or pre-verified account creation)
+      await officialShareholderService.create(officialShareholder);
+    }
+    
+    // Keep shareholder reference for applicant creation (legacy compatibility)
+    const shareholder = investorToShareholder(investor);
+    
     const result: SaveInvestorResult = {
-      shareholderId: shareholder.id,
+      shareholderId: officialShareholder.id,
     };
     
     // If email exists, also save to applicants collection (pre-verified account)
@@ -239,15 +306,14 @@ export async function saveInvestor(investor: ExtractedInvestor): Promise<SaveInv
           await applicantService.update(existingApplicant.id, applicantUpdate);
           result.applicantId = existingApplicant.id;
           
-          // Sync to official shareholders collection
+          // Update official shareholder with applicant link
           try {
-            const { syncOfficialShareholderOnStatusChange } = await import('./official-shareholder-sync.js');
-            const updatedApplicant = await applicantService.getById(existingApplicant.id);
-            if (updatedApplicant) {
-              await syncOfficialShareholderOnStatusChange(updatedApplicant);
-            }
+            await officialShareholderService.update(officialShareholder.id, {
+              applicantId: existingApplicant.id,
+              status: 'PRE-VERIFIED' as ShareholderStatusType,
+            });
           } catch (syncError) {
-            console.error('Error syncing official shareholder:', syncError);
+            console.error('Error updating official shareholder with applicant link:', syncError);
           }
         } else {
           // Create new applicant
@@ -270,12 +336,14 @@ export async function saveInvestor(investor: ExtractedInvestor): Promise<SaveInv
           await applicantService.create(applicant);
           result.applicantId = applicant.id;
           
-          // Sync to official shareholders collection
+          // Update official shareholder with applicant link
           try {
-            const { syncOfficialShareholderOnCreate } = await import('./official-shareholder-sync.js');
-            await syncOfficialShareholderOnCreate(applicant);
+            await officialShareholderService.update(officialShareholder.id, {
+              applicantId: applicant.id,
+              status: 'PRE-VERIFIED' as ShareholderStatusType,
+            });
           } catch (syncError) {
-            console.error('Error syncing official shareholder on create:', syncError);
+            console.error('Error updating official shareholder with applicant link:', syncError);
           }
         }
       } catch (error: any) {
@@ -325,9 +393,10 @@ export async function saveInvestors(
 
 /**
  * Update existing investor with only editable fields
- * Only updates: Holdings, Stake %
- * Note: Ownership % is calculated from holdings/stake, so we update holdings and stake
+ * Only updates: Holdings (ownershipPercentage is computed automatically)
+ * Note: Ownership % is calculated from holdings: (holdings / totalSharesOutstanding) * 100
  * Also automatically updates applicant's holdingsRecord if an applicant exists
+ * Preserves original updatedAt timestamp (when IRO first uploaded)
  * 
  * @param holdingId - The holding ID of the investor to update
  * @param updates - Partial shareholder data with only editable fields
@@ -342,33 +411,38 @@ export async function updateExistingInvestor(
   }
 
   try {
-    // Check if shareholder exists
-    const existingShareholder = await shareholderService.getById(holdingId);
-    if (!existingShareholder) {
+    // Check if official shareholder exists
+    const existingOfficialShareholder = await officialShareholderService.getById(holdingId);
+    if (!existingOfficialShareholder) {
       throw new Error(`Shareholder with ID ${holdingId} not found`);
     }
 
     // Prepare update data with only editable fields converted to numbers
-    const updateData: Partial<Shareholder> = {};
+    const updateData: Partial<OfficialShareholder> = {};
     
-    // Note: ownershipPercent is calculated from holdings/stake, so we update holdings and stake
-    // The ownershipPercent parameter is kept for API consistency but we use holdings and stake
-    
+    // Only update holdings (ownershipPercentage is computed automatically)
     if (updates.holdings !== undefined) {
-      updateData.holdings = parseNumeric(updates.holdings);
+      const updatedHoldings = parseNumeric(updates.holdings);
+      updateData.holdings = updatedHoldings;
+      // Calculate ownership percentage from holdings
+      updateData.ownershipPercentage = calculateOwnershipPercentage(updatedHoldings);
     }
     
-    if (updates.stake !== undefined) {
-      updateData.stake = parseNumeric(updates.stake);
-    }
+    // Note: stake parameter is deprecated but kept for backward compatibility
+    // ownershipPercentage is now computed from holdings, not from stake
 
     // Only update if there are actual changes
     if (Object.keys(updateData).length === 0) {
       return; // No updates to make
     }
 
-    // Update shareholder with only the editable fields
-    await shareholderService.update(holdingId, updateData);
+    // Preserve original timestamps (don't change updatedAt when updating holdings)
+    // updatedAt should remain as when IRO first uploaded the information
+    updateData.createdAt = existingOfficialShareholder.createdAt;
+    updateData.updatedAt = existingOfficialShareholder.updatedAt;
+
+    // Update official shareholder with only the editable fields
+    await officialShareholderService.update(holdingId, updateData);
 
     // Also update applicant's holdingsRecord if an applicant exists for this shareholder
     // Find applicant by registrationId (holdingId) or by matching shareholder data
@@ -376,27 +450,24 @@ export async function updateExistingInvestor(
       const allApplicants = await applicantService.getAll();
       const matchingApplicant = allApplicants.find(a => 
         a.registrationId === holdingId || 
-        (a.email && existingShareholder.name && a.fullName === existingShareholder.name)
+        (a.email && existingOfficialShareholder.name && a.fullName === existingOfficialShareholder.name)
       );
 
       if (matchingApplicant) {
         // Calculate ownership percentage from updated holdings
-        const totalSharesOutstanding = 25_381_100; // Fixed value from issuer
         const updatedHoldings = updateData.holdings !== undefined 
           ? updateData.holdings 
-          : existingShareholder.holdings;
-        const ownershipPercent = updatedHoldings > 0 
-          ? (updatedHoldings / totalSharesOutstanding) * 100 
-          : (updateData.stake !== undefined ? updateData.stake : existingShareholder.stake || 0);
+          : existingOfficialShareholder.holdings || 0;
+        const ownershipPercent = calculateOwnershipPercentage(updatedHoldings) || 0;
 
         // Update applicant's holdingsRecord to match updated shareholder data
         const applicantUpdate: Partial<Applicant> = {
           holdingsRecord: {
             companyId: holdingId,
-            companyName: existingShareholder.name,
+            companyName: existingOfficialShareholder.name,
             sharesHeld: updatedHoldings,
             ownershipPercentage: ownershipPercent,
-            sharesClass: existingShareholder.accountType || matchingApplicant.holdingsRecord?.sharesClass || 'Ordinary',
+            sharesClass: existingOfficialShareholder.accountType || matchingApplicant.holdingsRecord?.sharesClass || 'Ordinary',
             registrationDate: matchingApplicant.holdingsRecord?.registrationDate || matchingApplicant.submissionDate || new Date().toISOString(),
           },
         };

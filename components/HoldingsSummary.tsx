@@ -5,7 +5,7 @@ import { Applicant, RegistrationStatus, HoldingsSummary as HoldingsSummaryType, 
 import HoldingsChart from './HoldingsChart';
 import HoldingsUpdateHistory from './HoldingsUpdateHistory';
 import { getWorkflowStatusInternal } from '../lib/shareholdingsVerification';
-import { shareholderService } from '../lib/firestore-service';
+import { officialShareholderService } from '../lib/firestore-service';
 import { getLatestPrice, getDataByRange } from '../services/shareDataService';
 
 interface HoldingsSummaryProps {
@@ -165,30 +165,31 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
         // For pre-verified accounts, try to fetch holdings from shareholder masterlist if not in holdingsRecord
         if (isPreVerified && !applicant.holdingsRecord && applicant.registrationId) {
           try {
-            const shareholder = await shareholderService.getById(applicant.registrationId);
-            if (shareholder) {
-              // Create holdingsRecord from shareholder data
+            const officialShareholder = await officialShareholderService.getById(applicant.registrationId);
+            if (officialShareholder) {
+              // Create holdingsRecord from official shareholder data
               // Calculate ownership percentage: (Shareholder shares / company total outstanding shares) * 100
               const totalSharesOutstanding = 25_381_100; // Fixed value from issuer
-              const ownershipPercent = shareholder.holdings > 0 
-                ? (shareholder.holdings / totalSharesOutstanding) * 100 
+              const holdings = officialShareholder.holdings || 0;
+              const ownershipPercent = holdings > 0 
+                ? (holdings / totalSharesOutstanding) * 100 
                 : 0;
               
               const series = await generateTimeSeriesData(
-                shareholder.holdings, 
+                holdings, 
                 currentSharePrice,
                 applicant.holdingsUpdateHistory
               );
 
               const summary: HoldingsSummaryType = {
-                companyId: shareholder.id,
-                companyName: shareholder.name,
-                sharesHeld: shareholder.holdings,
+                companyId: officialShareholder.id,
+                companyName: officialShareholder.name,
+                sharesHeld: holdings,
                 ownershipPercentage: ownershipPercent,
-                sharesClass: shareholder.accountType || 'Ordinary',
+                sharesClass: officialShareholder.accountType || 'Ordinary',
                 registrationDate: applicant.submissionDate || new Date().toISOString(),
                 currentSharePrice,
-                currentMarketValue: shareholder.holdings * currentSharePrice,
+                currentMarketValue: holdings * currentSharePrice,
                 timeSeriesData: series,
               };
 

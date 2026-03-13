@@ -5,7 +5,7 @@ import { parseDocument } from '../lib/document-parser';
 import { extractInvestors, ExtractedInvestor } from '../lib/investor-extractor';
 import { classifyInvestors } from '../lib/investor-classifier';
 import { saveInvestors, SaveInvestorError } from '../lib/investor-service';
-import { shareholderService, applicantService } from '../lib/firestore-service';
+import { officialShareholderService, applicantService } from '../lib/firestore-service';
 import Toast from './Toast';
 import InfoTooltip from './InfoTooltip';
 import {
@@ -907,12 +907,12 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     try {
       let correctName = '';
       let correctId = normId;
-      // Try shareholder by exact id, then normalized
-      let shareholder = await shareholderService.getById(rawId);
-      if (!shareholder && normId) shareholder = await shareholderService.getById(normId);
-      if (shareholder) {
-        correctName = shareholder.name || '';
-        correctId = shareholder.id;
+      // Try official shareholder by exact id, then normalized
+      let officialShareholder = await officialShareholderService.getById(rawId);
+      if (!officialShareholder && normId) officialShareholder = await officialShareholderService.getById(normId);
+      if (officialShareholder) {
+        correctName = officialShareholder.name || '';
+        correctId = officialShareholder.id;
       } else {
         // Try applicant by registrationId
         let applicant = await applicantService.getByRegistrationId(rawId);

@@ -1369,9 +1369,12 @@ const firestoreToOfficialShareholder = (doc: QueryDocumentSnapshot<DocumentData>
   return {
     id: doc.id,
     name: data.name || '',
+    firstName: data.firstName || undefined,
     email: data.email || undefined,
     phone: data.phone || undefined,
     country: data.country || undefined,
+    coAddress: data.coAddress || undefined,
+    rank: data.rank || undefined,
     status: data.status || 'NULL',
     applicantId: data.applicantId || undefined,
     holdings: data.holdings || undefined,
@@ -1438,6 +1441,28 @@ export const officialShareholderService = {
       return querySnapshot.docs.map(firestoreToOfficialShareholder);
     } catch (error) {
       console.error('Error getting official shareholders:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Create a new official shareholder
+   */
+  async create(shareholder: OfficialShareholder): Promise<string> {
+    try {
+      const docRef = doc(db, COLLECTIONS.OFFICIAL_SHAREHOLDERS, shareholder.id);
+      const now = new Date().toISOString();
+      
+      const firestoreData = officialShareholderToFirestore({
+        ...shareholder,
+        createdAt: now,
+        updatedAt: now,
+      });
+      
+      await setDoc(docRef, firestoreData);
+      return docRef.id;
+    } catch (error) {
+      console.error('Error creating official shareholder:', error);
       throw error;
     }
   },
