@@ -1205,6 +1205,26 @@ const OverviewDashboard: React.FC<OverviewDashboardProps> = ({ applicants, onVie
   const [engagementRecords, setEngagementRecords] = useState<any[]>([]);
   const [engagementLoading, setEngagementLoading] = useState(true);
 
+  // Sync selectedInvestor with updated applicant data when applicants prop changes
+  useEffect(() => {
+    if (selectedInvestor) {
+      const updatedApplicant = applicants.find(a => a.id === selectedInvestor.id);
+      if (updatedApplicant) {
+        // Only update if the applicant data has actually changed
+        // Compare key properties that affect holdings summary
+        const hasChanged = 
+          updatedApplicant.holdingsRecord?.sharesHeld !== selectedInvestor.holdingsRecord?.sharesHeld ||
+          updatedApplicant.holdingsRecord?.ownershipPercentage !== selectedInvestor.holdingsRecord?.ownershipPercentage ||
+          updatedApplicant.holdingsRecord?.companyId !== selectedInvestor.holdingsRecord?.companyId ||
+          updatedApplicant.holdingsUpdateHistory?.length !== selectedInvestor.holdingsUpdateHistory?.length;
+        
+        if (hasChanged) {
+          setSelectedInvestor(updatedApplicant);
+        }
+      }
+    }
+  }, [applicants, selectedInvestor]);
+
   // Load engagement records from service
   useEffect(() => {
     let isMounted = true;

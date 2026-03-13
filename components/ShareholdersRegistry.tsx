@@ -51,8 +51,38 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
   // Search and filter state
   const [localSearchQuery, setLocalSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | null>(null); // 'all', 'VERIFIED', 'PRE-VERIFIED', 'null' for shareholder; 'all', 'VERIFIED', 'PRE-VERIFIED', 'null' for all-users
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest'); // Sort order for shareholder tab: newest to oldest or oldest to newest
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
+
+  // Keep a stable ref to the latest applicants so the Firestore subscription callback
+  // can read fresh applicant data without needing `applicants` as an effect dependency.
+  // If `applicants` were a dependency the entire subscription would be rebuilt on every
+  // parent re-render (which happens on every Firestore write), causing subtle list reorders.
+  const applicantsRef = useRef<Applicant[]>(applicants);
+  useEffect(() => {
+    applicantsRef.current = applicants;
+  });
+
+  // Sync selectedUser with updated applicant data when applicants prop changes
+  useEffect(() => {
+    if (selectedUser) {
+      const updatedApplicant = applicants.find(a => a.id === selectedUser.id);
+      if (updatedApplicant) {
+        // Only update if the applicant data has actually changed
+        // Compare key properties that affect holdings summary
+        const hasChanged = 
+          updatedApplicant.holdingsRecord?.sharesHeld !== selectedUser.holdingsRecord?.sharesHeld ||
+          updatedApplicant.holdingsRecord?.ownershipPercentage !== selectedUser.holdingsRecord?.ownershipPercentage ||
+          updatedApplicant.holdingsRecord?.companyId !== selectedUser.holdingsRecord?.companyId ||
+          updatedApplicant.holdingsUpdateHistory?.length !== selectedUser.holdingsUpdateHistory?.length;
+        
+        if (hasChanged) {
+          setSelectedUser(updatedApplicant);
+        }
+      }
+    }
+  }, [applicants, selectedUser]);
 
   // Pagination state for each tab
   const [currentPage, setCurrentPage] = useState<Record<TabType, number>>({
@@ -253,41 +283,81 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
       async (officialShareholdersList) => {
         setOfficialShareholders(officialShareholdersList);
         
-        // Now fetch corresponding applicant data for each official shareholder
-        const officialInvestorsWithData: (OfficialShareholder & { applicant?: Applicant })[] = [];
+        // Fetch corresponding applicant data in PARALLEL (not sequential) to avoid slow reordering
+        // NOTE: We do NOT write back to Firestore inside this callback — any update inside the
+        // subscription triggers a new snapshot, which would cause an infinite reorder loop.
+        const officialInvestorsWithData: (OfficialShareholder & { applicant?: Applicant })[] = 
+          await Promise.all(
+            officialShareholdersList.map(async (officialShareholder) => {
+              let applicant: Applicant | undefined;
+
+              // 1. Try applicantId first (most reliable link)
+              if (officialShareholder.applicantId) {
+                try {
+                  applicant = await applicantService.getById(officialShareholder.applicantId) || undefined;
+                } catch {
+                  // silently ignore — fallback below
+                }
+              }
+
+              // 2. Fallback: match in already-loaded applicants list by email or registrationId
+              // Read from the ref (always fresh) — NOT from the closure over `applicants` prop
+              // so we don't need `applicants` in the effect dependency array
+              if (!applicant) {
+                applicant = applicantsRef.current.find(a =>
+                  (a.email && officialShareholder.email &&
+                    a.email.toLowerCase() === officialShareholder.email!.toLowerCase()) ||
+                  a.registrationId === officialShareholder.id
+                );
+              }
+
+              return { ...officialShareholder, applicant };
+            })
+          );
         
-        for (const officialShareholder of officialShareholdersList) {
-          let applicant: Applicant | undefined;
-          
-          // If there's an applicantId, fetch the applicant data
-          if (officialShareholder.applicantId) {
-            try {
-              applicant = await applicantService.getById(officialShareholder.applicantId) || undefined;
-            } catch (error) {
-              console.warn('Error fetching applicant:', error);
-            }
-          }
-          
-          // If no applicantId but we have email, try to find by email from current applicants list
-          if (!applicant && officialShareholder.email) {
-            applicant = applicants.find(a => 
-              a.email && a.email.toLowerCase() === officialShareholder.email?.toLowerCase()
+        // Helper: pick the most meaningful "last activity" date for a record.
+        // Priority (most recent meaningful event wins):
+        //   1. accountClaimedAt  – investor claimed their account
+        //   2. holdingsUpdateHistory last entry – IRO updated holdings data
+        //   3. emailSentAt       – IRO sent an invitation email
+        //   4. createdAt         – IRO first added the investor (stable, never changes)
+        const resolveSortDate = (
+          official: OfficialShareholder,
+          applicant?: Applicant
+        ): string => {
+          // 1. Account claimed (investor action)
+          const claimed = official.accountClaimedAt || applicant?.accountClaimedAt;
+          if (claimed) return claimed;
+
+          // 2. Latest holdings update by IRO
+          const history = applicant?.holdingsUpdateHistory;
+          if (history && history.length > 0) {
+            const sorted = [...history].sort((a, b) =>
+              (b.updatedAt || '').localeCompare(a.updatedAt || '')
             );
+            if (sorted[0]?.updatedAt) return sorted[0].updatedAt;
           }
-          
-          officialInvestorsWithData.push({
-            ...officialShareholder,
-            applicant,
-          });
-        }
-        
+
+          // 3. Email sent by IRO
+          const emailSent = official.emailSentAt || applicant?.emailSentAt;
+          if (emailSent) return emailSent;
+
+          // 4. Investor first added by IRO (createdAt — this NEVER changes, fully stable)
+          return official.createdAt;
+        };
+
         // Convert to format expected by the component (using applicant data when available)
-        const displayData: Applicant[] = officialInvestorsWithData.map((official) => {
+        const displayData: (Applicant & { _sortDate: string })[] = officialInvestorsWithData.map((official) => {
+          const sortDate = resolveSortDate(official, official.applicant);
+
           if (official.applicant) {
-            return official.applicant;
+            return {
+              ...official.applicant,
+              _sortDate: sortDate,
+            } as Applicant & { _sortDate: string };
           }
           
-          // If no applicant exists, create a minimal applicant-like object for display
+          // No linked applicant — build a minimal display object from officialShareholder
           return {
             id: official.id,
             fullName: official.name,
@@ -296,34 +366,39 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
             location: official.country,
             submissionDate: official.createdAt.split('T')[0],
             lastActive: 'Never',
-            status: official.status === 'VERIFIED' ? RegistrationStatus.APPROVED : 
-                   official.status === 'PRE-VERIFIED' ? RegistrationStatus.PENDING : 
-                   RegistrationStatus.PENDING,
+            status: official.status === 'VERIFIED' ? RegistrationStatus.APPROVED : RegistrationStatus.PENDING,
             idDocumentUrl: '',
             taxDocumentUrl: '',
             isPreVerified: official.status === 'PRE-VERIFIED',
             registrationId: official.id,
-            accountStatus: official.status === 'VERIFIED' ? 'VERIFIED' : 
-                          official.status === 'PRE-VERIFIED' ? 'PENDING' : 
-                          'UNVERIFIED',
-            workflowStage: official.status === 'VERIFIED' ? 'ACCOUNT_CLAIMED' : 
-                          official.status === 'PRE-VERIFIED' ? 'SENT_EMAIL' : 
-                          undefined,
-            systemStatus: official.status === 'VERIFIED' ? 'CLAIMED' : 
-                          official.status === 'PRE-VERIFIED' ? 'ACTIVE' : 
-                          'NULL',
+            accountStatus: official.status === 'VERIFIED' ? 'VERIFIED' :
+                          official.status === 'PRE-VERIFIED' ? 'PENDING' : 'UNVERIFIED',
+            workflowStage: official.status === 'VERIFIED' ? 'ACCOUNT_CLAIMED' :
+                          official.status === 'PRE-VERIFIED' ? 'SENT_EMAIL' : undefined,
+            systemStatus: official.status === 'VERIFIED' ? 'CLAIMED' :
+                          official.status === 'PRE-VERIFIED' ? 'ACTIVE' : 'NULL',
             holdingsRecord: official.holdings ? {
               companyId: official.id,
               companyName: official.name,
               sharesHeld: official.holdings,
-              ownershipPercentage: official.stake || 0,
+              ownershipPercentage: official.ownershipPercentage || 0,
               sharesClass: official.accountType || 'Ordinary',
               registrationDate: official.createdAt,
             } : undefined,
-          } as Applicant;
+            _sortDate: sortDate,
+          } as Applicant & { _sortDate: string };
         });
         
-        setVerifiedShareholders(displayData);
+        // Sort client-side (never triggers Firestore writes → never causes re-orders)
+        displayData.sort((a, b) => {
+          const dateA = a._sortDate;
+          const dateB = b._sortDate;
+          return sortOrder === 'newest'
+            ? dateB.localeCompare(dateA)   // newest first
+            : dateA.localeCompare(dateB);  // oldest first
+        });
+        
+        setVerifiedShareholders(displayData as Applicant[]);
         setLoadingShareholders(false);
       }
     );
@@ -331,7 +406,12 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
     return () => {
       unsubscribeOfficial();
     };
-  }, [displayTab, applicants]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayTab, sortOrder]);
+  // NOTE: `applicants` is intentionally omitted from this dependency array.
+  // We access it via `applicantsRef.current` inside the callback so the subscription
+  // is not torn-down and rebuilt on every parent re-render (which happens on every
+  // Firestore write). Rebuilding causes subtle, hard-to-notice list reordering.
 
 
   // Fetch all users (basic sign-ups without share claims) for All Users tab
@@ -1199,65 +1279,56 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                   type="button"
                   onClick={() => setIsFilterOpen(v => !v)}
                   className={`h-[36px] w-[36px] inline-flex items-center justify-center bg-neutral-50 dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors ${
-                    statusFilter && statusFilter !== 'all' ? 'bg-[#082b4a] dark:bg-[#00adf0] border-[#082b4a] dark:border-[#00adf0]' : ''
+                    displayTab === 'shareholder' 
+                      ? (sortOrder !== 'newest' ? 'bg-[#082b4a] dark:bg-[#00adf0] border-[#082b4a] dark:border-[#00adf0]' : '')
+                      : (statusFilter && statusFilter !== 'all' ? 'bg-[#082b4a] dark:bg-[#00adf0] border-[#082b4a] dark:border-[#00adf0]' : '')
                   }`}
-                  aria-label="Filter by status"
+                  aria-label={displayTab === 'shareholder' ? 'Sort order' : 'Filter by status'}
                   aria-expanded={isFilterOpen}
                 >
                   {/* Filter/Funnel icon */}
-                  <svg className={`w-4 h-4 ${statusFilter && statusFilter !== 'all' ? 'text-white' : 'text-neutral-600 dark:text-neutral-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-4 h-4 ${
+                    displayTab === 'shareholder' 
+                      ? (sortOrder !== 'newest' ? 'text-white' : 'text-neutral-600 dark:text-neutral-500')
+                      : (statusFilter && statusFilter !== 'all' ? 'text-white' : 'text-neutral-600 dark:text-neutral-500')
+                  }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4h18l-7 8v6l-4 2v-8L3 4z" />
                   </svg>
                 </button>
 
                 {isFilterOpen && (
-                  <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-xl z-[9999] overflow-hidden">
+                  <div className="absolute top-full right-0 mt-2 w-56 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-xl z-[9999] overflow-hidden">
                     {displayTab === 'shareholder' ? (
                       <>
                         <button
                           type="button"
                           onClick={() => {
-                            setStatusFilter(null);
+                            setSortOrder('newest');
                             setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
                             setIsFilterOpen(false);
                           }}
                           className={`w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors ${
-                            !statusFilter || statusFilter === 'all'
+                            sortOrder === 'newest'
                               ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100'
                               : 'hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300'
                           }`}
                         >
-                          All
+                          Newest to Oldest
                         </button>
                         <button
                           type="button"
                           onClick={() => {
-                            setStatusFilter('PRE-VERIFIED');
+                            setSortOrder('oldest');
                             setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
                             setIsFilterOpen(false);
                           }}
                           className={`w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors ${
-                            statusFilter === 'PRE-VERIFIED'
+                            sortOrder === 'oldest'
                               ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100'
                               : 'hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300'
                           }`}
                         >
-                          Pre-Verified
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setStatusFilter('VERIFIED');
-                            setCurrentPage(prev => ({ ...prev, [displayTab]: 1 }));
-                            setIsFilterOpen(false);
-                          }}
-                          className={`w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-[0.1em] transition-colors ${
-                            statusFilter === 'VERIFIED'
-                              ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-900 dark:text-neutral-100'
-                              : 'hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300'
-                          }`}
-                        >
-                          Verified
+                          Oldest to Newest
                         </button>
                       </>
                     ) : (
@@ -1361,7 +1432,7 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                              <th className="px-3 py-2.5">EMAIL</th>
                              <th className="px-3 py-2.5">REGISTRATION DATE</th>
                              <th className="px-3 py-2.5">STATUS</th>
-                             <th className="px-3 py-2.5">LAST ACTIVE</th>
+                             <th className="px-3 py-2.5">LAST UPDATED</th>
                            </tr>
                          </thead>
                          <tbody className="divide-y divide-neutral-100 dark:divide-neutral-700">
@@ -1399,7 +1470,11 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                                : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300';
                              
                              const registrationDate = applicant.submissionDate || applicant.shareholdingsVerification?.step2?.submittedAt;
-                             const lastActive = applicant.lastActive || applicant.accountClaimedAt || applicant.submissionDate;
+                             // lastUpdated = the same priority-resolved date used for sorting
+                             // (accountClaimedAt > latest holdings update > emailSentAt > createdAt)
+                             const lastUpdated = (applicant as Applicant & { _sortDate?: string })._sortDate
+                               || applicant.accountClaimedAt
+                               || applicant.submissionDate;
                              
                              // Calculate row number (accounting for pagination)
                              const rowNumber = (currentPage.shareholder - 1) * itemsPerPage + index + 1;
@@ -1449,7 +1524,7 @@ const ShareholdersRegistry: React.FC<ShareholdersRegistryProps> = ({ searchQuery
                                  </td>
                                  <td className="px-3 py-2.5">
                                    <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                                     {lastActive ? new Date(lastActive).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                                     {lastUpdated ? new Date(lastUpdated).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                                    </span>
                                  </td>
                                </tr>

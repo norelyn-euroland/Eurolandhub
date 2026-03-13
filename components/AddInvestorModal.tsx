@@ -1476,21 +1476,38 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     });
 
     try {
-      setFinalExecutionStatus('Adding new investors...');
-      // Include 'suspected' as new — unverified suspected investors are added as new
-      const newInvestors = investorForms.filter(f => f.classification === 'new' || f.classification === 'suspected').map(toExtracted);
+      const processInvestorsWithProgress = async (
+        investors: ExtractedInvestor[],
+        label: 'Adding new investors' | 'Updating existing investors'
+      ) => {
+        for (let i = 0; i < investors.length; i++) {
+          const investor = investors[i];
+          setFinalExecutionStatus(`${label}... (${i + 1}/${investors.length})`);
+
+          // Save one investor at a time so the UI can show real progress and never look stuck.
+          const result = await saveInvestors([investor]);
+          totalSaved += result.success.length;
+          allErrors.push(...result.errors);
+
+          // Yield one frame so React can paint status updates between long operations.
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      };
+
+      // Add new investors
+      const newInvestors = investorForms
+        .filter(f => f.classification === 'new' || f.classification === 'suspected')
+        .map(toExtracted);
       if (newInvestors.length > 0) {
-        const addResult = await saveInvestors(newInvestors);
-        totalSaved += addResult.success.length;
-        allErrors.push(...addResult.errors);
+        await processInvestorsWithProgress(newInvestors, 'Adding new investors');
       }
 
-      setFinalExecutionStatus('Updating existing investors...');
-      const existingInvestors = investorForms.filter(f => f.classification === 'existing').map(toExtracted);
+      // Update existing investors
+      const existingInvestors = investorForms
+        .filter(f => f.classification === 'existing')
+        .map(toExtracted);
       if (existingInvestors.length > 0) {
-        const updateResult = await saveInvestors(existingInvestors);
-        totalSaved += updateResult.success.length;
-        allErrors.push(...updateResult.errors);
+        await processInvestorsWithProgress(existingInvestors, 'Updating existing investors');
       }
 
       // Emails are sent in real time during Email Generation step — no batch send here
@@ -1515,13 +1532,33 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
           });
         });
       }
-      triggerToast('All operations completed successfully.', 'success');
+      if (allErrors.length === 0) {
+        triggerToast('All operations completed successfully.', 'success');
+      } else if (totalSaved > 0) {
+        triggerToast(`Completed with ${allErrors.length} error(s). ${totalSaved} investor(s) saved successfully.`, 'warning');
+      } else {
+        triggerToast(`All operations failed. Please check errors and try again.`, 'error');
+      }
+      
       await sleep(500);
       onClose();
     } catch (error: any) {
       console.error('Final execution error:', error);
-      triggerToast(`Error: ${error?.message || 'Unknown error'}`, 'error');
+      // Ensure all pending investors are marked as errors if the entire operation failed
+      const existingInvestors = investorForms.filter(f => f.classification === 'existing').map(toExtracted);
+      if (existingInvestors.length > 0 && allErrors.length === 0) {
+        existingInvestors.forEach(investor => {
+          allErrors.push({
+            investorName: investor.investorName,
+            holdingId: investor.holdingId,
+            error: error.message || 'Operation failed',
+          });
+        });
+        setSaveErrors(allErrors);
+      }
+      triggerToast(`Error: ${error?.message || 'Unknown error occurred. Please try again.'}`, 'error');
     } finally {
+      // Always clear loading state, even if there was an error
       setIsFinalExecuting(false);
       setFinalExecutionStatus('');
     }

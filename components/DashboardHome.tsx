@@ -202,6 +202,35 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
     }
   };
 
+  // Helper function to check if an applicant is pre-verified
+  // Checks both applicant.isPreVerified flag AND officialShareholder.status === 'PRE-VERIFIED'
+  const isPreVerifiedAccount = useMemo(() => {
+    const preVerifiedMap = new Map<string, boolean>();
+    
+    // Build a map of pre-verified status by checking both sources
+    applicants.forEach((applicant) => {
+      let isPreVerified = applicant.isPreVerified === true;
+      
+      // Also check officialShareholders for PRE-VERIFIED status
+      // Match by applicantId, registrationId, or email
+      if (!isPreVerified) {
+        const matchingOfficial = officialShareholders.find(sh =>
+          sh.applicantId === applicant.id ||
+          sh.id === applicant.registrationId ||
+          (sh.email && applicant.email && sh.email.toLowerCase() === applicant.email.toLowerCase())
+        );
+        
+        if (matchingOfficial && matchingOfficial.status === 'PRE-VERIFIED') {
+          isPreVerified = true;
+        }
+      }
+      
+      preVerifiedMap.set(applicant.id, isPreVerified);
+    });
+    
+    return preVerifiedMap;
+  }, [applicants, officialShareholders]);
+
   // Use useMemo to recalculate filteredData when applicants, filters, or status cache changes
   // This ensures the queue updates automatically when status changes
   const filteredData = useMemo(() => {
@@ -217,26 +246,25 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
         if (!matchesSearch) return false;
       }
       
-      // Pre-verified: Only accounts created by IRO through Add Investors with email addresses
+      const isPreVerified = isPreVerifiedAccount.get(applicant.id) || false;
+      
+      // PRE_VERIFIED tab: Show all pre-verified accounts (with or without email)
       if (activeTab === 'PRE_VERIFIED') {
-        // Must be marked as pre-verified (created by IRO)
-        if (!applicant.isPreVerified) {
-          return false;
-        }
-        // Must have an email address
-        const hasEmail = applicant.email && applicant.email.trim().length > 0;
-        return hasEmail;
+        return isPreVerified;
       }
       
-      // Exclude pre-verified accounts from all other categories (ALL, PENDING, VERIFIED, NON_VERIFIED)
-      // Pre-verified accounts use different status mapping and should only appear in PRE_VERIFIED tab
-      if (applicant.isPreVerified) {
+      // ALL tab: Include ALL accounts (including pre-verified)
+      if (activeTab === 'ALL') {
+        return true;
+      }
+      
+      // For other tabs (PENDING, VERIFIED, NON_VERIFIED), exclude pre-verified accounts
+      // Pre-verified accounts should only appear in PRE_VERIFIED or ALL tabs
+      if (isPreVerified) {
         return false;
       }
       
       // Tab Filter - Use General Account Status for categorization (only for non-pre-verified accounts)
-      if (activeTab === 'ALL') return true;
-      
       const internalStatus = (statusCache[applicant.id] || 'REGISTRATION_PENDING') as any;
       const generalStatus = getGeneralAccountStatus(internalStatus);
       
@@ -247,7 +275,7 @@ const DashboardHome: React.FC<DashboardHomeProps> = ({
 
       return matchesTab;
     });
-  }, [applicants, searchQuery, activeTab, statusCache]);
+  }, [applicants, searchQuery, activeTab, statusCache, isPreVerifiedAccount]);
 
   const filterOptions: Array<{ id: TabType; label: string }> = [
     { id: 'ALL', label: 'All' },

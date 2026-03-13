@@ -377,9 +377,18 @@ export async function saveInvestors(
   
   for (const investor of investors) {
     try {
-      const result = await saveInvestor(investor);
+      // Add timeout per investor (60 seconds max per investor)
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Operation timed out after 60 seconds for ${investor.investorName}`));
+        }, 60000);
+      });
+      
+      const savePromise = saveInvestor(investor);
+      const result = await Promise.race([savePromise, timeoutPromise]);
       success.push(result);
     } catch (error: any) {
+      console.error(`Error saving investor ${investor.investorName} (${investor.holdingId}):`, error);
       errors.push({
         investorName: investor.investorName,
         holdingId: investor.holdingId,

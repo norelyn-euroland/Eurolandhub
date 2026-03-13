@@ -162,11 +162,11 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
         // Fetch the latest share price
         const latestPriceData = await getLatestPrice();
         const currentSharePrice = latestPriceData?.price || DEFAULT_SHARE_PRICE;
-        // For pre-verified accounts, try to fetch holdings from shareholder masterlist if not in holdingsRecord
+        // For pre-verified accounts, try to fetch holdings from official shareholders if not in holdingsRecord
         if (isPreVerified && !applicant.holdingsRecord && applicant.registrationId) {
           try {
             const officialShareholder = await officialShareholderService.getById(applicant.registrationId);
-            if (officialShareholder) {
+            if (officialShareholder && officialShareholder.holdings && officialShareholder.holdings > 0) {
               // Create holdingsRecord from official shareholder data
               // Calculate ownership percentage: (Shareholder shares / company total outstanding shares) * 100
               const totalSharesOutstanding = 25_381_100; // Fixed value from issuer
@@ -198,10 +198,22 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
                 setLoading(false);
               }
               return;
+            } else if (officialShareholder && (!officialShareholder.holdings || officialShareholder.holdings === 0)) {
+              // Official shareholder exists but has no holdings - don't show summary
+              if (!cancelled) {
+                setHoldingsSummary(null);
+                setLoading(false);
+              }
+              return;
             }
           } catch (error) {
             console.warn('Error fetching shareholder data for pre-verified account:', error);
-            // Continue to fallback logic below
+            // If error fetching, set loading to false and don't show summary
+            if (!cancelled) {
+              setHoldingsSummary(null);
+              setLoading(false);
+            }
+            return;
           }
         }
 
@@ -300,12 +312,19 @@ const HoldingsSummary: React.FC<HoldingsSummaryProps> = ({ applicant }) => {
     };
   }, [
     applicant.id,
+    // Include all holdingsRecord properties that could change
     applicant.holdingsRecord?.sharesHeld,
     applicant.holdingsRecord?.ownershipPercentage,
+    applicant.holdingsRecord?.companyId,
+    applicant.holdingsRecord?.companyName,
+    applicant.holdingsRecord?.sharesClass,
+    applicant.holdingsRecord?.registrationDate,
     applicant.registrationId,
     applicant.isPreVerified,
-    // Re-run whenever a new history snapshot is logged
+    // Re-run whenever a new history snapshot is logged or history changes
     applicant.holdingsUpdateHistory?.length,
+    // Watch for changes in the latest history entry timestamp to catch updates
+    applicant.holdingsUpdateHistory?.[applicant.holdingsUpdateHistory.length - 1]?.updatedAt,
   ]);
 
   // Show verification message for accounts without holdings (only for non-verified or further info required)

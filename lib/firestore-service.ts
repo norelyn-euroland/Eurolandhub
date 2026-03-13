@@ -1535,12 +1535,17 @@ export const officialShareholderService = {
         constraints.push(where('status', '==', filters.status));
       }
       
-      constraints.push(orderBy('updatedAt', 'desc'));
+      // Do NOT use orderBy here — ordering is done client-side after applicant data is merged.
+      // Using Firestore orderBy('updatedAt') combined with includeMetadataChanges caused
+      // a self-triggering loop: any write inside the callback changed updatedAt → new snapshot
+      // → callback fires again → re-orders the list continuously.
+      // Client-side sort (in ShareholdersRegistry) is stable and won't cause Firestore writes.
       
       const q = query(collection(db, COLLECTIONS.OFFICIAL_SHAREHOLDERS), ...constraints);
       
-      // Use onSnapshot with includeMetadataChanges to get all updates including cache hits
-      return onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
+      // Do NOT use includeMetadataChanges:true — that fires the callback on local pending writes
+      // (before server confirms), which caused intermediate reorders on every Firestore write.
+      return onSnapshot(q, (snapshot) => {
         try {
           const shareholders = snapshot.docs.map(firestoreToOfficialShareholder);
           callback(shareholders);
