@@ -420,8 +420,14 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
       return {
         ...a,
         status: RegistrationStatus.APPROVED,
+        accountStatus: 'VERIFIED' as const, // Immediately verified when IRO approves
+        accountClaimedAt: a.accountClaimedAt || reviewedAt, // Set if not already set
         lastIRODecisionAt: reviewedAt,
         complianceStatus: 'NO_COMPLIANCE_REQUIRED',
+        // Update workflow stage if it exists
+        workflowStage: a.workflowStage ? 'ACCOUNT_CLAIMED' as const : a.workflowStage,
+        // Update system status if it exists
+        systemStatus: a.systemStatus ? 'CLAIMED' as const : a.systemStatus,
         shareholdingsVerification: {
           ...wf,
           step4: {
@@ -441,8 +447,14 @@ export function recordManualReview(applicant: Applicant, match: boolean): Applic
       ...a,
       // Phase 3 / Step 6: Verified Account (no shareholding OTP step in new workflow)
       status: RegistrationStatus.APPROVED,
+      accountStatus: 'VERIFIED' as const, // Immediately verified when IRO approves
+      accountClaimedAt: a.accountClaimedAt || reviewedAt, // Set if not already set
       lastIRODecisionAt: reviewedAt,
       complianceStatus: 'NO_COMPLIANCE_REQUIRED',
+      // Update workflow stage if it exists
+      workflowStage: a.workflowStage ? 'ACCOUNT_CLAIMED' as const : a.workflowStage,
+      // Update system status if it exists
+      systemStatus: a.systemStatus ? 'CLAIMED' as const : a.systemStatus,
       shareholdingsVerification: {
         ...wf,
         step4: {
@@ -575,11 +587,28 @@ export async function getWorkflowStatusInternal(applicant: Applicant): Promise<W
     return 'INVITATION_EXPIRED';
   }
 
+  // Step 1.5: IRO Approval Check (Bypass email verification for approved applications)
+  // If IRO has approved the application, immediately return VERIFIED regardless of email verification
+  // This ensures that IRO-approved applications are immediately verified across the system
+  if (applicant.status === RegistrationStatus.APPROVED) {
+    return 'VERIFIED';
+  }
+
+  // Step 1.6: Pre-Verified Account Exception (Bypass email verification for IRO-created accounts)
+  // Pre-verified accounts (added by IRO through batch upload or individually) are exceptions
+  // from email verification since they are already pre-verified by the IRO
+  // This allows them to progress through the workflow without email verification
+  const isPreVerifiedAccount = applicant.isPreVerified === true;
+  
   // Step 2: Email Verification Gate
   // Check OTP verification document existence in emailVerificationCodes collection
-  const emailVerified = await isEmailVerified(applicant.id);
-  if (!emailVerified) {
-    return 'SENT_EMAIL'; // Blocks all progression
+  // Only applies to non-approved and non-pre-verified applications
+  // Pre-verified accounts bypass this gate since they're already verified by IRO
+  if (!isPreVerifiedAccount) {
+    const emailVerified = await isEmailVerified(applicant.id);
+    if (!emailVerified) {
+      return 'SENT_EMAIL'; // Blocks all progression for non-pre-verified accounts
+    }
   }
 
   // Step 3: Lock Check (Logical Only)
@@ -603,9 +632,6 @@ export async function getWorkflowStatusInternal(applicant: Applicant): Promise<W
   }
   if (applicant.status === RegistrationStatus.FURTHER_INFO_REQUIRED) {
     return 'FURTHER_INFO_REQUIRED';
-  }
-  if (applicant.status === RegistrationStatus.APPROVED) {
-    return 'VERIFIED';
   }
   if (applicant.status === RegistrationStatus.REJECTED) {
     // No REJECTED workflow stage exists - map to REGISTRATION_PENDING

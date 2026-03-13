@@ -2,223 +2,325 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { Line } from 'react-chartjs-2';
-// Side-effect: registers Chart.js scales/elements once
 import '../lib/chartjs-setup';
 import { HoldingsDataPoint } from '../lib/types';
 
 interface HoldingsChartProps {
   companyId: string;
-  currentSharesHeld?: number; // Current actual shares held from database
+  currentSharesHeld?: number;
+  timeSeriesData?: HoldingsDataPoint[];
+  currentSharePrice?: number;
 }
 
-type Timeframe = '1d' | '1w' | '1M' | '3M' | '6M' | 'YTD' | 'ALL';
+type Timeframe = '1w' | '1M' | '3M' | '6M' | 'YTD' | 'ALL';
 
-const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId, currentSharesHeld }) => {
+function fmtShares(v: number): string {
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(2) + 'M';
+  if (v >= 1_000)     return (v / 1_000).toFixed(1) + 'K';
+  return v.toLocaleString();
+}
+
+function filterByTimeframe(data: HoldingsDataPoint[], tf: Timeframe): HoldingsDataPoint[] {
+  if (tf === 'ALL') return data;
+  const now = new Date();
+  const cutoff = new Date(now);
+  switch (tf) {
+    case '1w':  cutoff.setDate(now.getDate() - 7);                            break;
+    case '1M':  cutoff.setMonth(now.getMonth() - 1);                          break;
+    case '3M':  cutoff.setMonth(now.getMonth() - 3);                          break;
+    case '6M':  cutoff.setMonth(now.getMonth() - 6);                          break;
+    case 'YTD': cutoff.setMonth(0); cutoff.setDate(1); cutoff.setHours(0, 0, 0, 0); break;
+  }
+  const filtered = data.filter(pt => new Date(pt.timestamp) >= cutoff);
+  return filtered.length >= 2 ? filtered : data.slice(-2);
+}
+
+/** Smart x-axis label: shorter when the span is large, full date+time when zoomed in */
+function labelForPoint(timestamp: string, spanMs: number): string {
+  const d = new Date(timestamp);
+  const oneMonthMs  = 30 * 24 * 3600 * 1000;
+  const oneWeekMs   =  7 * 24 * 3600 * 1000;
+
+  if (spanMs > oneMonthMs) {
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+  }
+  if (spanMs > oneWeekMs) {
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  // Within a week – show date + time
+  return d.toLocaleString('en-US', {
+    month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+const HoldingsChart: React.FC<HoldingsChartProps> = ({
+  companyId,
+  currentSharesHeld,
+  timeSeriesData: providedTimeSeriesData,
+  currentSharePrice,
+}) => {
   const isDark =
     typeof window !== 'undefined' &&
     window.document.documentElement.classList.contains('dark');
 
   const [timeframe, setTimeframe] = useState<Timeframe>('ALL');
-  const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<HoldingsDataPoint[]>([]);
-  const [currentValues, setCurrentValues] = useState<{
-    sharePrice: number;
-    sharesHeld: number;
-  } | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [allData, setAllData]     = useState<HoldingsDataPoint[]>([]);
 
-  const [previousValues, setPreviousValues] = useState<{
-    sharePrice: number;
-    sharesHeld: number;
-  } | null>(null);
-
-  // Generate minimal chart data from current shares held
-  // Since we're using Firestore data, we'll create a simple data point from current value
   useEffect(() => {
-    setLoading(true);
-    
-    // Generate minimal time-series data from current shares held
-    // This creates a simple chart with the current value
+    if (providedTimeSeriesData && providedTimeSeriesData.length > 0) {
+      setAllData(providedTimeSeriesData);
+      setLoading(false);
+      return;
+    }
     if (currentSharesHeld !== undefined && currentSharesHeld > 0) {
       const now = new Date();
-      const dataPoints: HoldingsDataPoint[] = [];
-      
-      // Create data points for the last 12 months (monthly data)
-      for (let i = 11; i >= 0; i--) {
-        const date = new Date(now);
-        date.setMonth(date.getMonth() - i);
-        
-        // Use current shares held for all points (or could interpolate if needed)
-        // For now, using current value for simplicity
-        dataPoints.push({
-          timestamp: date.toISOString(),
-          share_price: 100.0 + (Math.random() * 20 - 10), // Placeholder price variation
+      const pts: HoldingsDataPoint[] = [];
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now);
+        d.setMonth(d.getMonth() - i);
+        pts.push({
+          timestamp: d.toISOString(),
+          share_price: currentSharePrice || 0,
           shares_held: currentSharesHeld,
-          total_shares_outstanding: currentSharesHeld * 10, // Placeholder
+          total_shares_outstanding: 25_381_100,
         });
       }
-      
-      // Update last point with current timestamp
-      if (dataPoints.length > 0) {
-        dataPoints[dataPoints.length - 1] = {
-          ...dataPoints[dataPoints.length - 1],
-          shares_held: currentSharesHeld,
-          timestamp: now.toISOString(),
-        };
-      }
-      
-      setData(dataPoints);
+      setAllData(pts);
     } else {
-      setData([]);
+      setAllData([]);
     }
-    
     setLoading(false);
-  }, [companyId, timeframe, currentSharesHeld]);
+  }, [providedTimeSeriesData, currentSharesHeld, currentSharePrice, companyId]);
 
-  // Update current values when data changes
-  useEffect(() => {
-    if (data.length > 0) {
-      const latest = data[data.length - 1];
-      const sp = latest.share_price;
-      const sh = latest.shares_held / 1_000_000;
+  const data = useMemo(
+    () => filterByTimeframe(allData, timeframe),
+    [allData, timeframe]
+  );
 
-      if (currentValues) {
-        setPreviousValues({ sharePrice: currentValues.sharePrice, sharesHeld: currentValues.sharesHeld });
-      } else {
-        setPreviousValues({ sharePrice: sp, sharesHeld: sh });
-      }
-      setCurrentValues({ sharePrice: sp, sharesHeld: sh });
-    }
+  /* ─── header stats ─── */
+  const currentValues = useMemo(() => {
+    if (!data.length) return null;
+    const last = data[data.length - 1];
+    return { sharePrice: last.share_price, sharesHeld: last.shares_held };
   }, [data]);
 
-  /* ---------- chart config ---------- */
-  const chartData = useMemo(() => {
-    if (data.length === 0) return null;
+  const previousValues = useMemo(() => {
+    if (data.length < 2) return null;
+    const lastShares = data[data.length - 1].shares_held;
+    for (let i = data.length - 2; i >= 0; i--) {
+      if (data[i].shares_held !== lastShares) {
+        return { sharePrice: data[i].share_price, sharesHeld: data[i].shares_held };
+      }
+    }
+    return { sharePrice: data[0].share_price, sharesHeld: data[0].shares_held };
+  }, [data]);
 
-    const labels = data.map((pt) => {
-      const d = new Date(pt.timestamp);
-      return d.toLocaleDateString('en-US', { month: 'short' });
-    });
+  /* ─── chart datasets ─── */
+  const chartData = useMemo(() => {
+    if (!data.length) return null;
+
+    const spanMs =
+      data.length > 1
+        ? new Date(data[data.length - 1].timestamp).getTime() -
+          new Date(data[0].timestamp).getTime()
+        : 0;
+
+    const labels = data.map(pt => labelForPoint(pt.timestamp, spanMs));
+
+    // Mark which indices are actual change points (shares_held differs from previous)
+    const changeIndices = new Set<number>();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i].shares_held !== data[i - 1].shares_held) {
+        changeIndices.add(i);
+      }
+    }
+    // Always mark first and last
+    if (data.length > 0) { changeIndices.add(0); changeIndices.add(data.length - 1); }
+
+    const sharesPointRadius = data.map((_, i) => (changeIndices.has(i) ? 5 : 0));
+    const pricePointRadius  = data.map((_, i) => (changeIndices.has(i) ? 4 : 0));
 
     return {
       labels,
       datasets: [
         {
           label: 'Share Price',
-          data: data.map((pt) => pt.share_price),
-          borderColor: '#3b82f6',
-          backgroundColor: 'rgba(59,130,246,0.08)',
+          data: data.map(pt => pt.share_price),
+          borderColor: '#60a5fa',
+          backgroundColor: 'transparent',
           yAxisID: 'y',
           borderWidth: 2,
+          borderDash: [],
           fill: false,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 4,
+          tension: 0.35,
+          pointRadius: pricePointRadius,
+          pointBackgroundColor: '#60a5fa',
+          pointBorderColor: isDark ? '#1e293b' : '#ffffff',
+          pointBorderWidth: 2,
+          pointHoverRadius: 6,
+          pointHoverBackgroundColor: '#60a5fa',
         },
         {
-          label: 'Shares Held (M)',
-          data: data.map((pt) => pt.shares_held / 1_000_000),
+          label: 'Shares Held',
+          data: data.map(pt => pt.shares_held),
           borderColor: '#10b981',
-          backgroundColor: 'rgba(16,185,129,0.08)',
+          backgroundColor: isDark
+            ? 'rgba(16,185,129,0.06)'
+            : 'rgba(16,185,129,0.08)',
           yAxisID: 'y1',
-          borderWidth: 2,
-          fill: false,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 4,
+          borderWidth: 2.5,
+          fill: 'origin',
+          tension: 0.35,          // smooth curve — no stepped/cliff look
+          pointRadius: sharesPointRadius,
+          pointBackgroundColor: '#10b981',
+          pointBorderColor: isDark ? '#1e293b' : '#ffffff',
+          pointBorderWidth: 2,
+          pointHoverRadius: 7,
+          pointHoverBackgroundColor: '#10b981',
         },
       ],
     };
-  }, [data]);
+  }, [data, isDark]);
 
-  const chartOptions = useMemo(
-    () => ({
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index' as const, intersect: false },
-      plugins: {
-        legend: {
-          display: true,
-          position: 'top' as const,
-          labels: {
-            usePointStyle: true,
-            padding: 15,
-            font: { size: 12, weight: 'bold' as const },
-            color: isDark ? '#e5e5e5' : '#171717',
-          },
+  /* ─── chart options ─── */
+  const chartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 500, easing: 'easeInOutQuart' as const },
+    interaction: { mode: 'index' as const, intersect: false },
+    plugins: {
+      legend: {
+        display: true,
+        position: 'top' as const,
+        labels: {
+          usePointStyle: true,
+          pointStyleWidth: 14,
+          padding: 20,
+          font: { size: 12, weight: 'bold' as const },
+          color: isDark ? '#d4d4d4' : '#262626',
         },
-        tooltip: {
-          enabled: true,
-          backgroundColor: isDark ? 'rgba(0,0,0,0.85)' : 'rgba(23,23,23,0.92)',
-          padding: 12,
-          titleFont: { size: 12, weight: 'bold' as const },
-          bodyFont: { size: 11 },
-          callbacks: {
-            label(ctx: any) {
-              const lbl = ctx.dataset.label || '';
-              return ctx.datasetIndex === 0
-                ? `${lbl}: $${ctx.parsed.y.toFixed(3)}`
-                : `${lbl}: ${ctx.parsed.y.toFixed(2)}M`;
-            },
+      },
+      tooltip: {
+        enabled: true,
+        backgroundColor: isDark ? 'rgba(15,23,42,0.95)' : 'rgba(15,23,42,0.92)',
+        titleColor: '#f5f5f5',
+        bodyColor: '#d4d4d4',
+        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+        borderWidth: 1,
+        cornerRadius: 8,
+        padding: 14,
+        titleFont: { size: 12, weight: 'bold' as const },
+        bodyFont: { size: 12 },
+        callbacks: {
+          label(ctx: any) {
+            const lbl = ctx.dataset.label || '';
+            if (ctx.datasetIndex === 0) {
+              return `  ${lbl}: ₱${Number(ctx.parsed.y).toFixed(2)}`;
+            }
+            return `  ${lbl}: ${Number(ctx.parsed.y).toLocaleString()} shares`;
           },
         },
       },
-      scales: {
-        x: {
-          grid: { color: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0,0,0,0.08)', drawBorder: false },
-          ticks: { font: { size: 11 }, color: isDark ? '#9ca3af' : '#525252' },
+    },
+    scales: {
+      x: {
+        grid: {
+          color: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+          drawBorder: false,
         },
-        y: {
-          type: 'linear' as const,
-          display: true,
-          position: 'left' as const,
-          title: { display: true, text: 'Share Price ($)', color: '#60a5fa', font: { size: 12, weight: 'bold' as const } },
-          grid: { color: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0,0,0,0.08)', drawBorder: false },
-          ticks: { font: { size: 11 }, color: '#60a5fa', callback: (v: any) => '$' + v.toFixed(2) },
-        },
-        y1: {
-          type: 'linear' as const,
-          display: true,
-          position: 'right' as const,
-          title: { display: true, text: 'Shares Held (M)', color: '#34d399', font: { size: 12, weight: 'bold' as const } },
-          grid: { drawOnChartArea: false },
-          ticks: { font: { size: 11 }, color: '#34d399', callback: (v: any) => v.toFixed(2) + 'M' },
+        ticks: {
+          font: { size: 11 },
+          color: isDark ? '#737373' : '#737373',
+          maxRotation: 30,
+          maxTicksLimit: 8,
+          padding: 8,
         },
       },
-    }),
-    [isDark],
-  );
+      y: {
+        type: 'linear' as const,
+        display: true,
+        position: 'left' as const,
+        title: {
+          display: true,
+          text: 'Share Price (₱)',
+          color: '#60a5fa',
+          font: { size: 11, weight: 'bold' as const },
+          padding: { bottom: 8 },
+        },
+        grid: {
+          color: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+          drawBorder: false,
+        },
+        ticks: {
+          font: { size: 11 },
+          color: '#60a5fa',
+          padding: 8,
+          callback: (v: any) => '₱' + Number(v).toFixed(2),
+        },
+      },
+      y1: {
+        type: 'linear' as const,
+        display: true,
+        position: 'right' as const,
+        title: {
+          display: true,
+          text: 'Shares Held',
+          color: '#34d399',
+          font: { size: 11, weight: 'bold' as const },
+          padding: { bottom: 8 },
+        },
+        grid: { drawOnChartArea: false, drawBorder: false },
+        ticks: {
+          font: { size: 11 },
+          color: '#34d399',
+          padding: 8,
+          callback: (v: any) => fmtShares(Number(v)),
+        },
+        // Give a little headroom above/below the actual min/max
+        grace: '5%',
+      },
+    },
+  }), [isDark]);
 
-  const timeframes: Timeframe[] = ['1d', '1w', '1M', '3M', '6M', 'YTD', 'ALL'];
+  const timeframes: Timeframe[] = ['1w', '1M', '3M', '6M', 'YTD', 'ALL'];
 
-  /* ---------- percentage helpers ---------- */
   const calcChange = (cur: number, prev: number) => {
-    if (!prev || prev === 0) return { value: 0, percent: 0 };
-    const change = cur - prev;
-    return { value: change, percent: (change / prev) * 100 };
+    if (!prev) return { value: 0, percent: 0 };
+    const diff = cur - prev;
+    return { value: diff, percent: (diff / prev) * 100 };
   };
 
-  const spChange = previousValues ? calcChange(currentValues?.sharePrice || 0, previousValues.sharePrice) : { value: 0, percent: 0 };
-  const shChange = previousValues ? calcChange(currentValues?.sharesHeld || 0, previousValues.sharesHeld) : { value: 0, percent: 0 };
+  const shChange = previousValues
+    ? calcChange(currentValues?.sharesHeld ?? 0, previousValues.sharesHeld)
+    : { value: 0, percent: 0 };
+  const spChange = previousValues
+    ? calcChange(currentValues?.sharePrice ?? 0, previousValues.sharePrice)
+    : { value: 0, percent: 0 };
 
   const fmtChange = (c: { value: number; percent: number }, isPrice = false) => {
-    const sign = c.percent >= 0 ? '+' : '';
-    const val = isPrice ? `$${Math.abs(c.value).toFixed(3)}` : Math.abs(c.value).toFixed(3);
-    return `${val} (${sign}${c.percent.toFixed(2)}%)`;
+    const sign = c.value >= 0 ? '+' : '';
+    if (isPrice) {
+      return `${sign}₱${Math.abs(c.value).toFixed(2)} (${c.percent >= 0 ? '+' : ''}${c.percent.toFixed(2)}%)`;
+    }
+    return `${sign}${c.value.toLocaleString()} (${c.percent >= 0 ? '+' : ''}${c.percent.toFixed(2)}%)`;
   };
 
-  /* ---------- render ---------- */
+  /* ─── render ─── */
   return (
     <div className="w-full">
-      {/* Timeframe buttons */}
-      <div className="flex gap-2 mb-4">
+
+      {/* Timeframe selector */}
+      <div className="flex items-center gap-1.5 mb-5 flex-wrap">
         {timeframes.map((tf) => (
           <button
             key={tf}
             onClick={() => setTimeframe(tf)}
-            className={`px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all rounded ${
+            className={`px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${
               timeframe === tf
-                ? 'bg-neutral-900 text-white border-2 border-neutral-900 dark:bg-black dark:border-black'
-                : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200 border-2 border-transparent dark:bg-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-600'
+                ? 'bg-neutral-800 text-white dark:bg-neutral-100 dark:text-neutral-900'
+                : 'text-neutral-500 hover:text-neutral-800 hover:bg-neutral-100 dark:hover:text-neutral-200 dark:hover:bg-neutral-700'
             }`}
           >
             {tf}
@@ -226,45 +328,66 @@ const HoldingsChart: React.FC<HoldingsChartProps> = ({ companyId, currentSharesH
         ))}
       </div>
 
-      {/* Current values */}
+      {/* Stats header */}
       {currentValues && (
-        <div className="flex gap-8 mb-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Share Price:</span>
-            <span className="text-lg font-black" style={{ color: '#3b82f6' }}>
-              ${currentValues.sharePrice.toFixed(3)}
-            </span>
-            {previousValues && (
-              <span className="text-sm font-bold" style={{ color: spChange.percent >= 0 ? '#10b981' : '#ef4444' }}>
-                {fmtChange(spChange, true)}
+        <div className="flex flex-wrap gap-6 mb-5 pb-4 border-b border-neutral-100 dark:border-neutral-700">
+          {/* Share Price */}
+          <div>
+            <p className="text-[10px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-0.5">
+              Share Price
+            </p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-black text-blue-500">
+                ₱{currentValues.sharePrice.toFixed(2)}
               </span>
-            )}
+              {previousValues && previousValues.sharePrice !== currentValues.sharePrice && (
+                <span
+                  className="text-xs font-bold"
+                  style={{ color: spChange.percent >= 0 ? '#10b981' : '#ef4444' }}
+                >
+                  {spChange.percent >= 0 ? '▲' : '▼'} {fmtChange(spChange, true)}
+                </span>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Holdings:</span>
-            <span className="text-lg font-black" style={{ color: '#10b981' }}>
-              {currentValues.sharesHeld.toFixed(2)}M
-            </span>
-            {previousValues && (
-              <span className="text-sm font-bold" style={{ color: shChange.percent >= 0 ? '#10b981' : '#ef4444' }}>
-                {fmtChange(shChange)}
+
+          {/* Shares Held */}
+          <div>
+            <p className="text-[10px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-0.5">
+              Holdings
+            </p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-black text-emerald-500">
+                {currentValues.sharesHeld.toLocaleString()}
               </span>
-            )}
+              {previousValues && previousValues.sharesHeld !== currentValues.sharesHeld && (
+                <span
+                  className="text-xs font-bold"
+                  style={{ color: shChange.percent >= 0 ? '#10b981' : '#ef4444' }}
+                >
+                  {shChange.percent >= 0 ? '▲' : '▼'} {fmtChange(shChange)}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Chart */}
-      <div className="relative w-full" style={{ height: '400px' }}>
+      {/* Line chart */}
+      <div className="relative w-full" style={{ height: '360px' }}>
         {loading ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-neutral-800/80">
-            <div className="text-sm font-bold text-neutral-600 dark:text-neutral-300">Loading chart data...</div>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-sm font-semibold text-neutral-500 dark:text-neutral-400">
+              Loading chart…
+            </div>
           </div>
         ) : chartData ? (
           <Line data={chartData} options={chartOptions} />
         ) : (
           <div className="flex items-center justify-center h-full">
-            <div className="text-sm font-bold text-neutral-600 dark:text-neutral-300">No data available</div>
+            <div className="text-sm font-semibold text-neutral-500 dark:text-neutral-400">
+              No data available
+            </div>
           </div>
         )}
       </div>

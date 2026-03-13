@@ -5,7 +5,7 @@ import { applicantService } from '../lib/firestore-service';
 import { submitShareholdingInfo } from '../lib/shareholdingsVerification';
 import { Applicant, RegistrationStatus } from '../lib/types';
 import { getWorkflowStatusInternal } from '../lib/shareholdingsVerification';
-import { addHoldingsUpdateTimestamp } from '../lib/holdings-update-logger';
+import { addHoldingsUpdateSnapshot } from '../lib/holdings-update-logger';
 
 interface HoldingsResubmissionFormProps {
   applicant: Applicant;
@@ -138,8 +138,13 @@ const HoldingsResubmissionForm: React.FC<HoldingsResubmissionFormProps> = ({
           companyName: companyName,
           registrationDate: new Date().toISOString(),
         },
-        // Add timestamp to holdings update history
-        holdingsUpdateHistory: addHoldingsUpdateTimestamp(applicant.holdingsUpdateHistory),
+        // Add snapshot to holdings update history
+        holdingsUpdateHistory: addHoldingsUpdateSnapshot(
+          applicant.holdingsUpdateHistory,
+          applicant.holdingsRecord?.sharesHeld || 0,
+          Number(formData.holdings),
+          'INVESTOR'
+        ),
       };
 
       // Save to Firestore

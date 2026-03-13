@@ -136,14 +136,6 @@ const ReviewRowFields: React.FC<{
       <input type="text" inputMode="numeric" value={form.holdings} onChange={(e) => onFieldChange(form.id, 'holdings', e.target.value)} className="w-full px-3 py-2 border rounded bg-white dark:bg-neutral-900" />
     </div>
     <div>
-      <label className="block text-xs font-bold text-neutral-600 dark:text-neutral-400 mb-1">Stake %</label>
-      <input type="text" inputMode="numeric" value={form.stake} onChange={(e) => onFieldChange(form.id, 'stake', e.target.value)} className="w-full px-3 py-2 border rounded bg-white dark:bg-neutral-900" />
-    </div>
-    <div>
-      <label className="block text-xs font-bold text-neutral-600 dark:text-neutral-400 mb-1">Ownership %</label>
-      <input type="text" value={form.ownershipPercent} onChange={(e) => onFieldChange(form.id, 'ownershipPercent', e.target.value)} className="w-full px-3 py-2 border rounded bg-white dark:bg-neutral-900" />
-    </div>
-    <div>
       <label className="block text-xs font-bold text-neutral-600 dark:text-neutral-400 mb-1">Account Type</label>
       <select value={form.accountType} onChange={(e) => onFieldChange(form.id, 'accountType', e.target.value)} className="w-full px-3 py-2 border rounded bg-white dark:bg-neutral-900">
         <option value="">Select</option>
@@ -1172,10 +1164,18 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
     });
   };
 
-  // Handle generating invitation message (manual trigger from button)
+  // Handle generating invitation message - only generates when user clicks the button
   const handleGenerateMessage = async () => {
-    // Prevent if already generating
-    if (isGeneratingRef.current) return;
+    // Prevent multiple simultaneous generations
+    if (isGeneratingRef.current || !messageStyle) {
+      return;
+    }
+
+    // Check if we're on the correct step
+    if (currentStep !== 'SEND_INVITATION') {
+      triggerToast('Please navigate to the Send Invitation step first.', 'warning');
+      return;
+    }
     
     isGeneratingRef.current = true;
     setIsGeneratingMessage(true);
@@ -1201,6 +1201,8 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
         setGeneratedMessage(data.body);
         if (data.warning) {
           triggerToast(data.warning, 'warning');
+        } else {
+          triggerToast('Message generated successfully!', 'success');
         }
       } else {
         triggerToast(`Failed to generate message: ${data?.error || response.status || 'Unknown error'}`, 'error');
@@ -1220,62 +1222,6 @@ const AddInvestorModal: React.FC<AddInvestorModalProps> = ({ isOpen, onClose, on
       lastGeneratedStyleRef.current = null;
     }
   }, [currentStep]);
-
-  // Auto-generate message when style changes (only if we're on SEND_INVITATION step)
-  useEffect(() => {
-    // Only generate if:
-    // 1. We're on the SEND_INVITATION step
-    // 2. messageStyle is set
-    // 3. Not currently generating
-    // 4. The style has actually changed from the last generated style
-    if (
-      currentStep === 'SEND_INVITATION' && 
-      messageStyle && 
-      !isGeneratingRef.current &&
-      lastGeneratedStyleRef.current !== messageStyle
-    ) {
-      // Small delay to avoid rapid regeneration when user is still selecting
-      const timeoutId = setTimeout(async () => {
-        // Check again to prevent race conditions
-        if (isGeneratingRef.current) return;
-        
-        isGeneratingRef.current = true;
-        setIsGeneratingMessage(true);
-        lastGeneratedStyleRef.current = messageStyle;
-        
-        try {
-          const response = await fetch('/api/generate-invitation-message', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              messageStyle,
-            }),
-          });
-
-          const rawText = await response.text();
-          const data = rawText ? (() => { try { return JSON.parse(rawText); } catch { return null; } })() : null;
-
-          if (response.ok && data?.subject && data?.body) {
-            setGeneratedSubject(data.subject);
-            setGeneratedMessage(data.body);
-            if (data.warning) {
-              triggerToast(data.warning, 'warning');
-            }
-          } else {
-            triggerToast(`Failed to generate message: ${data?.error || response.status || 'Unknown error'}`, 'error');
-          }
-        } catch (error: any) {
-          triggerToast(`Error: ${error.message || 'Failed to generate message'}`, 'error');
-        } finally {
-          isGeneratingRef.current = false;
-          setIsGeneratingMessage(false);
-        }
-      }, 300);
-      return () => clearTimeout(timeoutId);
-    }
-  }, [messageStyle, currentStep]); // Removed isGeneratingMessage from dependencies
 
   // Helper function to trigger toast notification
   const triggerToast = (message: string, variant: 'success' | 'warning' | 'error' | 'info' = 'success') => {

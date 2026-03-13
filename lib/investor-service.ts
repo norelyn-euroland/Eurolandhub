@@ -7,7 +7,7 @@ import { ExtractedInvestor } from './investor-extractor.js';
 import { Shareholder, Applicant, RegistrationStatus, WorkflowStage, AccountStatus, SystemStatus } from './types.js';
 import { shareholderService } from './firestore-service.js';
 import { applicantService } from './firestore-service.js';
-import { addHoldingsUpdateTimestamp } from './holdings-update-logger.js';
+import { addHoldingsUpdateTimestamp, addHoldingsUpdateSnapshot } from './holdings-update-logger.js';
 
 export interface SaveInvestorResult {
   shareholderId: string;
@@ -201,26 +201,39 @@ export async function saveInvestor(investor: ExtractedInvestor): Promise<SaveInv
           };
           
           // If this is an update (existing shareholder), update holdingsRecord and log timestamp
-          if (isUpdate) {
+          // Also update holdingsRecord for pre-verified accounts even if it's a new shareholder entry
+          const isPreVerifiedAccount = applicant.isPreVerified === true || existingApplicant.isPreVerified === true;
+          if (isUpdate || isPreVerifiedAccount) {
             // Calculate ownership percentage from holdings and stake
             const totalSharesOutstanding = 25_381_100; // Fixed value from issuer
             const holdings = parseNumeric(investor.holdings || '0');
             const ownershipPercent = holdings > 0 ? (holdings / totalSharesOutstanding) * 100 : 0;
             
-            // Update holdingsRecord to match shareholder data
+            // Update or create holdingsRecord to match shareholder data
             applicantUpdate.holdingsRecord = {
               companyId: shareholder.id,
               companyName: shareholder.name,
               sharesHeld: holdings,
               ownershipPercentage: ownershipPercent,
               sharesClass: shareholder.accountType || 'Ordinary',
-              registrationDate: existingApplicant.holdingsRecord?.registrationDate || new Date().toISOString(),
+              registrationDate: existingApplicant.holdingsRecord?.registrationDate || existingApplicant.submissionDate || new Date().toISOString(),
             };
             
-            // Log timestamp to holdings update history
-            applicantUpdate.holdingsUpdateHistory = addHoldingsUpdateTimestamp(
-              existingApplicant.holdingsUpdateHistory
-            );
+            // Log snapshot to holdings update history (only if this is an actual update, not initial creation)
+            if (isUpdate && existingApplicant.holdingsRecord) {
+              const previousSharesHeld = existingApplicant.holdingsRecord.sharesHeld || 0;
+              const newSharesHeld = holdings;
+              
+              // Only log if shares actually changed
+              if (previousSharesHeld !== newSharesHeld) {
+                applicantUpdate.holdingsUpdateHistory = addHoldingsUpdateSnapshot(
+                  existingApplicant.holdingsUpdateHistory,
+                  previousSharesHeld,
+                  newSharesHeld,
+                  'IRO'
+                );
+              }
+            }
           }
           
           await applicantService.update(existingApplicant.id, applicantUpdate);
@@ -238,6 +251,22 @@ export async function saveInvestor(investor: ExtractedInvestor): Promise<SaveInv
           }
         } else {
           // Create new applicant
+          // For pre-verified accounts, set holdingsRecord from shareholder data if available
+          const holdings = parseNumeric(investor.holdings || '0');
+          if (holdings > 0) {
+            const totalSharesOutstanding = 25_381_100; // Fixed value from issuer
+            const ownershipPercent = (holdings / totalSharesOutstanding) * 100;
+            
+            applicant.holdingsRecord = {
+              companyId: shareholder.id,
+              companyName: shareholder.name,
+              sharesHeld: holdings,
+              ownershipPercentage: ownershipPercent,
+              sharesClass: shareholder.accountType || 'Ordinary',
+              registrationDate: new Date().toISOString(),
+            };
+          }
+          
           await applicantService.create(applicant);
           result.applicantId = applicant.id;
           
@@ -298,6 +327,7 @@ export async function saveInvestors(
  * Update existing investor with only editable fields
  * Only updates: Holdings, Stake %
  * Note: Ownership % is calculated from holdings/stake, so we update holdings and stake
+ * Also automatically updates applicant's holdingsRecord if an applicant exists
  * 
  * @param holdingId - The holding ID of the investor to update
  * @param updates - Partial shareholder data with only editable fields
@@ -339,6 +369,61 @@ export async function updateExistingInvestor(
 
     // Update shareholder with only the editable fields
     await shareholderService.update(holdingId, updateData);
+
+    // Also update applicant's holdingsRecord if an applicant exists for this shareholder
+    // Find applicant by registrationId (holdingId) or by matching shareholder data
+    try {
+      const allApplicants = await applicantService.getAll();
+      const matchingApplicant = allApplicants.find(a => 
+        a.registrationId === holdingId || 
+        (a.email && existingShareholder.name && a.fullName === existingShareholder.name)
+      );
+
+      if (matchingApplicant) {
+        // Calculate ownership percentage from updated holdings
+        const totalSharesOutstanding = 25_381_100; // Fixed value from issuer
+        const updatedHoldings = updateData.holdings !== undefined 
+          ? updateData.holdings 
+          : existingShareholder.holdings;
+        const ownershipPercent = updatedHoldings > 0 
+          ? (updatedHoldings / totalSharesOutstanding) * 100 
+          : (updateData.stake !== undefined ? updateData.stake : existingShareholder.stake || 0);
+
+        // Update applicant's holdingsRecord to match updated shareholder data
+        const applicantUpdate: Partial<Applicant> = {
+          holdingsRecord: {
+            companyId: holdingId,
+            companyName: existingShareholder.name,
+            sharesHeld: updatedHoldings,
+            ownershipPercentage: ownershipPercent,
+            sharesClass: existingShareholder.accountType || matchingApplicant.holdingsRecord?.sharesClass || 'Ordinary',
+            registrationDate: matchingApplicant.holdingsRecord?.registrationDate || matchingApplicant.submissionDate || new Date().toISOString(),
+          },
+        };
+
+        // Log snapshot to holdings update history if holdings actually changed
+        if (updateData.holdings !== undefined && matchingApplicant.holdingsRecord) {
+          const previousSharesHeld = matchingApplicant.holdingsRecord.sharesHeld || 0;
+          const newSharesHeld = updatedHoldings;
+          
+          // Only log if shares actually changed
+          if (previousSharesHeld !== newSharesHeld) {
+            applicantUpdate.holdingsUpdateHistory = addHoldingsUpdateSnapshot(
+              matchingApplicant.holdingsUpdateHistory,
+              previousSharesHeld,
+              newSharesHeld,
+              'IRO'
+            );
+          }
+        }
+
+        await applicantService.update(matchingApplicant.id, applicantUpdate);
+        console.log(`Updated applicant holdingsRecord for ${matchingApplicant.id} to match shareholder ${holdingId}`);
+      }
+    } catch (applicantUpdateError) {
+      // Log error but don't fail the shareholder update
+      console.warn('Error updating applicant holdingsRecord after shareholder update:', applicantUpdateError);
+    }
   } catch (error: any) {
     console.error('Error updating existing investor:', error);
     throw new Error(`Failed to update investor ${holdingId}: ${error.message}`);

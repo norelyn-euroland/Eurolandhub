@@ -200,6 +200,9 @@ export interface HoldingsRecord {
 
 export interface HoldingsUpdateHistoryEntry {
   updatedAt: string; // ISO timestamp
+  sharesHeldBefore?: number; // Shares held before update (snapshot)
+  sharesHeldAfter?: number; // Shares held after update (snapshot)
+  updatedBy?: 'IRO' | 'INVESTOR'; // Who made the update
 }
 
 export interface HoldingsSummary {

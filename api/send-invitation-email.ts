@@ -1142,13 +1142,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           // Get current email sent count or default to 0
           const currentEmailSentCount = existingApplicant.emailSentCount || 0;
           
-          await applicantService.update(existingApplicant.id, {
+          // Preserve isPreVerified flag - all IRO-uploaded investors are pre-verified
+          const updateData: any = {
             emailSentAt: new Date().toISOString(),
             emailSentCount: currentEmailSentCount + 1, // Increment send count
             workflowStage: 'SENT_EMAIL',
             systemStatus: 'ACTIVE',
             accountStatus: 'PENDING', // Account status remains PENDING until claimed
-          });
+          };
+          
+          // All IRO-uploaded investors (those with registrationId) are pre-verified
+          // Set isPreVerified to true if applicant has registrationId (indicates IRO-created)
+          if (existingApplicant.registrationId) {
+            updateData.isPreVerified = true;
+          } else if (existingApplicant.isPreVerified === true) {
+            // Preserve existing flag if already set
+            updateData.isPreVerified = true;
+          }
+          
+          await applicantService.update(existingApplicant.id, updateData);
+          
+          // Sync to official shareholders collection after update
+          try {
+            const updatedApplicant = await applicantService.getById(existingApplicant.id);
+            if (updatedApplicant) {
+              const { syncOfficialShareholderOnStatusChange } = await import('../lib/official-shareholder-sync.js');
+              await syncOfficialShareholderOnStatusChange(updatedApplicant);
+            }
+          } catch (syncError) {
+            console.error('Error syncing official shareholder after email send:', syncError);
+            // Don't fail the request if sync fails
+          }
+          
           console.log('Updated email sent timestamp and status in Firebase for applicant:', existingApplicant.id);
         }
       } catch (firebaseError: any) {
